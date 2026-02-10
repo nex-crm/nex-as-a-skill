@@ -240,19 +240,37 @@ curl -N -s "https://app.nex.ai/api/developers/v1/insights/stream" \
 - For one-off queries, use the Ask API instead
 - If you only need historical data, Ask API is more efficient
 
-### Recent Insights (REST Fallback)
+### Get Insights (REST)
 
-Use this when you can't maintain a persistent SSE connection but need recent insights.
+Query insights by time window. Supports two modes:
 
-**Endpoint**: `GET https://app.nex.ai/api/developers/v1/insights/recent`
+**Endpoint**: `GET https://app.nex.ai/api/developers/v1/insights`
 
 **Query Parameters**:
-- `limit` (optional): Number of insights to return (default: 20, max: 100)
+- `last` — Duration window, e.g., `30m`, `2h`, `1h30m` (insights from the last N minutes/hours)
+- `from` + `to` — UTC time range in RFC3339 format (e.g., `2026-02-07T00:00:00Z`)
+- `limit` (optional): Max results (default: 20, max: 100)
 
-**How to call**:
-```bash
-curl -s "https://app.nex.ai/api/developers/v1/insights/recent?limit=10" \
-  -H "Authorization: Bearer $NEX_API_KEY"
+If neither `last` nor `from`/`to` is specified, returns the most recent insights (default 20).
+
+**Examples**:
+
+Last 30 minutes:
+```json
+{
+  "tool": "exec",
+  "command": "curl -s 'https://app.nex.ai/api/developers/v1/insights?last=30m' -H 'Authorization: Bearer $NEX_API_KEY'",
+  "timeout": 120
+}
+```
+
+Between two dates:
+```json
+{
+  "tool": "exec",
+  "command": "curl -s 'https://app.nex.ai/api/developers/v1/insights?from=2026-02-07T00:00:00Z&to=2026-02-08T00:00:00Z' -H 'Authorization: Bearer $NEX_API_KEY'",
+  "timeout": 120
+}
 ```
 
 **Response**: Same enriched payload structure as SSE events (see above).
@@ -261,6 +279,7 @@ curl -s "https://app.nex.ai/api/developers/v1/insights/recent?limit=10" \
 - When polling periodically instead of maintaining SSE connection
 - To get current insight state on startup
 - As fallback when SSE connection drops
+- To review insights from a specific time period
 
 ## Error Handling
 
