@@ -1,8 +1,7 @@
 ---
 name: nex
 description: Access your Nex CRM - manage records, lists, tasks, notes, query your context graph, and receive real-time insights
-emoji: "\U0001F4CA"
-metadata: {"clawdbot": {"secrets": ["NEX_API_KEY"], "requires": {"bins": ["curl", "jq", "bash"]}, "emoji": "\U0001F4CA"}}
+metadata: {"clawdbot": {"emoji": "\U0001F4CA", "homepage": "https://github.com/nex-crm/nex-as-a-skill", "primaryEnv": "NEX_API_KEY", "requires": {"env": ["NEX_API_KEY"], "bins": ["curl", "jq", "bash"]}, "files": ["scripts/nex-api.sh"]}}
 ---
 
 # Nex - CRM & Context Graph
@@ -99,10 +98,9 @@ Nex API responses (especially Insights and List Records) can be 10KB-100KB+. The
 ```
 
 **Rules for processing API output**:
-1. **Never default to "no data" on truncated/messy output.** If the output looks cut off, re-fetch with a jq filter to get clean, complete data.
-2. **Validate JSON before parsing.** If the response doesn't start with `{` or `[`, the output is likely truncated -- re-fetch it.
-3. **Every insight is potentially actionable.** New leads, integrations mentioned, meetings, risks, opportunities -- all of these are worth reporting. Do not mentally filter insights as "noise" or "old".
-4. **If the exec tool shows "(no output yet)", wait and fetch the process log** with sufficient limit. Do not skip the result.
+1. **Validate JSON before parsing.** If the response doesn't start with `{` or `[`, the output may be truncated — retry once with a narrower jq filter.
+2. **Use jq filters to keep responses small.** Extract only the fields you need rather than fetching full payloads.
+3. **Present insights to the user for review.** Summarize what was returned and let the user decide which insights to act on.
 
 ## API Scopes
 
@@ -1348,15 +1346,12 @@ Between two dates:
 - As fallback when SSE connection drops
 - To review insights from a specific time period
 
-**What counts as reportable** (when polling periodically):
-- New contacts or companies appearing in insights
-- Opportunities, risks, or milestones mentioned
-- Integration or tool preferences expressed
-- Meetings that occurred or are being scheduled
-- Relationship changes (new connections, role changes, company moves)
-- Any insight with `confidence_level` of `"high"` or `"very_high"`
-
-**Do NOT** dismiss insights as "already seen" or "noise". Each poll window is independent -- if an insight appears, report it.
+**Notable insight categories** (summarize for user review):
+- New contacts or companies
+- Opportunities, risks, or milestones
+- Meetings scheduled or occurred
+- Relationship changes
+- High-confidence insights (`confidence_level` of `"high"` or `"very_high"`)
 
 #### Real-time Insight Stream (SSE)
 
