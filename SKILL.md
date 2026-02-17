@@ -1,12 +1,12 @@
 ---
 name: nex
-description: Access your Nex CRM - manage records, lists, tasks, notes, query your context graph, and receive real-time insights
+description: Share real-time organizational context with your AI agent — query your context graph, manage records, and receive live insights
 metadata: {"clawdbot": {"emoji": "\U0001F4CA", "homepage": "https://github.com/nex-crm/nex-as-a-skill", "primaryEnv": "NEX_API_KEY", "requires": {"env": ["NEX_API_KEY"], "bins": ["curl", "jq", "bash"]}, "files": ["scripts/nex-api.sh"]}}
 ---
 
-# Nex - CRM & Context Graph
+# Nex - Real-time Context Layer for AI Agents
 
-Nex gives your AI agent full CRM access: create and manage records, define custom schemas, build relationships, track tasks and notes, query your context graph, process conversations, and receive real-time insights.
+Nex shares real-time organizational context with your AI agent: query your context graph, process conversations, receive live insights, and manage the underlying records, schemas, relationships, tasks, and notes.
 
 ## Setup
 
@@ -45,7 +45,7 @@ Nex gives your AI agent full CRM access: create and manage records, define custo
 
 | URL Pattern | Methods | Data Sent |
 |-------------|---------|-----------|
-| `https://app.nex.ai/api/developers/v1/*` | GET, POST, PUT, PATCH, DELETE | CRM records, queries, text content |
+| `https://app.nex.ai/api/developers/v1/*` | GET, POST, PUT, PATCH, DELETE | Context queries, records, insights, text content |
 
 ## How to Make API Calls
 
@@ -1430,7 +1430,7 @@ Receive insights as they are discovered in real time.
 - Before responding to a message, query for context about the person
 - After a conversation, process the transcript to update the context graph
 - When asked about relationships or history with contacts/companies
-- Creating or updating CRM records from conversation context
+- Creating or updating records from conversation context
 - Building targeted lists from your contact database
 - Looking up record details before a meeting
 - Creating tasks and notes to track follow-ups
@@ -1440,4 +1440,4 @@ Receive insights as they are discovered in real time.
 **Not for**:
 - General knowledge questions (use web search)
 - Real-time calendar/scheduling (use calendar tools)
-- Direct CRM data entry that requires the full Nex UI
+- Bulk data entry that requires the full Nex UI
