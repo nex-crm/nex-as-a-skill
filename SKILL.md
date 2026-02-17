@@ -4,7 +4,7 @@ description: Share real-time organizational context with your AI agent — query
 metadata: {"clawdbot": {"emoji": "\U0001F4CA", "homepage": "https://github.com/nex-crm/nex-as-a-skill", "primaryEnv": "NEX_API_KEY", "requires": {"env": ["NEX_API_KEY"], "bins": ["curl", "jq", "bash"]}, "files": ["scripts/nex-api.sh"]}}
 ---
 
-# Nex - Real-time Context Layer for AI Agents
+# Nex - Real-time Organizational Context for AI Agents
 
 Nex shares real-time organizational context with your AI agent: query your context graph, process conversations, receive live insights, and manage the underlying records, schemas, relationships, tasks, and notes.
 
