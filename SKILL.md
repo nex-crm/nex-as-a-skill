@@ -1221,7 +1221,7 @@ Check the processing status and results after calling ProcessText.
 Use natural language to search your context graph and generate a curated list of contacts or companies. **Use this when you know the object type** (contact or company) and want AI to filter and rank matches. If you're unsure which object type applies or the question is open-ended, use the **Ask API** instead.
 
 **Endpoint**: `POST /v1/context/list/jobs`
-**Scope**: `record.read`
+**Scope**: `list.member.write`
 
 **Request body**:
 - `query` (required) -- Natural language search query
@@ -1252,7 +1252,7 @@ Use natural language to search your context graph and generate a curated list of
 Check status and results of an AI list generation job. Poll until `status` is `completed` or `failed`.
 
 **Endpoint**: `GET /v1/context/list/jobs/{job_id}`
-**Scope**: `record.read`
+**Scope**: `list.member.read`
 
 **Query Parameters**:
 - `include_attributes` (boolean, optional) -- Include full attributes for each entity
