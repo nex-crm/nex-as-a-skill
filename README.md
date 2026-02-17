@@ -4,7 +4,7 @@ Give your OpenClaw agent a Context Graph.
 
 ## What is Nex?
 
-Nex is a CRM that builds a Context Graph from your conversations. This skill allows OpenClaw agents to:
+Nex is a real-time context layer for AI agents. It builds a Context Graph from your conversations and shares organizational context with your agents. This skill allows OpenClaw agents to:
 
 - **Query context** - Ask natural language questions about your contacts and companies
 - **Add context** - Process conversation transcripts to extract entities and insights
