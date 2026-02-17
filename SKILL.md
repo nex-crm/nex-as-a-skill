@@ -66,11 +66,11 @@ All API calls go through the wrapper script at `{baseDir}/scripts/nex-api.sh`:
 }
 ```
 
-**GET with jq filter** (3rd argument):
+**GET with jq post-processing** (pipe output through jq):
 ```json
 {
   "tool": "exec",
-  "command": "bash {baseDir}/scripts/nex-api.sh GET '/v1/insights?last=1h' '[.insights[] | {type, content}]'",
+  "command": "bash {baseDir}/scripts/nex-api.sh GET '/v1/insights?last=1h' | jq '[.insights[] | {type, content}]'",
   "timeout": 120
 }
 ```
@@ -88,18 +88,18 @@ All API calls go through the wrapper script at `{baseDir}/scripts/nex-api.sh`:
 
 Nex API responses (especially Insights and List Records) can be 10KB-100KB+. The exec tool may truncate output. **You MUST handle this properly.**
 
-**Use the wrapper's jq filter (3rd arg)** to extract only what you need:
+**Pipe output through jq** to extract only what you need:
 ```json
 {
   "tool": "exec",
-  "command": "bash {baseDir}/scripts/nex-api.sh GET '/v1/insights?last=1h' '[.insights[] | {type, content, confidence_level, who: .target.hint, evidence: [.evidence[].excerpt]}]'",
+  "command": "bash {baseDir}/scripts/nex-api.sh GET '/v1/insights?last=1h' | jq '[.insights[] | {type, content, confidence_level, who: .target.hint}]'",
   "timeout": 120
 }
 ```
 
 **Rules for processing API output**:
-1. **Validate JSON before parsing.** If the response doesn't start with `{` or `[`, the output may be truncated — retry once with a narrower jq filter.
-2. **Use jq filters to keep responses small.** Extract only the fields you need rather than fetching full payloads.
+1. **Validate JSON before parsing.** If the response doesn't start with `{` or `[`, the output may be truncated — retry with a smaller page size or time window.
+2. **Use jq to keep responses small.** Pipe output through jq to extract only the fields you need.
 3. **Present insights to the user for review.** Summarize what was returned and let the user decide which insights to act on.
 
 ## API Scopes
@@ -1331,11 +1331,11 @@ Between two dates:
 }
 ```
 
-**Recommended: Use jq filter (3rd arg) to extract a summary** (responses can be 10-100KB+):
+**Recommended: Pipe through jq to extract a summary** (responses can be 10-100KB+):
 ```json
 {
   "tool": "exec",
-  "command": "bash {baseDir}/scripts/nex-api.sh GET '/v1/insights?last=1h' '{insight_count: (.insights | length), insights: [.insights[] | {type, content, confidence_level, who: .target.hint, entity_type: .target.entity_type}]}'",
+  "command": "bash {baseDir}/scripts/nex-api.sh GET '/v1/insights?last=1h' | jq '{insight_count: (.insights | length), insights: [.insights[] | {type, content, confidence_level, who: .target.hint, entity_type: .target.entity_type}]}'",
   "timeout": 120
 }
 ```

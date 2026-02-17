@@ -17,10 +17,9 @@ fi
 # --- Parse arguments ---
 METHOD="${1:-}"
 API_PATH="${2:-}"
-JQ_FILTER="${3:-}"
 
 if [[ -z "$METHOD" ]]; then
-  echo "Usage: nex-api.sh <METHOD|sse> <path> [jq-filter]" >&2
+  echo "Usage: nex-api.sh <METHOD|sse> <path>" >&2
   echo "  METHOD: GET, POST, PUT, PATCH, DELETE, or sse" >&2
   exit 2
 fi
@@ -92,12 +91,5 @@ if [[ "$HTTP_CODE" -ge 400 ]] 2>/dev/null; then
   exit 4
 fi
 
-# --- Apply jq filter or output raw ---
-if [[ -n "$JQ_FILTER" ]]; then
-  echo "$BODY" | jq "$JQ_FILTER" || {
-    echo "Error: jq filter failed" >&2
-    exit 5
-  }
-else
-  echo "$BODY"
-fi
+# --- Output response ---
+echo "$BODY"
