@@ -6,7 +6,7 @@
 set -euo pipefail
 
 BASE_URL="https://app.nex.ai/api/developers"
-TIMEOUT="${NEX_API_TIMEOUT:-120}"
+TIMEOUT=120
 
 # --- Validate environment ---
 if [[ -z "${NEX_API_KEY:-}" ]]; then
