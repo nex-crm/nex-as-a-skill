@@ -144,7 +144,7 @@ Nex API responses (especially Insights and List Records) can be 10KB-100KB+. The
 
 ## API Scopes
 
-Each API key has scopes that control access. Request the scopes you need when creating your key at https://app.nex.ai/settings/developer
+Each API key has scopes that control access.
 
 | Scope | Grants Access To |
 |-------|-----------------|
