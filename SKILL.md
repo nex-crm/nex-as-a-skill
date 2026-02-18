@@ -1,7 +1,7 @@
 ---
 name: nex
 description: Share real-time organizational context with your AI agent — query your context graph, manage records, and receive live insights
-metadata: {"clawdbot": {"emoji": "\U0001F4CA", "homepage": "https://github.com/nex-crm/nex-as-a-skill", "primaryEnv": "NEX_API_KEY", "requires": {"env": ["NEX_API_KEY"], "bins": ["curl", "jq", "bash"]}, "files": ["scripts/nex-api.sh"]}}
+metadata: {"clawdbot": {"emoji": "\U0001F4CA", "homepage": "https://github.com/nex-crm/nex-as-a-skill", "primaryEnv": "NEX_API_KEY", "requires": {"env": [], "bins": ["curl", "jq", "bash"]}, "files": ["scripts/nex-api.sh", "scripts/nex-openclaw-register.sh"]}}
 ---
 
 # Nex - Real-time Organizational Context for AI Agents
@@ -10,8 +10,12 @@ Nex shares real-time organizational context with your AI agent: query your conte
 
 ## Setup
 
-1. Get your API key from https://app.nex.ai/settings/developer
-2. Add to `~/.openclaw/openclaw.json`:
+1. Register through OpenClaw:
+   - `bash {baseDir}/scripts/nex-openclaw-register.sh <email> [name] [company_name]`
+   - `email` is required.
+   - `name` is optional.
+   - `company_name` is optional.
+2. Extract the returned `api_key` and add to `~/.openclaw/openclaw.json` as `NEX_API_KEY`:
    ```json
    {
      "skills": {
@@ -26,10 +30,28 @@ Nex shares real-time organizational context with your AI agent: query your conte
      }
    }
    ```
+3. Continue with standard Nex Developer API calls via `scripts/nex-api.sh`.
+
+## OpenClaw Registration Contract
+
+- Script: `{baseDir}/scripts/nex-openclaw-register.sh`
+- Endpoint: `POST /api/v1/openclaw/register`
+- Request fields:
+  - `email` (required)
+  - `name` (optional)
+  - `company_name` (optional)
+- Response fields consumed by the agent:
+  - `api_key`
+  - `workspace_id`
+  - `workspace_slug`
+  - `plan`
+  - issued limits/scopes metadata
+- Re-registration is allowed. API key rotation behavior depends on backend policy.
 
 ## Security & Privacy
 
-- All API calls are routed through a validated wrapper script (`scripts/nex-api.sh`)
+- All Nex Developer API calls are routed through a validated wrapper script (`scripts/nex-api.sh`)
+- OpenClaw registration calls must go through `scripts/nex-openclaw-register.sh`
 - The wrapper validates that all requests go to `https://app.nex.ai/api/developers` only
 - API key is read from `$NEX_API_KEY` environment variable (never from prompts)
 - JSON request bodies are passed via stdin (`printf '%s'` pipe) to avoid shell injection
@@ -45,7 +67,18 @@ Nex shares real-time organizational context with your AI agent: query your conte
 
 | URL Pattern | Methods | Data Sent |
 |-------------|---------|-----------|
+| `POST /api/v1/openclaw/register` | POST | OpenClaw onboarding registration payload (`email`, optional `name`, optional `company_name`) |
 | `https://app.nex.ai/api/developers/v1/*` | GET, POST, PUT, PATCH, DELETE | Context queries, records, insights, text content |
+
+## Tagged-Agent Flow
+
+1. If `NEX_API_KEY` is missing:
+   - Run `bash {baseDir}/scripts/nex-openclaw-register.sh <email> [name] [company_name]`.
+   - Persist returned `api_key` into the Nex skill env config as `NEX_API_KEY`.
+2. If `NEX_API_KEY` is present:
+   - Skip registration and call Nex APIs through `scripts/nex-api.sh`.
+3. For ingestion:
+   - Use existing Developer API endpoints (including context/text) with `Authorization: Bearer <NEX_API_KEY>`.
 
 ## How to Make API Calls
 
