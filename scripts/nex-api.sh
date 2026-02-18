@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Nex API wrapper — safe HTTP client for OpenClaw skills
 # ENV: NEX_API_KEY (required)
-# ENDPOINTS: https://app.nex.ai/api/developers/v1/*
+# ENDPOINTS: http://localhost:3000/api/developers/v1/*
 # WRITES: Depends on method (POST/PUT/PATCH/DELETE modify data)
 set -euo pipefail
 
-BASE_URL="http://localhost:3000/api/v1/developers"
+BASE_URL="http://localhost:3000/api/developers/v1"
 TIMEOUT=120
 
 # --- Validate environment ---
