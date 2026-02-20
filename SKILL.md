@@ -1,36 +1,70 @@
 ---
 name: nex
 description: Share real-time organizational context with your AI agent — query your context graph, manage records, and receive live insights
-metadata: {"clawdbot": {"emoji": "\U0001F4CA", "homepage": "https://github.com/nex-crm/nex-as-a-skill", "primaryEnv": "NEX_API_KEY", "requires": {"env": ["NEX_API_KEY"], "bins": ["curl", "jq", "bash"]}, "files": ["scripts/nex-api.sh"]}}
+metadata: {"clawdbot": {"emoji": "\U0001F4CA", "homepage": "https://github.com/nex-crm/nex-as-a-skill", "primaryEnv": "NEX_API_KEY", "requires": {"env": [], "bins": ["curl", "jq", "bash"]}, "files": ["scripts/nex-api.sh", "scripts/nex-openclaw-register.sh"]}}
 ---
 
 # Nex - Real-time Organizational Context for AI Agents
 
 Nex shares real-time organizational context with your AI agent: query your context graph, process conversations, receive live insights, and manage the underlying records, schemas, relationships, tasks, and notes.
 
-## Setup
+## OpenClaw Bootstrap (Required)
 
-1. Get your API key from https://app.nex.ai/settings/developer
-2. Add to `~/.openclaw/openclaw.json`:
-   ```json
-   {
-     "skills": {
-       "entries": {
-         "nex": {
-           "enabled": true,
-           "env": {
-             "NEX_API_KEY": "sk-your_key_here"
-           }
-         }
-       }
-     }
-   }
-   ```
+Run this flow only when `NEX_API_KEY` is missing.
+
+1. Prompt user for registration fields:
+- Required: `email`
+- Optional: `name`, `company_name`
+- Never infer/autofill from memory, prior chats, profile hints, defaults, or guesses.
+- If `email` is missing, stop and explain registration cannot proceed.
+
+2. Register:
+- Command: `bash {baseDir}/scripts/nex-openclaw-register.sh <email> [name] [company_name]`
+- Endpoint used by script: `POST /api/v1/agents/register`
+- Expected response fields: `api_key`, `workspace_id`, `workspace_slug`, `plan`, issued limits/scopes metadata.
+
+3. Persist returned key before any Nex API call:
+- Upsert `skills.entries.nex.enabled = true`.
+- Upsert `skills.entries.nex.env.NEX_API_KEY = <api_key>` in `~/.openclaw/openclaw.json`.
+- Verify key exists and is non-empty; if verification fails, stop.
+
+```bash
+# Register and capture JSON response.
+REG_JSON="$(bash {baseDir}/scripts/nex-openclaw-register.sh \"$EMAIL\" \"$NAME\" \"$COMPANY_NAME\")"
+
+# Extract api_key and validate it.
+API_KEY="$(printf '%s' "$REG_JSON" | jq -r '.api_key // empty')"
+if [[ -z "$API_KEY" ]]; then
+  echo "Error: registration response missing api_key" >&2
+  exit 1
+fi
+
+# Ensure OpenClaw config exists.
+mkdir -p "$HOME/.openclaw"
+if [[ ! -f "$HOME/.openclaw/openclaw.json" ]]; then
+  printf '%s' '{"skills":{"entries":{}}}' > "$HOME/.openclaw/openclaw.json"
+fi
+
+# Upsert NEX skill key and enable flag.
+TMP_FILE="$(mktemp)"
+jq --arg api_key "$API_KEY" '
+  .skills.entries.nex.enabled = true
+  | .skills.entries.nex.env.NEX_API_KEY = $api_key
+' "$HOME/.openclaw/openclaw.json" > "$TMP_FILE" && mv "$TMP_FILE" "$HOME/.openclaw/openclaw.json"
+
+# Verify write before continuing.
+jq -e '.skills.entries.nex.env.NEX_API_KEY | type == "string" and length > 0' "$HOME/.openclaw/openclaw.json" >/dev/null
+```
+
+4. Continue:
+- Use `scripts/nex-api.sh` with `Authorization: Bearer <NEX_API_KEY>` for Developer API endpoints (including context/text).
+- Re-registration is allowed; key rotation behavior depends on backend policy.
 
 ## Security & Privacy
 
-- All API calls are routed through a validated wrapper script (`scripts/nex-api.sh`)
-- The wrapper validates that all requests go to `https://app.nex.ai/api/developers` only
+- All Nex Developer API calls are routed through a validated wrapper script (`scripts/nex-api.sh`)
+- OpenClaw registration calls must go through `scripts/nex-openclaw-register.sh`
+- The wrapper validates that all requests go to `http://localhost:30000/api/developers` only
 - API key is read from `$NEX_API_KEY` environment variable (never from prompts)
 - JSON request bodies are passed via stdin (`printf '%s'` pipe) to avoid shell injection
 - The wrapper uses `set -euo pipefail` for safe shell execution
@@ -45,7 +79,8 @@ Nex shares real-time organizational context with your AI agent: query your conte
 
 | URL Pattern | Methods | Data Sent |
 |-------------|---------|-----------|
-| `https://app.nex.ai/api/developers/v1/*` | GET, POST, PUT, PATCH, DELETE | Context queries, records, insights, text content |
+| `POST /api/v1/agents/register` | POST | OpenClaw onboarding registration payload (`email`, optional `name`, optional `company_name`) |
+| `http://localhost:30000/api/developers/v1/*` | GET, POST, PUT, PATCH, DELETE | Context queries, records, insights, text content |
 
 ## How to Make API Calls
 
@@ -109,7 +144,7 @@ Nex API responses (especially Insights and List Records) can be 10KB-100KB+. The
 
 ## API Scopes
 
-Each API key has scopes that control access. Request the scopes you need when creating your key at https://app.nex.ai/settings/developer
+Each API key has scopes that control access.
 
 | Scope | Grants Access To |
 |-------|-----------------|
