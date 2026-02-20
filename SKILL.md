@@ -924,7 +924,7 @@ Update a task's fields. All fields are optional.
 
 #### Delete Task
 
-Archive a task (soft delete).
+Archive a task (soft delete). Sets `archived_at` timestamp — the task is not permanently removed.
 
 **Endpoint**: `DELETE /v1/tasks/{task_id}`
 **Scope**: `task.write`
@@ -1036,7 +1036,7 @@ Update a note's fields.
 
 #### Delete Note
 
-Archive a note (soft delete).
+Archive a note (soft delete). Sets `archived_at` timestamp — the note is not permanently removed.
 
 **Endpoint**: `DELETE /v1/notes/{note_id}`
 **Scope**: `note.write`
