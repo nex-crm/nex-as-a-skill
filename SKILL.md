@@ -20,7 +20,7 @@ Run this flow only when `NEX_API_KEY` is missing.
 
 2. Register:
 - Command: `bash {baseDir}/scripts/nex-openclaw-register.sh <email> [name] [company_name]`
-- Endpoint used by script: `POST /api/v1/openclaw/register`
+- Endpoint used by script: `POST /api/v1/agents/register`
 - Expected response fields: `api_key`, `workspace_id`, `workspace_slug`, `plan`, issued limits/scopes metadata.
 
 3. Persist returned key before any Nex API call:
@@ -79,7 +79,7 @@ jq -e '.skills.entries.nex.env.NEX_API_KEY | type == "string" and length > 0' "$
 
 | URL Pattern | Methods | Data Sent |
 |-------------|---------|-----------|
-| `POST /api/v1/openclaw/register` | POST | OpenClaw onboarding registration payload (`email`, optional `name`, optional `company_name`) |
+| `POST /api/v1/agents/register` | POST | OpenClaw onboarding registration payload (`email`, optional `name`, optional `company_name`) |
 | `http://localhost:30000/api/developers/v1/*` | GET, POST, PUT, PATCH, DELETE | Context queries, records, insights, text content |
 
 ## How to Make API Calls
