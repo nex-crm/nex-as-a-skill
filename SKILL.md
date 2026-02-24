@@ -15,12 +15,18 @@ Run this flow only when `NEX_API_KEY` is missing.
 1. Prompt user for registration fields:
 - Required: `email`
 - Optional: `name`, `company_name`
+- `source` is required by API and is sent by the script as `openclaw` (override with `NEX_AGENT_SOURCE` if needed).
 - Never infer/autofill from memory, prior chats, profile hints, defaults, or guesses.
 - If `email` is missing, stop and explain registration cannot proceed.
 
 2. Register:
 - Command: `bash {baseDir}/scripts/nex-openclaw-register.sh <email> [name] [company_name]`
 - Endpoint used by script: `POST /api/v1/agents/register`
+- Request payload sent by script:
+  - `email` (required)
+  - `source` (required)
+  - `name` (optional)
+  - `company_name` (optional)
 - Expected response fields: `api_key`, `workspace_id`, `workspace_slug`, `plan`, issued limits/scopes metadata.
 
 3. Persist returned key before any Nex API call:
@@ -79,7 +85,7 @@ jq -e '.skills.entries.nex.env.NEX_API_KEY | type == "string" and length > 0' "$
 
 | URL Pattern | Methods | Data Sent |
 |-------------|---------|-----------|
-| `POST /api/v1/agents/register` | POST | OpenClaw onboarding registration payload (`email`, optional `name`, optional `company_name`) |
+| `POST /api/v1/agents/register` | POST | OpenClaw onboarding registration payload (`email`, required `source`, optional `name`, optional `company_name`) |
 | `http://localhost:30000/api/developers/v1/*` | GET, POST, PUT, PATCH, DELETE | Context queries, records, insights, text content |
 
 ## How to Make API Calls

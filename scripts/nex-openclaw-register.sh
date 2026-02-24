@@ -5,6 +5,7 @@ set -euo pipefail
 
 BASE_URL="http://localhost:30000/api/v1/agents/register"
 TIMEOUT="${NEX_API_TIMEOUT:-120}"
+SOURCE="${NEX_AGENT_SOURCE:-openclaw}"
 
 EMAIL="${1:-}"
 NAME="${2:-}"
@@ -16,7 +17,12 @@ if [[ -z "$EMAIL" ]]; then
   exit 2
 fi
 
-PAYLOAD=$(jq -cn   --arg email "$EMAIL"   --arg name "$NAME"   --arg company_name "$COMPANY_NAME"   '{email: $email}
+PAYLOAD=$(jq -cn \
+  --arg email "$EMAIL" \
+  --arg source "$SOURCE" \
+  --arg name "$NAME" \
+  --arg company_name "$COMPANY_NAME" \
+  '{email: $email, source: $source}
    + (if $name != "" then {name: $name} else {} end)
    + (if $company_name != "" then {company_name: $company_name} else {} end)')
 
