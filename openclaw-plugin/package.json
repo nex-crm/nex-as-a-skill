@@ -1,5 +1,5 @@
 {
-  "name": "@nex-crm/openclaw-memory-plugin",
+  "name": "@nex-crm/memory-nex",
   "version": "0.1.0",
   "description": "Nex memory plugin for OpenClaw — persistent context intelligence for AI agents",
   "type": "module",

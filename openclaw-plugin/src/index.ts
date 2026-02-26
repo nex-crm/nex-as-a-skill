@@ -126,7 +126,7 @@ const plugin = {
   version: "0.1.0",
   kind: "memory" as const,
 
-  async register(api: OpenClawPluginApi) {
+  register(api: OpenClawPluginApi) {
     const log = api.logger;
 
     // --- Config ---
