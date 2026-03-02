@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node <path-to>/claude-code-plugin/dist/auto-recall.js",
+            "timeout": 10000,
+            "statusMessage": "Recalling relevant memories..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node <path-to>/claude-code-plugin/dist/auto-capture.js",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}
