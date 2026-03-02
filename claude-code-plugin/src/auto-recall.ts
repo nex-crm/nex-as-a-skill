@@ -86,8 +86,14 @@ async function main(): Promise<void> {
       sessionId: result.session_id,
     });
 
-    // Output as plain text — Claude Code adds stdout text as context on exit 0
-    process.stdout.write(context);
+    // Use hookSpecificOutput for discrete context injection (not shown in transcript)
+    const output = JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit",
+        additionalContext: context,
+      },
+    });
+    process.stdout.write(output);
   } catch {
     // Graceful degradation — never block Claude Code on recall failure
     process.stdout.write("{}");
