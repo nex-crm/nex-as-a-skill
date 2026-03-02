@@ -39,6 +39,7 @@ export interface IngestResponse {
 }
 
 export interface EntityReference {
+  id?: number;
   name: string;
   type: string;
   count?: number;
@@ -118,7 +119,7 @@ export class NexClient {
   async ingest(content: string, context?: string): Promise<IngestResponse> {
     const body: Record<string, string> = { content };
     if (context) body.context = context;
-    return this.request<IngestResponse>("POST", "/v1/context/text", body);
+    return this.request<IngestResponse>("POST", "/v1/context/text", body, 60_000);
   }
 
   /** Ask a question against the Nex knowledge graph. */

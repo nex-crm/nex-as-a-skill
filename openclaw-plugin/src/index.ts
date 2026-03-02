@@ -365,7 +365,25 @@ const plugin = {
           const parts: string[] = [result.answer];
 
           if (result.entity_references && result.entity_references.length > 0) {
-            parts.push(`\n(${result.entity_references.length} related entities)`);
+            const typeLabel = (t: string) => {
+              switch (t) {
+                case "14": return "Person";
+                case "15": return "Company";
+                default: return "Entity";
+              }
+            };
+            // Deduplicate by name+type
+            const seen = new Set<string>();
+            const unique = result.entity_references.filter((ref) => {
+              const key = `${ref.name}:${ref.type}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+            parts.push("\n\nSources:");
+            for (const ref of unique) {
+              parts.push(`\n• ${ref.name} · ${typeLabel(ref.type)}`);
+            }
           }
 
           return { text: parts.join("") };
