@@ -1,108 +1,79 @@
 /**
- * Sliding window rate limiter with async queue.
+ * File-based sliding window rate limiter.
  * Designed for Nex /text endpoint (10 req/min).
+ *
+ * Since Claude Code hooks are short-lived processes (start, run, exit),
+ * in-memory state is lost between invocations. This implementation persists
+ * timestamps to a JSON file so rate limits are respected across invocations.
  */
+
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 export interface RateLimiterConfig {
   maxRequests: number;
   windowMs: number;
-  maxQueueDepth: number;
+  dataDir: string;
 }
 
 const DEFAULTS: RateLimiterConfig = {
   maxRequests: 10,
   windowMs: 60_000,
-  maxQueueDepth: 5,
+  dataDir: join(homedir(), ".nex"),
 };
 
-interface QueuedRequest {
-  fn: () => Promise<void>;
-  resolve: () => void;
-  reject: (err: Error) => void;
-}
-
 export class RateLimiter {
-  private timestamps: number[] = [];
-  private queue: QueuedRequest[] = [];
-  private draining = false;
   private config: RateLimiterConfig;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private filePath: string;
 
   constructor(config?: Partial<RateLimiterConfig>) {
     this.config = { ...DEFAULTS, ...config };
+    this.filePath = join(this.config.dataDir, "rate-limiter.json");
+    mkdirSync(this.config.dataDir, { recursive: true });
   }
 
-  /** Enqueue a function to be executed within rate limits. */
-  enqueue(fn: () => Promise<void>): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.queue.push({ fn, resolve, reject });
-
-      while (this.queue.length > this.config.maxQueueDepth) {
-        const dropped = this.queue.shift()!;
-        dropped.reject(new Error("Rate limiter queue full — request dropped"));
-      }
-
-      this.drain();
-    });
-  }
-
-  private canProceed(): boolean {
-    const now = Date.now();
-    this.timestamps = this.timestamps.filter((t) => now - t < this.config.windowMs);
-    return this.timestamps.length < this.config.maxRequests;
-  }
-
-  private msUntilSlot(): number {
-    if (this.timestamps.length === 0) return 0;
-    const oldest = this.timestamps[0];
-    return Math.max(0, this.config.windowMs - (Date.now() - oldest));
-  }
-
-  private async drain(): Promise<void> {
-    if (this.draining) return;
-    this.draining = true;
-
+  private readTimestamps(): number[] {
     try {
-      while (this.queue.length > 0) {
-        if (this.canProceed()) {
-          const item = this.queue.shift()!;
-          this.timestamps.push(Date.now());
-          try {
-            await item.fn();
-            item.resolve();
-          } catch (err) {
-            item.reject(err instanceof Error ? err : new Error(String(err)));
-          }
-        } else {
-          const wait = this.msUntilSlot();
-          await new Promise<void>((r) => {
-            this.timer = setTimeout(r, wait);
-          });
-        }
-      }
-    } finally {
-      this.draining = false;
+      const raw = readFileSync(this.filePath, "utf-8");
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) return data;
+      return [];
+    } catch {
+      return [];
     }
   }
 
-  /** Flush pending queue (called on shutdown). */
-  async flush(): Promise<void> {
-    while (this.draining || this.queue.length > 0) {
-      await new Promise((r) => setTimeout(r, 50));
+  private writeTimestamps(timestamps: number[]): void {
+    try {
+      writeFileSync(this.filePath, JSON.stringify(timestamps), "utf-8");
+    } catch {
+      // Best-effort — if we can't write, proceed without rate limiting
     }
   }
 
-  /** Cancel all pending and stop timers. */
-  destroy(): void {
-    if (this.timer) clearTimeout(this.timer);
-    for (const item of this.queue) {
-      item.reject(new Error("Rate limiter destroyed"));
+  /**
+   * Check if a request can proceed, and if so, record the timestamp.
+   * Returns true if the request is allowed, false if rate limited.
+   */
+  canProceed(): boolean {
+    const now = Date.now();
+    const timestamps = this.readTimestamps().filter(
+      (t) => now - t < this.config.windowMs
+    );
+
+    if (timestamps.length >= this.config.maxRequests) {
+      // Write back pruned timestamps
+      this.writeTimestamps(timestamps);
+      return false;
     }
-    this.queue.length = 0;
-    this.timestamps.length = 0;
+
+    timestamps.push(now);
+    this.writeTimestamps(timestamps);
+    return true;
   }
 
   get pending(): number {
-    return this.queue.length;
+    return 0;
   }
 }

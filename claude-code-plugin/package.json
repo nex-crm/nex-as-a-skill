@@ -1,5 +1,5 @@
 {
-  "name": "@nex-crm/claude-code-memory-plugin",
+  "name": "@nex-crm/claude-code-nex-plugin",
   "version": "1.0.0",
   "description": "Claude Code plugin for Nex persistent memory — auto-recall, auto-capture, commands",
   "type": "module",

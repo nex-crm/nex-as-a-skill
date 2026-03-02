@@ -43,10 +43,3 @@ export function stripNexContext(text: string): string {
   result = result.replace(/<nex-context>[\s\S]*/g, "");
   return result.trim();
 }
-
-/**
- * Check if text contains a nex-context block.
- */
-export function hasNexContext(text: string): boolean {
-  return text.includes(OPEN_TAG);
-}

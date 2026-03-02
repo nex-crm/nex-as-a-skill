@@ -108,7 +108,7 @@ export class NexClient {
       }
 
       const text = await res.text();
-      if (!text) return {} as T;
+      if (!text || !text.trim()) return {} as T;
       return JSON.parse(text) as T;
     } finally {
       clearTimeout(timer);
@@ -116,10 +116,10 @@ export class NexClient {
   }
 
   /** Ingest text content into the Nex knowledge graph. */
-  async ingest(content: string, context?: string): Promise<IngestResponse> {
+  async ingest(content: string, context?: string, timeoutMs?: number): Promise<IngestResponse> {
     const body: Record<string, string> = { content };
     if (context) body.context = context;
-    return this.request<IngestResponse>("POST", "/v1/context/text", body, 60_000);
+    return this.request<IngestResponse>("POST", "/v1/context/text", body, timeoutMs ?? 60_000);
   }
 
   /** Ask a question against the Nex knowledge graph. */

@@ -68,11 +68,6 @@ export function captureFilter(text: string): CaptureResult | CaptureSkip {
   // Strip injected context blocks (prevent feedback loop)
   let cleaned = stripNexContext(text);
 
-  // Skip slash commands
-  if (cleaned.startsWith("/")) {
-    return { skipped: true, reason: "slash command" };
-  }
-
   // Skip too short
   if (cleaned.length < MIN_LENGTH) {
     return { skipped: true, reason: `too short (${cleaned.length} chars)` };

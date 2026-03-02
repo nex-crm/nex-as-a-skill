@@ -20,7 +20,8 @@
           {
             "type": "command",
             "command": "node <path-to>/claude-code-plugin/dist/auto-capture.js",
-            "timeout": 5000
+            "timeout": 5000,
+            "async": true
           }
         ]
       }

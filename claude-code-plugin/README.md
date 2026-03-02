@@ -5,7 +5,7 @@ Persistent context intelligence for Claude Code, powered by Nex. Automatically r
 ## Features
 
 - **Auto-recall** — `UserPromptSubmit` hook queries Nex and injects relevant context
-- **Auto-capture** — `Stop` hook captures conversation exchanges to build your knowledge base
+- **Auto-capture** — `Stop` hook captures assistant responses to build your knowledge base
 - **Slash commands** — `/recall <query>` and `/remember <text>` for manual control
 - **MCP tools** — Full Nex API access via the MCP server
 
@@ -29,7 +29,7 @@ npm run build
 
 ```bash
 export NEX_API_KEY="your-api-key-here"
-export NEX_BASE_URL="http://localhost:30000"  # optional, defaults to localhost
+export NEX_API_BASE_URL="https://api.nex-crm.com"  # optional, defaults to api.nex-crm.com
 ```
 
 ### 2. MCP Server Registration
@@ -67,7 +67,8 @@ Copy the hook entries from `settings.json` into your Claude Code settings at `~/
           {
             "type": "command",
             "command": "node /absolute/path/to/claude-code-plugin/dist/auto-capture.js",
-            "timeout": 5000
+            "timeout": 5000,
+            "async": true
           }
         ]
       }
@@ -92,19 +93,18 @@ Then use:
 
 ### Auto-Recall (UserPromptSubmit Hook)
 
-1. Reads the user's prompt from stdin
+1. Reads the user's prompt from stdin (`{ "prompt": "...", "session_id": "..." }`)
 2. Queries Nex `/ask` endpoint for relevant context
-3. Returns `{ additionalContext: "<nex-context>...</nex-context>" }` to inject into the conversation
+3. Returns `{ "additionalContext": "<nex-context>...</nex-context>" }` to inject into the conversation
 4. On any error: returns `{}` (graceful degradation, never blocks Claude Code)
 
 ### Auto-Capture (Stop Hook)
 
-1. Reads the transcript JSONL file path from stdin
-2. Extracts the last user + assistant exchange
-3. Strips any `<nex-context>` blocks (prevents feedback loops)
-4. Filters out short, duplicate, or command messages
-5. Sends to Nex `/text` endpoint via rate limiter (fire-and-forget)
-6. On any error: returns `{}` (graceful degradation)
+1. Reads `{ "last_assistant_message": "...", "session_id": "..." }` from stdin
+2. Strips any `<nex-context>` blocks (prevents feedback loops)
+3. Filters out short, duplicate, or command messages
+4. Sends to Nex `/text` endpoint (fire-and-forget, `async: true`)
+5. On any error: returns `{}` (graceful degradation)
 
 ## Architecture
 
