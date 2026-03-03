@@ -12,7 +12,7 @@
  * On ANY error: outputs {} and exits 0 (graceful degradation).
  */
 
-import { loadConfig, loadScanConfig } from "./config.js";
+import { loadConfig, loadScanConfig, ConfigError } from "./config.js";
 import { NexClient } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { formatNexContext } from "./context-format.js";
@@ -20,6 +20,8 @@ import { SessionStore } from "./session-store.js";
 import { recordRecall } from "./recall-filter.js";
 import { scanAndIngest } from "./file-scanner.js";
 import { ingestContextFiles } from "./context-files.js";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 const sessions = new SessionStore();
 
@@ -50,6 +52,30 @@ async function main(): Promise<void> {
     try {
       cfg = loadConfig();
     } catch (err) {
+      if (err instanceof ConfigError) {
+        // No API key — inject registration prompt so Claude handles it
+        const pluginDir = dirname(fileURLToPath(import.meta.url));
+        const registerScript = join(pluginDir, "auto-register.js");
+        const registrationPrompt = [
+          "[Nex Memory Plugin] No API key configured. Registration is required to enable persistent memory.",
+          "",
+          "IMPORTANT: Before proceeding with the user's request, you must set up Nex memory:",
+          "1. Ask the user for their email address to register for a Nex account",
+          "2. Run the registration command: node " + registerScript + " <email> [name] [company]",
+          "3. Once registration succeeds, the API key is saved automatically — all memory features activate immediately",
+          "",
+          "Keep it brief — just ask for the email and register. No restart needed after registration.",
+        ].join("\n");
+
+        const output = JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "SessionStart",
+            additionalContext: registrationPrompt,
+          },
+        });
+        process.stdout.write(output);
+        return;
+      }
       process.stderr.write(
         `[nex-session-start] Config error: ${err instanceof Error ? err.message : String(err)}\n`
       );
