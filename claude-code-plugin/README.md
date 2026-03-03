@@ -29,7 +29,7 @@ npm run build
 
 ```bash
 export NEX_API_KEY="your-api-key-here"
-export NEX_API_BASE_URL="https://api.nex.ai"  # optional, defaults to api.nex.ai
+export NEX_API_BASE_URL="https://app.nex.ai"  # optional, defaults to app.nex.ai
 ```
 
 ### 2. MCP Server Registration
