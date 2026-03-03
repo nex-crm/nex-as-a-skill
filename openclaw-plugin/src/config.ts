@@ -29,7 +29,7 @@ export interface ScanConfig {
 }
 
 const DEFAULTS: Omit<NexPluginConfig, "apiKey"> = {
-  baseUrl: "https://api.nex-crm.com",
+  baseUrl: "https://app.nex.ai",
   autoRecall: true,
   autoCapture: true,
   captureMode: "last_turn",
