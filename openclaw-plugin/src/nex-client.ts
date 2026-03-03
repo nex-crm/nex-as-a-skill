@@ -115,6 +115,48 @@ export class NexClient {
     }
   }
 
+  /**
+   * Register a new account and get an API key.
+   * Does NOT require an existing API key — uses the public registration endpoint.
+   */
+  static async register(
+    baseUrl: string,
+    email: string,
+    name?: string,
+    companyName?: string,
+  ): Promise<Record<string, unknown>> {
+    const url = `${baseUrl}/api/v1/agents/register`;
+    const body: Record<string, string> = { email, source: "openclaw" };
+    if (name) body.name = name;
+    if (companyName) body.company_name = companyName;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        let errorBody: string | undefined;
+        try {
+          errorBody = await res.text();
+        } catch {
+          /* ignore */
+        }
+        throw new NexServerError(res.status, errorBody);
+      }
+
+      return (await res.json()) as Record<string, unknown>;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Ingest text content into the Nex knowledge graph. */
   async ingest(content: string, context?: string): Promise<IngestResponse> {
     const body: Record<string, string> = { content };

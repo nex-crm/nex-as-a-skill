@@ -1,7 +1,13 @@
 /**
- * Sliding window rate limiter with async queue.
+ * Sliding window rate limiter with async queue and file persistence.
  * Designed for Nex /text endpoint (10 req/min).
+ *
+ * Timestamps are persisted to ~/.nex/rate-limiter.json so rate limits
+ * are respected across plugin restarts.
  */
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 export interface RateLimiterConfig {
   maxRequests: number;
@@ -14,6 +20,9 @@ const DEFAULTS: RateLimiterConfig = {
   windowMs: 60_000,
   maxQueueDepth: 5,
 };
+
+const DATA_DIR = join(homedir(), ".nex");
+const PERSIST_PATH = join(DATA_DIR, "rate-limiter.json");
 
 interface QueuedRequest {
   fn: () => Promise<void>;
@@ -30,6 +39,31 @@ export class RateLimiter {
 
   constructor(config?: Partial<RateLimiterConfig>) {
     this.config = { ...DEFAULTS, ...config };
+    this.loadTimestamps();
+  }
+
+  /** Load persisted timestamps from disk. */
+  private loadTimestamps(): void {
+    try {
+      const raw = readFileSync(PERSIST_PATH, "utf-8");
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        const now = Date.now();
+        this.timestamps = data.filter((t: number) => now - t < this.config.windowMs);
+      }
+    } catch {
+      // No file or invalid — start fresh
+    }
+  }
+
+  /** Persist timestamps to disk. */
+  private saveTimestamps(): void {
+    try {
+      mkdirSync(DATA_DIR, { recursive: true });
+      writeFileSync(PERSIST_PATH, JSON.stringify(this.timestamps), "utf-8");
+    } catch {
+      // Best-effort
+    }
   }
 
   /** Enqueue a function to be executed within rate limits. Fire-and-forget. */
@@ -47,7 +81,11 @@ export class RateLimiter {
     });
   }
 
-  private canProceed(): boolean {
+  /**
+   * Check if a request can proceed without queuing.
+   * Prunes expired timestamps but does NOT record a new one.
+   */
+  canProceed(): boolean {
     const now = Date.now();
     // Remove timestamps outside the window
     this.timestamps = this.timestamps.filter((t) => now - t < this.config.windowMs);
@@ -75,6 +113,7 @@ export class RateLimiter {
           } catch (err) {
             item.reject(err instanceof Error ? err : new Error(String(err)));
           }
+          this.saveTimestamps();
         } else {
           // Wait until a slot opens
           const wait = this.msUntilSlot();

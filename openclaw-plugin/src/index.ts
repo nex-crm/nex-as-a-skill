@@ -4,15 +4,32 @@
  * Gives OpenClaw agents persistent long-term memory powered by the Nex
  * context intelligence layer. Auto-recalls relevant context before each
  * agent turn and auto-captures conversation facts after each turn.
+ *
+ * Features: auto-recall, auto-capture, file scanning, plan ingestion,
+ * smart recall filtering, registration, and slash commands.
  */
 
 import { Type, type Static } from "@sinclair/typebox";
-import { parseConfig, type NexPluginConfig } from "./config.js";
+import { existsSync, readdirSync, statSync, readFileSync } from "node:fs";
+import { join, extname } from "node:path";
+import {
+  parseConfig,
+  parseScanConfig,
+  loadMcpConfig,
+  persistRegistration,
+  loadBaseUrl,
+  MCP_CONFIG_PATH,
+  type NexPluginConfig,
+} from "./config.js";
 import { NexClient, NexAuthError } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { SessionStore } from "./session-store.js";
 import { formatNexContext, stripNexContext } from "./context-format.js";
 import { captureFilter, type AgentMessage } from "./capture-filter.js";
+import { scanAndIngest } from "./file-scanner.js";
+import { ingestContextFiles } from "./context-files.js";
+import { readManifest, writeManifest, isChanged, markIngested } from "./file-manifest.js";
+import { RecallFilter } from "./recall-filter.js";
 
 // --- TypeBox schemas for tool parameters ---
 
@@ -27,6 +44,16 @@ const RememberParams = Type.Object({
 
 const EntitiesParams = Type.Object({
   query: Type.String({ description: "Search query to find related entities" }),
+});
+
+const ScanParams = Type.Object({
+  directory: Type.Optional(Type.String({ description: "Directory to scan (default: current working directory)" })),
+});
+
+const RegisterParams = Type.Object({
+  email: Type.String({ description: "Your email address for registration" }),
+  name: Type.Optional(Type.String({ description: "Your name" })),
+  company: Type.Optional(Type.String({ description: "Your company name" })),
 });
 
 // --- Plugin Logger interface (matches OpenClaw's PluginLogger) ---
@@ -117,13 +144,70 @@ interface OpenClawPluginApi {
   }): void;
 }
 
+// --- Plan file ingestion helper ---
+
+const PLAN_DIRS = [".claude/plans", ".openclaw/plans"];
+const MAX_PLANS_PER_TURN = 2;
+
+async function ingestPlanFiles(
+  client: NexClient,
+  cwd: string,
+  debug: (...args: unknown[]) => void,
+): Promise<{ ingested: number; errors: number }> {
+  const result = { ingested: 0, errors: 0 };
+  const manifest = readManifest();
+  let dirty = false;
+
+  for (const planDir of PLAN_DIRS) {
+    const fullDir = join(cwd, planDir);
+    if (!existsSync(fullDir)) continue;
+
+    let entries;
+    try {
+      entries = readdirSync(fullDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (result.ingested >= MAX_PLANS_PER_TURN) break;
+      if (!entry.isFile()) continue;
+      if (extname(entry.name).toLowerCase() !== ".md") continue;
+
+      const filePath = join(fullDir, entry.name);
+      try {
+        const stat = statSync(filePath);
+        if (!isChanged(filePath, stat, manifest)) continue;
+
+        const content = readFileSync(filePath, "utf-8");
+        if (content.length < 10) continue;
+
+        const contextTag = `plan:${planDir}/${entry.name}`;
+        await client.ingest(content.slice(0, 100_000), contextTag);
+        markIngested(filePath, stat, contextTag, manifest);
+        result.ingested++;
+        dirty = true;
+        debug("Plan file ingested:", contextTag);
+      } catch (err) {
+        process.stderr.write(
+          `[nex-plans] Failed to ingest ${entry.name}: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+        result.errors++;
+      }
+    }
+  }
+
+  if (dirty) writeManifest(manifest);
+  return result;
+}
+
 // --- Plugin definition ---
 
 const plugin = {
   id: "memory-nex",
   name: "Nex Memory",
   description: "Persistent context intelligence for OpenClaw agents, powered by Nex",
-  version: "0.1.0",
+  version: "0.2.0",
   kind: "memory" as const,
 
   register(api: OpenClawPluginApi) {
@@ -141,6 +225,7 @@ const plugin = {
     const client = new NexClient(cfg.apiKey, cfg.baseUrl);
     const rateLimiter = new RateLimiter();
     const sessions = new SessionStore();
+    const recallFilter = new RecallFilter();
 
     const debug = (...args: unknown[]) => {
       if (cfg.debug && log.debug) log.debug("[nex]", ...args);
@@ -148,7 +233,7 @@ const plugin = {
 
     debug("Plugin config loaded", { baseUrl: cfg.baseUrl, autoRecall: cfg.autoRecall, autoCapture: cfg.autoCapture });
 
-    // --- Service (health check on start, cleanup on stop) ---
+    // --- Service (health check + file scanning on start, cleanup on stop) ---
 
     api.registerService({
       id: "memory-nex",
@@ -168,6 +253,19 @@ const plugin = {
             logger.warn("Could not reach Nex API:", err);
           }
         }
+
+        // File scanning on startup
+        try {
+          const scanConfig = parseScanConfig(cfg);
+          const cwd = process.cwd();
+          const scanResult = await scanAndIngest(client, cwd, scanConfig, rateLimiter);
+          logger.info(`File scan: ${scanResult.ingested} ingested, ${scanResult.skipped} skipped`);
+
+          const ctxResult = await ingestContextFiles(client, cwd, rateLimiter);
+          logger.info(`Context files: ${ctxResult.ingested} ingested`);
+        } catch (err) {
+          logger.warn("Startup file scan failed:", err);
+        }
       },
       async stop({ logger }) {
         logger.info("Nex memory plugin stopping — flushing capture queue...");
@@ -184,7 +282,7 @@ const plugin = {
       },
     });
 
-    // --- Hook: before_agent_start (auto-recall) ---
+    // --- Hook: before_agent_start (auto-recall with smart filter) ---
 
     if (cfg.autoRecall) {
       api.on(
@@ -192,7 +290,16 @@ const plugin = {
         async (event, ctx) => {
           if (!event.prompt) return;
 
-          debug("Auto-recall triggered", { sessionKey: ctx.sessionKey, promptLength: event.prompt.length });
+          // Smart recall filter
+          const isFirst = recallFilter.isFirstPrompt(ctx.sessionKey);
+          const decision = recallFilter.shouldRecall(event.prompt, isFirst);
+
+          if (!decision.shouldRecall) {
+            debug("Recall skipped:", decision.reason);
+            return;
+          }
+
+          debug("Auto-recall triggered", { sessionKey: ctx.sessionKey, promptLength: event.prompt.length, reason: decision.reason });
 
           try {
             // Resolve session ID for multi-turn continuity
@@ -211,6 +318,8 @@ const plugin = {
             if (result.session_id && ctx.sessionKey && cfg.sessionTracking) {
               sessions.set(ctx.sessionKey, result.session_id);
             }
+
+            recallFilter.recordRecall();
 
             const entityCount = result.entity_references?.length ?? 0;
             const context = formatNexContext({
@@ -236,7 +345,7 @@ const plugin = {
       );
     }
 
-    // --- Hook: agent_end (auto-capture) ---
+    // --- Hook: agent_end (auto-capture + plan ingestion) ---
 
     if (cfg.autoCapture) {
       api.on("agent_end", async (event, ctx) => {
@@ -248,22 +357,32 @@ const plugin = {
 
         if (result.skipped) {
           debug("Capture skipped:", result.reason);
-          return;
+        } else {
+          debug("Capture enqueued", { textLength: result.text.length });
+
+          // Fire-and-forget via rate limiter
+          rateLimiter.enqueue(async () => {
+            try {
+              const res = await client.ingest(result.text, "openclaw-conversation");
+              debug("Capture complete", { artifactId: res.artifact_id });
+            } catch (err) {
+              log.warn("Nex capture failed:", err);
+            }
+          }).catch(() => {
+            // Queue full / dropped — already logged by rate limiter
+          });
         }
 
-        debug("Capture enqueued", { textLength: result.text.length });
-
-        // Fire-and-forget via rate limiter
-        rateLimiter.enqueue(async () => {
-          try {
-            const res = await client.ingest(result.text, "openclaw-conversation");
-            debug("Capture complete", { artifactId: res.artifact_id });
-          } catch (err) {
-            log.warn("Nex capture failed:", err);
+        // Plan file ingestion (up to 2 per turn)
+        try {
+          const cwd = ctx.workspaceDir || process.cwd();
+          const planResult = await ingestPlanFiles(client, cwd, debug);
+          if (planResult.ingested > 0) {
+            debug("Plan files ingested:", planResult.ingested);
           }
-        }).catch(() => {
-          // Queue full / dropped — already logged by rate limiter
-        });
+        } catch (err) {
+          debug("Plan file ingestion failed:", err);
+        }
       });
     }
 
@@ -348,6 +467,23 @@ const plugin = {
       },
     });
 
+    api.registerTool({
+      name: "nex_scan",
+      label: "Scan Project Files",
+      description:
+        "Scan the project directory for text files and ingest changed ones into Nex knowledge base.",
+      parameters: ScanParams,
+      async execute(_toolCallId, params) {
+        const dir = (params as { directory?: string }).directory || process.cwd();
+        const scanConfig = parseScanConfig(cfg);
+        const result = await scanAndIngest(client, dir, scanConfig, rateLimiter);
+        return {
+          content: [{ type: "text", text: `Scanned ${result.scanned} files: ${result.ingested} ingested, ${result.skipped} unchanged, ${result.errors} errors` }],
+          details: result,
+        };
+      },
+    });
+
     // --- Commands ---
 
     api.registerCommand({
@@ -410,6 +546,60 @@ const plugin = {
           return { text: "Remembered." };
         } catch (err) {
           return { text: `Remember failed: ${err instanceof Error ? err.message : String(err)}` };
+        }
+      },
+    });
+
+    api.registerCommand({
+      name: "scan",
+      description: "Scan project files and ingest changes into Nex. Usage: /scan [directory]",
+      acceptsArgs: true,
+      async handler(ctx) {
+        const dir = ctx.args?.trim() || process.cwd();
+        const scanConfig = parseScanConfig(cfg);
+        const result = await scanAndIngest(client, dir, scanConfig, rateLimiter);
+        return { text: `Scanned ${result.scanned} files: ${result.ingested} ingested, ${result.skipped} unchanged, ${result.errors} errors` };
+      },
+    });
+
+    api.registerCommand({
+      name: "register",
+      description: "Register for a Nex account and save API key. Usage: /register <email> [name] [company]",
+      acceptsArgs: true,
+      async handler(ctx) {
+        const args = ctx.args?.trim().split(/\s+/) ?? [];
+        const email = args[0];
+        const name = args[1];
+        const company = args[2];
+
+        if (!email) {
+          return { text: "Usage: /register <email> [name] [company]" };
+        }
+
+        // Check if already registered
+        const existing = loadMcpConfig();
+        if (existing.api_key) {
+          return {
+            text: `Already registered.\n  API key: ${existing.api_key.slice(0, 12)}...\n  Config: ${MCP_CONFIG_PATH}\n\nTo re-register, delete ~/.nex-mcp.json first.`,
+          };
+        }
+
+        try {
+          const baseUrl = loadBaseUrl();
+          const result = await NexClient.register(baseUrl, email, name, company);
+
+          if (!result.api_key || typeof result.api_key !== "string") {
+            return { text: "Registration succeeded but no API key returned." };
+          }
+
+          // Persist to shared config
+          persistRegistration(result);
+
+          return {
+            text: `Registration successful!\n  API key: ${(result.api_key as string).slice(0, 12)}...\n${result.workspace_slug ? `  Workspace: ${result.workspace_slug}\n` : ""}  Saved to: ${MCP_CONFIG_PATH}\n\nRestart the plugin for the new key to take effect.`,
+          };
+        } catch (err) {
+          return { text: `Registration failed: ${err instanceof Error ? err.message : String(err)}` };
         }
       },
     });
