@@ -101,6 +101,7 @@ export async function scanAndIngest(
 
       const context = `file-scan:${file.relativePath}`;
       await client.ingest(content, context);
+      if (rateLimiter) rateLimiter.recordRequest();
       markIngested(file.absolutePath, file.stat, context, manifest);
       result.ingested++;
     } catch (err) {

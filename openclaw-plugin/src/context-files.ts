@@ -94,6 +94,7 @@ export async function ingestContextFiles(
       }
 
       await client.ingest(content, contextTag);
+      if (rateLimiter) rateLimiter.recordRequest();
       markIngested(path, stat, contextTag, manifest);
       result.ingested++;
       result.files.push(contextTag);

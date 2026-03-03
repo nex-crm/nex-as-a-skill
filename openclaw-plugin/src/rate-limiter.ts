@@ -145,6 +145,12 @@ export class RateLimiter {
     this.timestamps.length = 0;
   }
 
+  /** Record a successful request timestamp. Call after API call succeeds. */
+  recordRequest(): void {
+    this.timestamps.push(Date.now());
+    this.saveTimestamps();
+  }
+
   /** Current queue depth (for debugging). */
   get pending(): number {
     return this.queue.length;

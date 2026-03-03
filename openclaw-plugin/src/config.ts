@@ -3,8 +3,8 @@
  * Resolves API key from config, env var, ${VAR} interpolation,
  * or ~/.nex-mcp.json fallback (shared with MCP server).
  */
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 
 export interface NexPluginConfig {
@@ -83,13 +83,12 @@ export function persistRegistration(data: Record<string, unknown>): void {
     existing.workspace_id = String(data.workspace_id);
   }
   if (typeof data.workspace_slug === "string") existing.workspace_slug = data.workspace_slug;
-  mkdirSync(dirname(MCP_CONFIG_PATH), { recursive: true });
   writeFileSync(MCP_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
 }
 
 /** Load base URL without requiring an API key. Used for registration. */
 export function loadBaseUrl(): string {
-  let baseUrl = process.env.NEX_API_BASE_URL ?? "https://app.nex.ai";
+  let baseUrl = process.env.NEX_API_BASE_URL ?? DEFAULTS.baseUrl;
   return baseUrl.replace(/\/+$/, "");
 }
 
