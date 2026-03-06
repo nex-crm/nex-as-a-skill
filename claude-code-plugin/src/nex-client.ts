@@ -34,6 +34,13 @@ export class NexServerError extends Error {
 
 // --- Response types ---
 
+export interface RegisterResponse {
+  api_key: string;
+  workspace_id?: string | number;
+  workspace_slug?: string;
+  [key: string]: unknown;
+}
+
 export interface IngestResponse {
   artifact_id: string;
 }
@@ -110,6 +117,44 @@ export class NexClient {
       const text = await res.text();
       if (!text || !text.trim()) return {} as T;
       return JSON.parse(text) as T;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Register a new account and get an API key.
+   * Does NOT require an existing API key — uses the public registration endpoint.
+   */
+  static async register(
+    baseUrl: string,
+    email: string,
+    name?: string,
+    companyName?: string,
+  ): Promise<RegisterResponse> {
+    const url = `${baseUrl}/api/v1/agents/register`;
+    const body: Record<string, string> = { email, source: "claude-code" };
+    if (name) body.name = name;
+    if (companyName) body.company_name = companyName;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        let errorBody: string | undefined;
+        try { errorBody = await res.text(); } catch { /* ignore */ }
+        throw new NexServerError(res.status, errorBody);
+      }
+
+      return await res.json() as RegisterResponse;
     } finally {
       clearTimeout(timer);
     }

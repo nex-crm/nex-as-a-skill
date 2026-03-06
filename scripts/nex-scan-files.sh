@@ -1,176 +1,161 @@
 #!/usr/bin/env bash
-# Nex file scanner — discover text files and ingest new/changed ones
-# ENV: NEX_API_KEY (required), NEX_SCAN_* (optional config)
-# WRITES: ~/.nex/file-scan-manifest.json, POST /v1/context/text
+# Nex file scanner — discovers project files and ingests changed ones
+# Uses manifest-based change detection via ~/.nex/file-scan-manifest.json
+# ENV: NEX_API_KEY (required)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFEST_FILE="$HOME/.nex/file-scan-manifest.json"
+MAX_FILE_SIZE=102400  # 100KB
+DEFAULT_EXTENSIONS=".md,.txt,.csv,.json,.yaml,.yml"
+DEFAULT_IGNORE="node_modules,.git,dist,build,.next,__pycache__,vendor,.venv,.claude,coverage,.turbo,.cache"
+DEFAULT_MAX_FILES=5
+DEFAULT_MAX_DEPTH=2
 
-# --- Defaults from env ---
-SCAN_DIR="${1:-.}"
-EXTENSIONS="${NEX_SCAN_EXTENSIONS:-.md,.txt,.rtf,.html,.htm,.csv,.tsv,.json,.yaml,.yml,.toml,.xml,.js,.ts,.jsx,.tsx,.py,.rb,.go,.rs,.java,.sh,.bash,.zsh,.fish,.org,.rst,.adoc,.tex,.log,.env,.ini,.cfg,.conf,.properties}"
-MAX_FILES="${NEX_SCAN_MAX_FILES:-5}"
-MAX_DEPTH="${NEX_SCAN_DEPTH:-20}"
-FORCE=false
-DRY_RUN=false
-MANIFEST_PATH="${HOME}/.nex/file-scan-manifest.json"
+# Counters
+SCANNED=0
+INGESTED=0
+SKIPPED=0
+ERRORS=0
 
 # --- Parse arguments ---
-shift 2>/dev/null || true
+DIR="."
+MAX_FILES="$DEFAULT_MAX_FILES"
+MAX_DEPTH="$DEFAULT_MAX_DEPTH"
+EXTENSIONS="$DEFAULT_EXTENSIONS"
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dir)       SCAN_DIR="$2"; shift 2 ;;
-    --extensions) EXTENSIONS="$2"; shift 2 ;;
+    --dir) DIR="$2"; shift 2 ;;
     --max-files) MAX_FILES="$2"; shift 2 ;;
-    --depth)     MAX_DEPTH="$2"; shift 2 ;;
-    --force)     FORCE=true; shift ;;
-    --dry-run)   DRY_RUN=true; shift ;;
-    *)           echo "Unknown option: $1" >&2; exit 2 ;;
+    --max-depth) MAX_DEPTH="$2"; shift 2 ;;
+    --extensions) EXTENSIONS="$2"; shift 2 ;;
+    -h|--help)
+      echo "Usage: nex-scan-files.sh [OPTIONS]"
+      echo "  --dir PATH        Directory to scan (default: .)"
+      echo "  --max-files N     Max files to ingest per scan (default: 5)"
+      echo "  --max-depth N     Max directory depth (default: 2)"
+      echo "  --extensions LIST Comma-separated extensions (default: .md,.txt,.csv,.json,.yaml,.yml)"
+      echo "  -h, --help        Show this help"
+      exit 0
+      ;;
+    *) echo "Unknown option: $1. Use --help for usage." >&2; exit 1 ;;
   esac
 done
 
-# --- Check scan enabled ---
-if [[ "${NEX_SCAN_ENABLED:-true}" == "false" ]]; then
-  echo '{"status":"disabled"}'
-  exit 0
-fi
-
-# --- Validate environment ---
-if [[ "$DRY_RUN" == "false" && -z "${NEX_API_KEY:-}" ]]; then
-  echo "Error: NEX_API_KEY environment variable is not set" >&2
+# Validate directory
+if [[ ! -d "$DIR" ]]; then
+  echo "Error: Directory '$DIR' does not exist" >&2
   exit 1
 fi
-
-# --- Ensure jq is available ---
-if ! command -v jq &>/dev/null; then
-  echo "Error: jq is required but not installed" >&2
-  exit 1
-fi
+DIR="$(cd "$DIR" && pwd)"
 
 # --- Ensure manifest directory exists ---
-mkdir -p "$(dirname "$MANIFEST_PATH")"
-
-# --- Load or initialize manifest ---
-if [[ -f "$MANIFEST_PATH" ]] && [[ "$FORCE" == "false" ]]; then
-  MANIFEST=$(cat "$MANIFEST_PATH")
-else
-  MANIFEST='{"version":1,"files":{}}'
+mkdir -p "$HOME/.nex"
+if [[ ! -f "$MANIFEST_FILE" ]]; then
+  echo '{"version":1,"files":{}}' > "$MANIFEST_FILE"
 fi
 
-# --- Build find extensions filter ---
-SCAN_DIR="$(cd "$SCAN_DIR" && pwd)"
-
-# Build -name patterns from extensions
-IFS=',' read -ra EXT_ARR <<< "$EXTENSIONS"
-FIND_NAMES=()
-for ext in "${EXT_ARR[@]}"; do
-  ext="$(echo "$ext" | xargs)"  # trim whitespace
-  [[ "$ext" != .* ]] && ext=".$ext"
-  FIND_NAMES+=(-name "*${ext}" -o)
+# --- Validate and parse extensions ---
+IFS=',' read -ra EXT_ARRAY <<< "$EXTENSIONS"
+for ext in "${EXT_ARRAY[@]}"; do
+  ext="$(echo "$ext" | xargs)"
+  if [[ ! "$ext" =~ ^\.[a-zA-Z0-9]+$ ]]; then
+    echo "Error: Invalid extension '$ext'. Must match pattern '.<alphanumeric>'" >&2
+    exit 1
+  fi
 done
-# Remove trailing -o
-unset 'FIND_NAMES[${#FIND_NAMES[@]}-1]'
 
-# Skip directories
-PRUNE_DIRS=(-name node_modules -o -name .git -o -name dist -o -name build -o -name .next -o -name __pycache__ -o -name .venv -o -name .cache -o -name .turbo -o -name coverage)
+# --- Build find args as arrays (safe from injection) ---
+IFS=',' read -ra IGNORE_ARRAY <<< "$DEFAULT_IGNORE"
 
-# --- Discover files ---
-DISCOVERED=$(find "$SCAN_DIR" -maxdepth "$MAX_DEPTH" \
-  \( "${PRUNE_DIRS[@]}" \) -prune -o \
-  -type f \( "${FIND_NAMES[@]}" \) -print0 2>/dev/null | \
-  xargs -0 stat -f '%m %z %N' 2>/dev/null | \
-  sort -rn | head -n "$MAX_FILES")
+FIND_ARGS=("$DIR" "-maxdepth" "$MAX_DEPTH")
 
-if [[ -z "$DISCOVERED" ]]; then
-  echo '{"scanned":0,"skipped":0,"errors":0,"files":[]}'
+# Add prune patterns
+for ign in "${IGNORE_ARRAY[@]}"; do
+  ign="$(echo "$ign" | xargs)"
+  FIND_ARGS+=("-name" "$ign" "-prune" "-o")
+done
+
+# Add extension patterns
+FIND_ARGS+=("-type" "f" "(")
+first=true
+for ext in "${EXT_ARRAY[@]}"; do
+  ext="$(echo "$ext" | xargs)"
+  if [ "$first" = true ]; then
+    first=false
+  else
+    FIND_ARGS+=("-o")
+  fi
+  FIND_ARGS+=("-name" "*${ext}")
+done
+FIND_ARGS+=(")" "-print")
+
+# --- Find files ---
+FILES=$(find "${FIND_ARGS[@]}" 2>/dev/null || true)
+
+if [[ -z "$FILES" ]]; then
+  echo '{"scanned":0,"ingested":0,"skipped":0,"errors":0}'
   exit 0
 fi
 
-# --- Hash function (macOS shasum / Linux sha256sum) ---
-hash_file() {
-  if command -v shasum &>/dev/null; then
-    shasum -a 256 "$1" | cut -d' ' -f1
+# --- Check each file against manifest ---
+while IFS= read -r filepath; do
+  SCANNED=$((SCANNED + 1))
+
+  # Get file stats
+  if [[ "$(uname)" == "Darwin" ]]; then
+    FILE_SIZE=$(stat -f%z "$filepath" 2>/dev/null || echo 0)
+    FILE_MTIME=$(stat -f%m "$filepath" 2>/dev/null || echo 0)
   else
-    sha256sum "$1" | cut -d' ' -f1
+    FILE_SIZE=$(stat -c%s "$filepath" 2>/dev/null || echo 0)
+    FILE_MTIME=$(stat -c%Y "$filepath" 2>/dev/null || echo 0)
   fi
-}
 
-# --- Process files ---
-SCANNED=0
-SKIPPED=0
-ERRORS=0
-FILES_JSON="[]"
+  # Check manifest for existing entry
+  MANIFEST_MTIME=$(jq -r --arg p "$filepath" '.files[$p].mtime // 0' "$MANIFEST_FILE" 2>/dev/null || echo 0)
+  MANIFEST_SIZE=$(jq -r --arg p "$filepath" '.files[$p].size // 0' "$MANIFEST_FILE" 2>/dev/null || echo 0)
 
-while IFS= read -r line; do
-  # Parse: mtime size path
-  MTIME=$(echo "$line" | awk '{print $1}')
-  SIZE=$(echo "$line" | awk '{print $2}')
-  FILE_PATH=$(echo "$line" | awk '{$1=$2=""; print}' | sed 's/^ *//')
-
-  [[ -z "$FILE_PATH" ]] && continue
-  [[ ! -f "$FILE_PATH" ]] && continue
-
-  # Hash
-  HASH="sha256-$(hash_file "$FILE_PATH")"
-
-  # Check manifest
-  EXISTING_HASH=$(echo "$MANIFEST" | jq -r --arg p "$FILE_PATH" '.files[$p].hash // ""')
-
-  if [[ "$EXISTING_HASH" == "$HASH" && "$FORCE" == "false" ]]; then
+  # Skip if unchanged (manifest stores mtime in ms)
+  FILE_MTIME_MS_CHECK=$((FILE_MTIME * 1000))
+  if [[ "$FILE_MTIME_MS_CHECK" == "$MANIFEST_MTIME" && "$FILE_SIZE" == "$MANIFEST_SIZE" ]]; then
     SKIPPED=$((SKIPPED + 1))
-    FILES_JSON=$(echo "$FILES_JSON" | jq --arg p "$FILE_PATH" '. + [{"path":$p,"status":"skipped","reason":"unchanged"}]')
     continue
   fi
 
-  # Check non-empty
-  CONTENT=$(cat "$FILE_PATH")
-  if [[ -z "${CONTENT// /}" ]]; then
+  # Stop if we've hit max files
+  if [[ $INGESTED -ge $MAX_FILES ]]; then
     SKIPPED=$((SKIPPED + 1))
-    FILES_JSON=$(echo "$FILES_JSON" | jq --arg p "$FILE_PATH" '. + [{"path":$p,"status":"skipped","reason":"empty"}]')
     continue
   fi
 
-  if [[ "$DRY_RUN" == "true" ]]; then
-    REASON="new"
-    [[ -n "$EXISTING_HASH" ]] && REASON="changed"
-    SCANNED=$((SCANNED + 1))
-    FILES_JSON=$(echo "$FILES_JSON" | jq --arg p "$FILE_PATH" --arg r "$REASON" '. + [{"path":$p,"status":"would_ingest","reason":$r}]')
-    continue
+  # Read file content (truncate if too large)
+  CONTENT=$(head -c "$MAX_FILE_SIZE" "$filepath" 2>/dev/null || true)
+  if [[ ${#CONTENT} -ge $MAX_FILE_SIZE ]]; then
+    CONTENT="$CONTENT
+[...truncated]"
   fi
+
+  # Get relative path for context tag
+  REL_PATH="${filepath#$DIR/}"
+  CONTEXT="file-scan:$REL_PATH"
 
   # Ingest via API
-  CONTEXT="file-scan:${FILE_PATH}"
-  BODY=$(jq -n --arg c "$CONTENT" --arg ctx "$CONTEXT" '{content:$c,context:$ctx}')
+  JSON_BODY=$(jq -n --arg content "$CONTENT" --arg context "$CONTEXT" '{content: $content, context: $context}')
+  if printf '%s' "$JSON_BODY" | bash "$SCRIPT_DIR/nex-api.sh" POST /v1/context/text >/dev/null 2>&1; then
+    INGESTED=$((INGESTED + 1))
 
-  if printf '%s' "$BODY" | bash "$SCRIPT_DIR/nex-api.sh" POST /v1/context/text >/dev/null 2>&1; then
-    SCANNED=$((SCANNED + 1))
-    REASON="new"
-    [[ -n "$EXISTING_HASH" ]] && REASON="changed"
-    FILES_JSON=$(echo "$FILES_JSON" | jq --arg p "$FILE_PATH" --arg r "$REASON" '. + [{"path":$p,"status":"ingested","reason":$r}]')
-
-    # Update manifest
-    NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    MANIFEST=$(echo "$MANIFEST" | jq \
-      --arg p "$FILE_PATH" \
-      --arg h "$HASH" \
-      --arg s "$SIZE" \
-      --arg t "$NOW" \
-      '.files[$p] = {hash:$h, size:($s|tonumber), scanned_at:$t}')
+    # Update manifest (mtime in ms to match Node.js format)
+    FILE_MTIME_MS=$((FILE_MTIME * 1000))
+    TMP=$(mktemp)
+    jq --arg p "$filepath" --argjson mt "$FILE_MTIME_MS" --argjson sz "$FILE_SIZE" --arg ctx "$CONTEXT" --argjson now "$(date +%s)000" \
+      '.files[$p] = {mtime: $mt, size: $sz, ingestedAt: $now, context: $ctx}' \
+      "$MANIFEST_FILE" > "$TMP" && mv "$TMP" "$MANIFEST_FILE"
   else
     ERRORS=$((ERRORS + 1))
-    FILES_JSON=$(echo "$FILES_JSON" | jq --arg p "$FILE_PATH" '. + [{"path":$p,"status":"error","reason":"ingest failed"}]')
+    echo "Failed to ingest: $REL_PATH" >&2
   fi
-done <<< "$DISCOVERED"
+done <<< "$FILES"
 
-# --- Save manifest ---
-if [[ "$DRY_RUN" == "false" ]]; then
-  echo "$MANIFEST" > "$MANIFEST_PATH"
-fi
-
-# --- Output ---
-jq -n \
-  --argjson scanned "$SCANNED" \
-  --argjson skipped "$SKIPPED" \
-  --argjson errors "$ERRORS" \
-  --argjson files "$FILES_JSON" \
-  '{scanned:$scanned, skipped:$skipped, errors:$errors, files:$files}'
+# --- Output summary ---
+echo "{\"scanned\":$SCANNED,\"ingested\":$INGESTED,\"skipped\":$SKIPPED,\"errors\":$ERRORS}"

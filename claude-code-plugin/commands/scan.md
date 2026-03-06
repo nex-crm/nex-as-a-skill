@@ -1,5 +1,8 @@
-Scan the current working directory for text files and ingest new or changed files into Nex.
-
-Run the scan using the file-scanner module. Report how many files were scanned, skipped, and any errors.
-
-If the user provided a directory path as an argument, scan that directory instead of the current working directory.
+---
+description: Scan and ingest project files into Nex knowledge base
+---
+Scan the current project directory for business documents (md, txt, csv, json, yaml)
+and ingest new or changed files into the Nex knowledge base.
+Use the mcp__nex__context_add_text tool for each file found.
+If $ARGUMENTS contains a path, scan that directory instead.
+Report which files were ingested and which were skipped.

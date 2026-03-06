@@ -1,6 +1,16 @@
-const PROD_URL = "https://app.nex.ai";
-const BASE_URL = `${process.env.NEX_DEV_URL ?? PROD_URL}/api/developers`;
-const REGISTER_URL = `${process.env.NEX_DEV_URL ?? PROD_URL}/api/v1/agents/register`;
+import { loadConfig } from "./config.js";
+
+function getBaseUrl(): string {
+  const config = loadConfig();
+  const base = process.env.NEX_API_BASE_URL || config.base_url || "https://app.nex.ai";
+  return `${base.replace(/\/+$/, "")}/api/developers`;
+}
+
+function getRegisterUrl(): string {
+  const config = loadConfig();
+  const base = process.env.NEX_API_BASE_URL || config.base_url || "https://app.nex.ai";
+  return `${base.replace(/\/+$/, "")}/api/v1/agents/register`;
+}
 
 export class NexApiError extends Error {
   constructor(
@@ -42,7 +52,7 @@ export class NexApiClient {
     body?: unknown,
   ): Promise<unknown> {
     this.requireAuth();
-    const url = `${BASE_URL}${path}`;
+    const url = `${getBaseUrl()}${path}`;
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.apiKey}`,
     };
@@ -84,7 +94,7 @@ export class NexApiClient {
     if (name !== undefined) body.name = name;
     if (companyName !== undefined) body.company_name = companyName;
 
-    const res = await fetch(REGISTER_URL, {
+    const res = await fetch(getRegisterUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
