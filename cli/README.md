@@ -40,6 +40,14 @@ nex capture [content]        # Rate-limited ingestion for agent hooks
 nex artifact <id>            # Check processing status
 nex search <query>           # Search CRM records by name
 nex insight list [--last 24h]  # Recent insights
+
+# File scanning
+nex scan [dir]                # Scan directory, ingest new/changed files
+nex scan --dry-run            # Preview what would be scanned
+nex scan --force              # Re-scan all (ignore manifest)
+nex scan --extensions .md,.py # Override file types
+nex scan --max-files 20       # Override max files per run
+nex scan --depth 5            # Override max directory depth
 ```
 
 ### CRM Records
