@@ -1,6 +1,6 @@
 {
   "name": "@nex-ai/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Nex CLI — full-parity command-line interface for the Nex Developer API",
   "type": "module",
   "bin": {
