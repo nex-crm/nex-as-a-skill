@@ -1,0 +1,103 @@
+/**
+ * Integration commands: list, connect, disconnect.
+ */
+
+import { execSync } from "node:child_process";
+import { program } from "../cli.js";
+import { NexClient } from "../lib/client.js";
+import { resolveApiKey, resolveFormat, resolveTimeout } from "../lib/config.js";
+import { printOutput, printError } from "../lib/output.js";
+import type { Format } from "../lib/output.js";
+
+function getClient(): { client: NexClient; format: Format } {
+  const opts = program.opts();
+  const client = new NexClient(resolveApiKey(opts.apiKey), resolveTimeout(opts.timeout));
+  return { client, format: resolveFormat(opts.format) as Format };
+}
+
+const integrate = program
+  .command("integrate")
+  .description("Manage third-party integrations (Gmail, Slack, Salesforce, etc.)");
+
+integrate
+  .command("list")
+  .description("List all available integrations and their connection status")
+  .action(async () => {
+    const { client, format } = getClient();
+    const result = await client.get("/v1/integrations/");
+    printOutput(result, format);
+  });
+
+integrate
+  .command("connect")
+  .description("Connect a third-party integration via OAuth")
+  .argument("<type>", "Integration type: email, calendar, crm, messaging")
+  .argument("<provider>", "Provider: google, microsoft, attio, slack, salesforce, hubspot")
+  .action(async (type: string, provider: string) => {
+    const { client, format } = getClient();
+
+    const result = await client.post<{ auth_url: string; connect_id: string }>(
+      `/v1/integrations/${encodeURIComponent(type)}/${encodeURIComponent(provider)}/connect`
+    );
+
+    if (!result.auth_url) {
+      throw new Error("No auth URL returned from API");
+    }
+
+    // Open browser — URL is from our own API, not user input
+    const url = result.auth_url;
+    try {
+      if (process.platform === "darwin") {
+        execSync(`open ${JSON.stringify(url)}`, { stdio: "ignore" });
+      } else if (process.platform === "linux") {
+        execSync(`xdg-open ${JSON.stringify(url)}`, { stdio: "ignore" });
+      } else if (process.platform === "win32") {
+        execSync(`start "" ${JSON.stringify(url)}`, { stdio: "ignore" });
+      }
+    } catch {
+      process.stderr.write(`Open this URL in your browser:\n${url}\n\n`);
+    }
+
+    process.stderr.write("Waiting for OAuth completion...\n");
+
+    // Poll for status
+    const connectId = result.connect_id;
+    const maxWaitMs = 5 * 60 * 1000; // 5 minutes
+    const pollIntervalMs = 2000;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitMs) {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+
+      try {
+        const status = await client.get<{ status: string; connection_id?: number }>(
+          `/v1/integrations/connect/${encodeURIComponent(connectId)}/status`
+        );
+
+        if (status.status === "connected") {
+          process.stderr.write(`\nConnected successfully!\n`);
+          printOutput(status, format);
+          return;
+        }
+      } catch (err) {
+        // Continue polling on transient errors
+        if (program.opts().debug) {
+          process.stderr.write(`Poll error: ${err}\n`);
+        }
+      }
+    }
+
+    printError("Timed out waiting for OAuth completion. You can check status with 'nex integrate list'.");
+    process.exit(1);
+  });
+
+integrate
+  .command("disconnect")
+  .description("Disconnect an integration")
+  .argument("<connection_id>", "Connection ID to disconnect")
+  .action(async (connectionId: string) => {
+    const { client, format } = getClient();
+    const result = await client.delete(`/v1/integrations/connections/${encodeURIComponent(connectionId)}`);
+    printOutput(result, format);
+    process.stderr.write("Disconnected successfully.\n");
+  });
