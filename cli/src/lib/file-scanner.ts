@@ -70,7 +70,7 @@ export function loadScanConfig(overrides?: Partial<ScanOptions>): ScanOptions {
 
   const envDepth = process.env.NEX_SCAN_DEPTH;
   const depth = overrides?.depth
-    ?? (envDepth ? parseInt(envDepth, 10) : 2);
+    ?? (envDepth ? parseInt(envDepth, 10) : 20);
 
   return {
     extensions,
