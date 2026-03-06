@@ -58,7 +58,7 @@ function getMaxFiles(): number {
 
 function getDepth(): number {
   const env = process.env.NEX_SCAN_DEPTH;
-  return env ? parseInt(env, 10) : 2;
+  return env ? parseInt(env, 10) : 20;
 }
 
 // --- Manifest ---
