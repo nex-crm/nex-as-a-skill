@@ -1,7 +1,7 @@
 {
   "name": "@nex-ai/cli",
-  "version": "0.1.1",
-  "description": "Nex CLI — full-parity command-line interface for the Nex Developer API",
+  "version": "0.1.2",
+  "description": "Nex provides organizational context and memory to AI agents",
   "type": "module",
   "bin": {
     "nex": "dist/index.js"
