@@ -105,7 +105,7 @@ export async function scanFiles(
   const extensions = opts?.extensions ?? DEFAULT_EXTENSIONS;
   const extSet = new Set(extensions.map((e) => (e.startsWith(".") ? e : `.${e}`).toLowerCase()));
   const maxFiles = opts?.maxFiles ?? 5;
-  const maxDepth = opts?.depth ?? 2;
+  const maxDepth = opts?.depth ?? 20;
   const force = opts?.force ?? false;
 
   const discovered = discoverFiles(absDir, extSet, maxDepth);
