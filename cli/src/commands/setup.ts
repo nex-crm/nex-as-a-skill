@@ -11,9 +11,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { program } from "../cli.js";
-import { resolveApiKey, resolveFormat, resolveTimeout } from "../lib/config.js";
+import { resolveApiKey, resolveFormat, resolveTimeout, persistRegistration } from "../lib/config.js";
 import { NexClient } from "../lib/client.js";
 import { printOutput, printError } from "../lib/output.js";
+import { confirm, ask } from "../lib/prompt.js";
 import type { Format } from "../lib/output.js";
 import { detectPlatforms, getPlatformById, VALID_PLATFORM_IDS } from "../lib/platform-detect.js";
 import type { Platform } from "../lib/platform-detect.js";
@@ -141,12 +142,28 @@ async function runSetup(opts: {
   format: Format;
 }): Promise<void> {
   const globalOpts = program.opts();
-  const apiKey = resolveApiKey(globalOpts.apiKey);
+  let apiKey = resolveApiKey(globalOpts.apiKey);
 
-  // 1. Check auth
+  // 1. Register if no API key
   if (!apiKey) {
-    printError("No API key found. Run `nex register` first to create an account.");
-    process.exit(2);
+    process.stderr.write("\nNo API key found. Let's set up your Nex account.\n\n");
+    const wantsRegister = await confirm("Register a new Nex workspace?");
+
+    if (!wantsRegister) {
+      printError("Setup requires an API key. Run `nex register --email <email>` or set NEX_API_KEY.");
+      process.exit(2);
+    }
+
+    const email = await ask("Email (required):", true);
+    const name = await ask("Name (optional):");
+
+    process.stderr.write("\nRegistering...\n");
+    const client = new NexClient(undefined, resolveTimeout(globalOpts.timeout));
+    const data = await client.register(email, name || undefined);
+    persistRegistration(data);
+    apiKey = data.api_key as string;
+
+    process.stderr.write(`\n  ✓ Workspace created! API key: ${maskKey(apiKey)}\n`);
   }
 
   // 2. Sync API key to shared config

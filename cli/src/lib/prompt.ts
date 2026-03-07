@@ -20,3 +20,22 @@ export async function confirm(message: string, defaultYes = true): Promise<boole
     });
   });
 }
+
+export async function ask(message: string, required = false): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+
+  return new Promise((resolve) => {
+    const prompt = () => {
+      rl.question(`${message} `, (answer) => {
+        const trimmed = answer.trim();
+        if (required && !trimmed) {
+          prompt();
+          return;
+        }
+        rl.close();
+        resolve(trimmed);
+      });
+    };
+    prompt();
+  });
+}

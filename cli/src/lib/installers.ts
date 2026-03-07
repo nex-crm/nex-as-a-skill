@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, symlinkSync, readdi
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import type { Platform } from "./platform-detect.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -246,18 +247,25 @@ export function installClaudeCodePlugin(pluginDir?: string): {
 
 /**
  * Find the claude-code-plugin directory relative to the CLI install.
- * Looks for it as a sibling package in the monorepo.
+ * Looks for it as a sibling package in the monorepo or as a globally installed npm package.
  */
 function findPluginDir(): string | undefined {
   // Try common locations
   const candidates = [
-    // Sibling in monorepo (development)
+    // Sibling in monorepo (from dist/lib/ → ../../.. = repo root → claude-code-plugin)
     resolve(__dirname, "..", "..", "..", "claude-code-plugin"),
-    // npm global install (node_modules sibling)
-    resolve(__dirname, "..", "..", "..", "..", "@nex-crm", "claude-code-nex-plugin"),
-    // Relative to cli package
+    // Relative to cli package root (from dist/lib/ → ../.. = cli root → claude-code-plugin)
     resolve(__dirname, "..", "..", "claude-code-plugin"),
   ];
+
+  // Also check npm global node_modules for the published plugin package
+  try {
+    const globalPrefix = execFileSync("npm", ["prefix", "-g"], { encoding: "utf-8" }).trim();
+    candidates.push(join(globalPrefix, "lib", "node_modules", "@nex-crm", "claude-code-nex-plugin"));
+    candidates.push(join(globalPrefix, "lib", "node_modules", "@nex-ai", "claude-code-plugin"));
+  } catch {
+    // npm not available — skip
+  }
 
   for (const candidate of candidates) {
     if (existsSync(join(candidate, "package.json"))) {
