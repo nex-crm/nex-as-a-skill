@@ -130,6 +130,16 @@ export class NexClient {
     return this.request<T>("DELETE", path, undefined, timeoutMs);
   }
 
+  /** Generic PATCH request. */
+  async patch<T = unknown>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+    return this.request<T>("PATCH", path, body, timeoutMs);
+  }
+
+  /** Generic PUT request. */
+  async put<T = unknown>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+    return this.request<T>("PUT", path, body, timeoutMs);
+  }
+
   /** Ingest text content into the Nex knowledge graph. */
   async ingest(content: string, context?: string): Promise<IngestResponse> {
     const body: Record<string, string> = { content };
