@@ -47,7 +47,11 @@ export function resolveApiKey(flagValue?: string): string | undefined {
  * Resolve output format from: flag > config file > default.
  */
 export function resolveFormat(flagValue?: string): string {
-  return flagValue || loadConfig().default_format || "json";
+  if (flagValue) return flagValue;
+  const configured = loadConfig().default_format;
+  if (configured) return configured;
+  // Default to "text" for TTY (rich TUI output), "json" for piped/scripted usage
+  return process.stdout.isTTY ? "text" : "json";
 }
 
 /**
