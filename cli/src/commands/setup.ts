@@ -181,7 +181,10 @@ async function runSetup(opts: {
     persistRegistration(data);
     apiKey = data.api_key as string;
 
-    process.stderr.write(`\n  ✓ Workspace created! API key: ${maskKey(apiKey)}\n`);
+    const wsSlug = data.workspace_slug as string | undefined;
+    process.stderr.write(`\n  ✓ Workspace created!${wsSlug ? ` (${wsSlug})` : ""}\n`);
+    process.stderr.write(`    API key: ${apiKey}\n`);
+    process.stderr.write(`    Saved to: ~/.nex-mcp.json\n`);
   }
 
   // 2. Sync API key to shared config
