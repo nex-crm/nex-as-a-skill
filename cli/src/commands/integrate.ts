@@ -62,16 +62,13 @@ interface IntegrationEntry {
   [key: string]: unknown;
 }
 
-function getConnectionIds(integrations: IntegrationEntry[], type: string, provider: string): Set<number> {
-  const ids = new Set<number>();
+function getConnections(integrations: IntegrationEntry[], type: string, provider: string): Array<{ id: number }> {
   for (const entry of integrations) {
     if (entry.type === type && entry.provider === provider && Array.isArray(entry.connections)) {
-      for (const conn of entry.connections) {
-        if (typeof conn.id === "number") ids.add(conn.id);
-      }
+      return entry.connections.filter((c) => typeof c.id === "number") as Array<{ id: number }>;
     }
   }
-  return ids;
+  return [];
 }
 
 async function pollForConnection(
@@ -88,22 +85,35 @@ async function pollForConnection(
   const pollIntervalMs = 3000;
   const startTime = Date.now();
   let dots = 0;
+  let pollCount = 0;
 
   while (Date.now() - startTime < maxWaitMs) {
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    pollCount++;
 
     try {
       const integrations = await client.get<IntegrationEntry[]>("/v1/integrations/", 5_000);
 
       if (!Array.isArray(integrations)) continue;
 
-      const currentIds = getConnectionIds(integrations, type, provider);
-      for (const id of currentIds) {
-        if (!existingIds.has(id)) {
+      const connections = getConnections(integrations, type, provider);
+
+      // Check for new connection ID
+      for (const conn of connections) {
+        if (!existingIds.has(conn.id)) {
           process.stderr.write("\n\nConnected successfully!\n");
-          printOutput({ status: "connected", connection_id: id }, format);
+          printOutput({ status: "connected", connection_id: conn.id }, format);
           return;
         }
+      }
+
+      // If we had no connections before but now we do, or if after several polls
+      // the connection count matches (reconnect/refresh scenario), report success
+      if (connections.length > 0 && (existingIds.size === 0 || pollCount >= 3)) {
+        // Connection exists — OAuth likely refreshed an existing connection (same ID)
+        process.stderr.write("\n\nConnected successfully!\n");
+        printOutput({ status: "connected", connection_id: connections[0].id }, format);
+        return;
       }
 
       dots = (dots + 1) % 4;
@@ -189,7 +199,7 @@ integrate
     try {
       const integrations = await client.get<IntegrationEntry[]>("/v1/integrations/", 5_000);
       if (Array.isArray(integrations)) {
-        existingIds = getConnectionIds(integrations, integration.type, integration.provider);
+        existingIds = new Set(getConnections(integrations, integration.type, integration.provider).map((c) => c.id));
       }
     } catch {
       // Continue — we'll just not be able to detect duplicates
