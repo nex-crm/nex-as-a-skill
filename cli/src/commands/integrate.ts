@@ -55,14 +55,14 @@ function openBrowser(url: string): void {
 interface IntegrationEntry {
   type?: string;
   provider?: string;
-  connections?: Array<{ id?: number; [key: string]: unknown }>;
+  connections?: Array<{ id?: string | number; [key: string]: unknown }>;
   [key: string]: unknown;
 }
 
-function getConnections(integrations: IntegrationEntry[], type: string, provider: string): Array<{ id: number }> {
+function getConnections(integrations: IntegrationEntry[], type: string, provider: string): Array<{ id: string | number }> {
   for (const entry of integrations) {
     if (entry.type === type && entry.provider === provider && Array.isArray(entry.connections)) {
-      return entry.connections.filter((c) => typeof c.id === "number") as Array<{ id: number }>;
+      return entry.connections.filter((c) => c.id !== undefined && c.id !== null) as Array<{ id: string | number }>;
     }
   }
   return [];
@@ -72,7 +72,7 @@ async function pollForConnection(
   client: NexClient,
   type: string,
   provider: string,
-  existingIds: Set<number>,
+  existingIds: Set<string | number>,
   format: Format,
 ): Promise<void> {
   process.stderr.write(`\n${sym.info} Waiting for OAuth completion...  ${exitHint}\n`);
@@ -146,13 +146,13 @@ interface FullIntegrationEntry {
   provider: string;
   display_name: string;
   description: string;
-  connections: Array<{ id: number; status: string; identifier: string }>;
+  connections: Array<{ id: string | number; status: string; identifier: string }>;
 }
 
 interface ActionItem {
   label: string;
   action: "connect" | "disconnect" | "reconnect";
-  connectionId?: number;
+  connectionId?: string | number;
 }
 
 function getActions(item: FullIntegrationEntry): ActionItem[] {
@@ -260,7 +260,7 @@ function interactiveList(items: FullIntegrationEntry[], client: NexClient, forma
         const integration = INTEGRATIONS[shortcut[0]];
 
         // Snapshot existing connections
-        let existingIds = new Set<number>();
+        let existingIds = new Set<string | number>();
         try {
           const integrations = await client.get<IntegrationEntry[]>("/v1/integrations/", 5_000);
           if (Array.isArray(integrations)) {
@@ -388,7 +388,7 @@ integrate
     const { client, format } = getClient();
 
     // Snapshot existing connections before OAuth
-    let existingIds = new Set<number>();
+    let existingIds = new Set<string | number>();
     try {
       const integrations = await client.get<IntegrationEntry[]>("/v1/integrations/", 5_000);
       if (Array.isArray(integrations)) {

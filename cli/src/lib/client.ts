@@ -6,6 +6,16 @@
 import { AuthError, RateLimitError, ServerError } from "./errors.js";
 import { API_BASE, REGISTER_URL } from "./config.js";
 
+// Pre-process JSON text: quote integer values for "id" fields that exceed
+// Number.MAX_SAFE_INTEGER, preventing JS precision loss on snowflake IDs.
+const UNSAFE_ID_RE = /("(?:[^"]*_)?id"\s*:\s*)(\d{16,})/g;
+function safenIds(jsonText: string): string {
+  return jsonText.replace(UNSAFE_ID_RE, (_match, prefix: string, digits: string) => {
+    if (Number.isSafeInteger(Number(digits))) return `${prefix}${digits}`;
+    return `${prefix}"${digits}"`;
+  });
+}
+
 export class NexClient {
   private apiKey: string | undefined;
   private timeoutMs: number;
@@ -77,7 +87,8 @@ export class NexClient {
 
       const text = await res.text();
       if (!text || !text.trim()) return {} as T;
-      return JSON.parse(text) as T;
+      // Preserve large integer IDs as strings to avoid JS precision loss
+      return JSON.parse(safenIds(text)) as T;
     } finally {
       clearTimeout(timer);
     }
