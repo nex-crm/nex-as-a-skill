@@ -396,7 +396,7 @@ const plugin = {
     api.registerTool({
       name: "nex_list_integrations",
       label: "List Integrations",
-      description: "List available third-party integrations and their connection status",
+      description: "List available third-party integrations and their connection status. Use nex_connect_integration to connect new ones, or nex_disconnect_integration with a connection ID to remove.",
       parameters: ListIntegrationsParams,
       async execute(_toolCallId, _params) {
         const result = await client.get("/v1/integrations/");
@@ -415,7 +415,7 @@ const plugin = {
     api.registerTool({
       name: "nex_connect_integration",
       label: "Connect Integration",
-      description: "Start connecting a third-party integration via OAuth. Returns an auth_url for the user to open.",
+      description: "Start connecting a third-party integration via OAuth. Returns an auth_url for the user to open in their browser. Types: email, calendar, crm, messaging. Providers: google, microsoft, attio, slack, salesforce, hubspot.",
       parameters: ConnectIntegrationParams,
       async execute(_toolCallId, params) {
         const { type, provider } = params as Static<typeof ConnectIntegrationParams>;
@@ -436,7 +436,7 @@ const plugin = {
     api.registerTool({
       name: "nex_disconnect_integration",
       label: "Disconnect Integration",
-      description: "Disconnect a third-party integration",
+      description: "Disconnect a third-party integration by connection ID. Get connection IDs from nex_list_integrations.",
       parameters: DisconnectIntegrationParams,
       async execute(_toolCallId, params) {
         const { connection_id } = params as Static<typeof DisconnectIntegrationParams>;

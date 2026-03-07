@@ -12,7 +12,7 @@
  * On ANY error: outputs {} and exits 0 (graceful degradation).
  */
 
-import { loadConfig, loadScanConfig, ConfigError } from "./config.js";
+import { loadConfig, loadScanConfig, ConfigError, isHookEnabled } from "./config.js";
 import { NexClient } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { formatNexContext } from "./context-format.js";
@@ -40,6 +40,12 @@ async function main(): Promise<void> {
       chunks.push(chunk as Buffer);
     }
     const raw = Buffer.concat(chunks).toString("utf-8");
+
+    // Check .nex.toml kill switch
+    if (!isHookEnabled("session_start")) {
+      process.stdout.write("{}");
+      return;
+    }
 
     let input: HookInput = {};
     try {

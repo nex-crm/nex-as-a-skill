@@ -99,6 +99,95 @@ export function loadBaseUrl(): string {
   return baseUrl.replace(/\/+$/, "");
 }
 
+// --- .nex.toml project config support ---
+
+interface HookTomlConfig {
+  enabled?: boolean;
+  debounce_ms?: number;
+  min_length?: number;
+  max_length?: number;
+}
+
+interface ProjectTomlConfig {
+  hooks?: {
+    enabled?: boolean;
+    recall?: HookTomlConfig;
+    capture?: HookTomlConfig;
+    session_start?: HookTomlConfig;
+  };
+}
+
+function parseTomlValue(raw: string): unknown {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    return raw.slice(1, -1);
+  }
+  if (raw.startsWith("[") && raw.endsWith("]")) {
+    const inner = raw.slice(1, -1).trim();
+    if (!inner) return [];
+    return inner.split(",").map((item) => parseTomlValue(item.trim()));
+  }
+  return raw;
+}
+
+function parseToml(content: string): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
+  const currentSection: string[] = [];
+
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const sectionMatch = trimmed.match(/^\[([^\]]+)\]$/);
+    if (sectionMatch) {
+      currentSection.length = 0;
+      currentSection.push(...sectionMatch[1].split("."));
+      continue;
+    }
+
+    const kvMatch = trimmed.match(/^([a-zA-Z_][a-zA-Z0-9_.]*)\s*=\s*(.+)$/);
+    if (!kvMatch) continue;
+
+    const path = [...currentSection, ...kvMatch[1].trim().split(".")];
+    const value = parseTomlValue(kvMatch[2].trim());
+
+    let target: Record<string, unknown> = obj;
+    for (let i = 0; i < path.length - 1; i++) {
+      if (!(path[i] in target) || typeof target[path[i]] !== "object") {
+        target[path[i]] = {};
+      }
+      target = target[path[i]] as Record<string, unknown>;
+    }
+    target[path[path.length - 1]] = value;
+  }
+  return obj;
+}
+
+/**
+ * Check if a specific hook is enabled in .nex.toml.
+ * Returns true by default (hooks are opt-out).
+ */
+export function isHookEnabled(hookName: "recall" | "capture" | "session_start"): boolean {
+  try {
+    const tomlPath = join(process.cwd(), ".nex.toml");
+    const content = readFileSync(tomlPath, "utf-8");
+    const config = parseToml(content) as ProjectTomlConfig;
+
+    // Master kill switch
+    if (config.hooks?.enabled === false) return false;
+
+    // Per-hook setting
+    const hookConfig = config.hooks?.[hookName];
+    if (hookConfig?.enabled === false) return false;
+
+    return true;
+  } catch {
+    return true; // No .nex.toml or read error → hooks enabled by default
+  }
+}
+
 const DEFAULT_SCAN_EXTENSIONS = [".md", ".txt", ".csv", ".json", ".yaml", ".yml"];
 const DEFAULT_IGNORE_DIRS = [
   "node_modules", ".git", "dist", "build", ".next", "__pycache__",

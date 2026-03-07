@@ -11,7 +11,7 @@
 
 import { readdirSync, statSync, readFileSync } from "node:fs";
 import { join, extname } from "node:path";
-import { loadConfig, loadScanConfig } from "./config.js";
+import { loadConfig, loadScanConfig, isHookEnabled } from "./config.js";
 import { NexClient } from "./nex-client.js";
 import { captureFilter } from "./capture-filter.js";
 import { RateLimiter } from "./rate-limiter.js";
@@ -91,6 +91,12 @@ async function main(): Promise<void> {
       chunks.push(chunk as Buffer);
     }
     const raw = Buffer.concat(chunks).toString("utf-8");
+
+    // Check .nex.toml kill switch
+    if (!isHookEnabled("capture")) {
+      process.stdout.write("{}");
+      return;
+    }
 
     let input: HookInput;
     try {

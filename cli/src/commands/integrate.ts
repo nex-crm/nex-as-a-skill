@@ -10,6 +10,10 @@ import { AuthError, ServerError } from "../lib/errors.js";
 import { printOutput, printError } from "../lib/output.js";
 import type { Format } from "../lib/output.js";
 
+function padRight(str: string, len: number): string {
+  return str.length >= len ? str : str + " ".repeat(len - str.length);
+}
+
 function getClient(): { client: NexClient; format: Format } {
   const opts = program.opts();
   const client = new NexClient(resolveApiKey(opts.apiKey), resolveTimeout(opts.timeout));
@@ -25,8 +29,46 @@ integrate
   .description("List all available integrations and their connection status")
   .action(async () => {
     const { client, format } = getClient();
-    const result = await client.get("/v1/integrations/");
-    printOutput(result, format);
+    const result = await client.get<Record<string, unknown>[]>("/v1/integrations/");
+
+    if (format === "json") {
+      printOutput(result, "json");
+      return;
+    }
+
+    // Human-readable text output
+    if (!Array.isArray(result) || result.length === 0) {
+      process.stdout.write("No integrations available.\n");
+      return;
+    }
+
+    const lines: string[] = [];
+    lines.push("Integrations");
+    lines.push("\u2500".repeat(50));
+
+    for (const integration of result) {
+      const type = String(integration.type ?? "");
+      const provider = String(integration.provider ?? "");
+      const label = `${type} / ${provider}`;
+      const connections = integration.connections as Array<Record<string, unknown>> | undefined;
+
+      if (connections && connections.length > 0) {
+        for (const conn of connections) {
+          const displayName = conn.display_name ?? conn.email ?? "";
+          lines.push(
+            `${padRight(label, 25)} \u25CF connected     ${displayName}     (ID: ${conn.id})`
+          );
+        }
+      } else {
+        lines.push(`${padRight(label, 25)} \u25CB not connected`);
+      }
+    }
+
+    lines.push("");
+    lines.push("Connect:     nex-ai integrate connect <type> <provider>");
+    lines.push("Disconnect:  nex-ai integrate disconnect <id>");
+
+    process.stdout.write(lines.join("\n") + "\n");
   });
 
 integrate
@@ -99,7 +141,7 @@ integrate
       }
     }
 
-    printError("Timed out waiting for OAuth completion. You can check status with 'nex integrate list'.");
+    printError("Timed out waiting for OAuth completion. You can check status with 'nex-ai integrate list'.");
     process.exit(1);
   });
 

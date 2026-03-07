@@ -5,7 +5,7 @@ import { NexApiClient } from "../client.js";
 export function registerIntegrationTools(server: McpServer, client: NexApiClient) {
   server.tool(
     "list_integrations",
-    "List all available third-party integrations (Gmail, Slack, Salesforce, etc.) and their connection status for the current workspace.",
+    "List all available third-party integrations (Gmail, Slack, Salesforce, etc.) and their connection status. To connect a new integration, use the connect_integration tool. To disconnect, use disconnect_integration with the connection ID shown in the results.",
     {},
     { readOnlyHint: true },
     async () => {
@@ -43,7 +43,7 @@ export function registerIntegrationTools(server: McpServer, client: NexApiClient
 
   server.tool(
     "disconnect_integration",
-    "Disconnect a third-party integration by connection ID.",
+    "Disconnect a third-party integration by connection ID. Get connection IDs from list_integrations.",
     {
       connection_id: z.string().describe("Connection ID to disconnect"),
     },

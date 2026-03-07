@@ -9,7 +9,7 @@
  * On ANY error: outputs {} and exits 0 (graceful degradation).
  */
 
-import { loadConfig } from "./config.js";
+import { loadConfig, isHookEnabled } from "./config.js";
 import { NexClient } from "./nex-client.js";
 import { formatNexContext } from "./context-format.js";
 import { SessionStore } from "./session-store.js";
@@ -47,6 +47,12 @@ async function main(): Promise<void> {
       input = JSON.parse(raw) as HookInput;
     } catch {
       process.stderr.write("[nex-recall] Failed to parse stdin JSON\n");
+      process.stdout.write("{}");
+      return;
+    }
+
+    // Check .nex.toml kill switch
+    if (!isHookEnabled("recall")) {
       process.stdout.write("{}");
       return;
     }
