@@ -721,7 +721,8 @@ ${legendTypes
     }
 
     applyVisualState();
-    zoomToNeighborhood(d);
+    // Delay zoom so simulation can position newly-added insight nodes
+    setTimeout(function(){ zoomToNeighborhood(d); }, 300);
   }
 
   function rebuildAndRestart() {
@@ -740,7 +741,7 @@ ${legendTypes
     });
     if (connectedNodes.length < 1) return;
 
-    var padding = 80;
+    var padding = 150;
     var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     connectedNodes.forEach(function(n){
       if (n.x < minX) minX = n.x;
@@ -750,7 +751,7 @@ ${legendTypes
     });
     minX -= padding; minY -= padding; maxX += padding; maxY += padding;
     var bw = maxX - minX, bh = maxY - minY;
-    var scale = 0.9 * Math.min(width / bw, height / bh);
+    var scale = Math.min(0.9 * Math.min(width / bw, height / bh), 1.5);
     var midX = (minX + maxX) / 2, midY = (minY + maxY) / 2;
     if (!isFinite(scale) || !isFinite(midX)) return;
     var transform = d3.zoomIdentity
