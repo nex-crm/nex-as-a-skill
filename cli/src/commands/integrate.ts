@@ -285,7 +285,16 @@ function interactiveList(items: FullIntegrationEntry[], client: NexClient, forma
       } else if (action.action === "disconnect" && action.connectionId !== undefined) {
         try {
           await client.delete(`/v1/integrations/connections/${encodeURIComponent(action.connectionId)}`);
-          process.stderr.write(`${sym.success} Disconnected successfully.\n`);
+          // Optimistic local update — remove connection from in-memory list
+          // so the UI reflects the change immediately (avoids read-replica lag)
+          item.connections = item.connections.filter((c) => c.id !== action.connectionId);
+          process.stdin.setRawMode(true);
+          process.stdin.resume();
+          process.stdin.on("data", onData);
+          expanded = true;
+          actionIndex = 0;
+          draw();
+          return; // Stay in interactive list
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           printError(`Failed to disconnect: ${msg}`);

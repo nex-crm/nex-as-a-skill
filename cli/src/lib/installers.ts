@@ -1,16 +1,20 @@
 /**
- * Platform-specific installers for Nex MCP server and Claude Code plugin.
+ * Platform-specific installers for Nex MCP server, hooks, plugins, agents, and workflows.
  *
- * - Generic MCP installer handles 9/12 platforms (same JSON mcpServers format)
- * - Claude Code installer handles hooks + slash commands
- * - Zed installer uses context_servers instead of mcpServers
- * - Continue.dev writes YAML config
+ * Installation hierarchy (per platform):
+ *   1. Hooks (event-driven scripts)
+ *   2. Custom tools/plugins (OpenCode plugin, OpenClaw plugin)
+ *   3. Custom agents/modes (VS Code agent, Kilo Code mode)
+ *   4. Workflows/slash commands (Windsurf workflows)
+ *   5. Rules (instruction files)
+ *   6. MCP (tool protocol)
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, copyFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import type { Platform } from "./platform-detect.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -22,7 +26,7 @@ const MCP_SERVER_ENTRY = {
   env: {} as Record<string, string>,
 };
 
-// --- Generic MCP Installer ---
+// ── Shared helpers ──────────────────────────────────────────────────────
 
 function readJsonFile(path: string): Record<string, unknown> {
   try {
@@ -38,10 +42,41 @@ function writeJsonFile(path: string, data: Record<string, unknown>): void {
   writeFileSync(path, JSON.stringify(data, null, 2) + "\n", "utf-8");
 }
 
+/**
+ * Resolve bundled plugin paths.
+ * From dist/lib/installers.js:
+ *   __dirname = <pkg>/dist/lib/
+ *   dist/plugin/ = __dirname/../plugin/
+ *   plugin-commands/ = __dirname/../../plugin-commands/
+ *   platform-plugins/ = __dirname/../../platform-plugins/
+ *   platform-rules/ = __dirname/../../platform-rules/
+ */
+function getPluginDistDir(): string {
+  return join(__dirname, "..", "plugin");
+}
+
+function getPluginCommandsDir(): string {
+  return join(__dirname, "..", "..", "plugin-commands");
+}
+
+function getPluginRulesDir(): string {
+  return join(__dirname, "..", "..", "platform-rules");
+}
+
+function getPlatformPluginsDir(): string {
+  return join(__dirname, "..", "..", "platform-plugins");
+}
+
+// ── 1. Generic MCP Installer ───────────────────────────────────────────
+
 export function installMcpServer(
   platform: Platform,
   apiKey: string,
 ): { installed: boolean; configPath: string } {
+  if (!platform.configPath) {
+    return { installed: false, configPath: "" };
+  }
+
   const entry = {
     ...MCP_SERVER_ENTRY,
     env: { NEX_API_KEY: apiKey },
@@ -88,8 +123,6 @@ function installContinueMcp(
   configPath: string,
   apiKey: string,
 ): { installed: boolean; configPath: string } {
-  // Continue.dev can also accept JSON in a separate mcpServers config
-  // Write a simple JSON file alongside the YAML
   const mcpPath = configPath.replace("config.yaml", "mcp.json");
   const config = readJsonFile(mcpPath);
 
@@ -105,7 +138,7 @@ function installContinueMcp(
   return { installed: true, configPath: mcpPath };
 }
 
-// --- Claude Code Plugin Installer ---
+// ── 2. Claude Code Plugin Installer ────────────────────────────────────
 
 interface HookEntry {
   type: string;
@@ -123,24 +156,6 @@ interface HookGroup {
 interface SettingsJson {
   hooks?: Record<string, HookGroup[]>;
   [key: string]: unknown;
-}
-
-/**
- * Resolve bundled plugin paths.
- * Plugin source is compiled into dist/plugin/ alongside the CLI.
- * Slash commands are at plugin-commands/ in the package root.
- *
- * From dist/lib/installers.js:
- *   __dirname = <pkg>/dist/lib/
- *   dist/plugin/ = __dirname/../plugin/
- *   plugin-commands/ = __dirname/../../plugin-commands/
- */
-function getPluginDistDir(): string {
-  return join(__dirname, "..", "plugin");
-}
-
-function getPluginCommandsDir(): string {
-  return join(__dirname, "..", "..", "plugin-commands");
 }
 
 export function installClaudeCodePlugin(): {
@@ -246,29 +261,442 @@ export function installClaudeCodePlugin(): {
         const target = join(commandsDir, entry);
         const source = join(sourceCommandsDir, entry);
 
-        // Remove stale symlink or existing file, then copy fresh
-        try {
-          unlinkSync(target);
-        } catch {
-          // File didn't exist — fine
-        }
+        try { unlinkSync(target); } catch { /* File didn't exist */ }
 
         try {
           copyFileSync(source, target);
           commandsCopied.push(entry);
-        } catch {
-          // Copy failed — non-critical
-        }
+        } catch { /* Copy failed — non-critical */ }
       }
-    } catch {
-      // Commands dir read failed — non-critical
-    }
+    } catch { /* Commands dir read failed — non-critical */ }
   }
 
   return { installed: true, hooksAdded, commandsCopied };
 }
 
-// --- Sync API key to ~/.nex-mcp.json ---
+// ── 3. Hook Installers (Cursor, Windsurf, Cline) ──────────────────────
+
+/**
+ * Install hook scripts for platforms that support event-driven hooks.
+ * Each platform has its own adapter scripts in dist/plugin/adapters/.
+ */
+export function installHooks(
+  platform: Platform,
+): { installed: boolean; hooksAdded: string[] } {
+  // Claude Code handled separately via installClaudeCodePlugin
+  if (platform.id === "claude-code") {
+    return { installed: false, hooksAdded: [] };
+  }
+
+  const adapterDir = join(getPluginDistDir(), "adapters");
+  if (!existsSync(adapterDir)) {
+    return { installed: false, hooksAdded: [] };
+  }
+
+  if (platform.id === "cursor") return installCursorHooks(adapterDir, platform);
+  if (platform.id === "windsurf") return installWindsurfHooks(adapterDir, platform);
+  if (platform.id === "cline") return installClineHooks(adapterDir, platform);
+
+  return { installed: false, hooksAdded: [] };
+}
+
+function installCursorHooks(
+  adapterDir: string,
+  platform: Platform,
+): { installed: boolean; hooksAdded: string[] } {
+  const hookConfigPath = platform.hookConfigPath;
+  if (!hookConfigPath) return { installed: false, hooksAdded: [] };
+
+  const config = readJsonFile(hookConfigPath);
+  if (!config.hooks || typeof config.hooks !== "object") {
+    config.hooks = {};
+  }
+
+  const hooks = config.hooks as Record<string, unknown[]>;
+  const hooksAdded: string[] = [];
+
+  const cursorHookDefs = [
+    { event: "sessionStart", script: "cursor-session-start.js", timeout: 120000 },
+    { event: "userPromptSubmit", script: "cursor-recall.js", timeout: 10000 },
+    { event: "stop", script: "cursor-stop.js", timeout: 10000 },
+  ];
+
+  for (const def of cursorHookDefs) {
+    const scriptPath = join(adapterDir, def.script);
+    if (!existsSync(scriptPath)) continue;
+
+    if (!hooks[def.event]) hooks[def.event] = [];
+
+    // Remove existing nex hooks
+    hooks[def.event] = (hooks[def.event] as Array<Record<string, unknown>>).filter(
+      (h) => !String(h.command ?? "").includes("nex")
+    );
+
+    (hooks[def.event] as unknown[]).push({
+      type: "command",
+      command: `node ${scriptPath}`,
+      timeout: def.timeout,
+    });
+    hooksAdded.push(def.event);
+  }
+
+  writeJsonFile(hookConfigPath, config);
+  return { installed: true, hooksAdded };
+}
+
+function installWindsurfHooks(
+  adapterDir: string,
+  platform: Platform,
+): { installed: boolean; hooksAdded: string[] } {
+  const hookConfigPath = platform.hookConfigPath;
+  if (!hookConfigPath) return { installed: false, hooksAdded: [] };
+
+  const config = readJsonFile(hookConfigPath);
+  if (!config.hooks || typeof config.hooks !== "object") {
+    config.hooks = {};
+  }
+
+  const hooks = config.hooks as Record<string, unknown[]>;
+  const hooksAdded: string[] = [];
+
+  const windsurfHookDefs = [
+    { event: "pre_user_prompt", script: "windsurf-recall.js", timeout: 10000 },
+    { event: "post_cascade_response", script: "windsurf-capture.js", timeout: 10000 },
+  ];
+
+  for (const def of windsurfHookDefs) {
+    const scriptPath = join(adapterDir, def.script);
+    if (!existsSync(scriptPath)) continue;
+
+    if (!hooks[def.event]) hooks[def.event] = [];
+
+    hooks[def.event] = (hooks[def.event] as Array<Record<string, unknown>>).filter(
+      (h) => !String(h.command ?? "").includes("nex")
+    );
+
+    (hooks[def.event] as unknown[]).push({
+      type: "command",
+      command: `node ${scriptPath}`,
+      timeout: def.timeout,
+    });
+    hooksAdded.push(def.event);
+  }
+
+  writeJsonFile(hookConfigPath, config);
+  return { installed: true, hooksAdded };
+}
+
+function installClineHooks(
+  adapterDir: string,
+  platform: Platform,
+): { installed: boolean; hooksAdded: string[] } {
+  // Cline uses executable files in .clinerules/hooks/
+  const hookDir = platform.hookConfigPath;
+  if (!hookDir) return { installed: false, hooksAdded: [] };
+
+  mkdirSync(hookDir, { recursive: true });
+  const hooksAdded: string[] = [];
+
+  const clineHookDefs = [
+    { event: "UserPromptSubmit", script: "cline-recall.js" },
+    { event: "TaskStart", script: "cline-task-start.js" },
+    { event: "TaskComplete", script: "cline-capture.js" },
+  ];
+
+  for (const def of clineHookDefs) {
+    const scriptPath = join(adapterDir, def.script);
+    if (!existsSync(scriptPath)) continue;
+
+    // Write a shell wrapper that invokes node with the adapter script
+    const wrapperPath = join(hookDir, `nex-${def.event.toLowerCase()}`);
+    const wrapper = `#!/usr/bin/env sh\nexec node "${scriptPath}" "$@"\n`;
+    writeFileSync(wrapperPath, wrapper, { mode: 0o755 });
+    hooksAdded.push(def.event);
+  }
+
+  return { installed: true, hooksAdded };
+}
+
+// ── 4. Custom Tool/Plugin Installers ───────────────────────────────────
+
+/**
+ * Install OpenCode plugin template to .opencode/plugins/nex.ts.
+ */
+export function installOpenCodePlugin(): {
+  installed: boolean;
+  pluginPath: string;
+} {
+  const templatePath = join(getPlatformPluginsDir(), "opencode-plugin.ts");
+  if (!existsSync(templatePath)) {
+    return { installed: false, pluginPath: "" };
+  }
+
+  const targetDir = join(process.cwd(), ".opencode", "plugins");
+  const targetPath = join(targetDir, "nex.ts");
+
+  mkdirSync(targetDir, { recursive: true });
+  copyFileSync(templatePath, targetPath);
+
+  return { installed: true, pluginPath: targetPath };
+}
+
+/**
+ * Install OpenClaw plugin via CLI.
+ */
+export function installOpenClawPlugin(
+  apiKey: string,
+): { installed: boolean; message: string } {
+  // Check if openclaw CLI is available
+  let hasOpenClaw = false;
+  try {
+    execFileSync("which", ["openclaw"], { stdio: "ignore" });
+    hasOpenClaw = true;
+  } catch { /* not installed */ }
+
+  if (!hasOpenClaw) {
+    return {
+      installed: false,
+      message: "Install OpenClaw to enable: https://docs.openclaw.ai/install",
+    };
+  }
+
+  // Check if plugin already installed
+  const configPath = join(homedir(), ".openclaw", "openclaw.json");
+  const config = readJsonFile(configPath);
+  const plugins = (config.plugins ?? {}) as Record<string, unknown>;
+  const entries = (plugins.entries ?? {}) as Record<string, Record<string, unknown>>;
+
+  if (!entries.nex) {
+    // Install the plugin
+    try {
+      execFileSync("openclaw", ["plugins", "install", "@nex-ai/openclaw-plugin"], {
+        stdio: "ignore",
+        timeout: 30_000,
+      });
+    } catch {
+      return { installed: false, message: "Failed to install OpenClaw plugin" };
+    }
+  }
+
+  // Configure API key
+  const freshConfig = readJsonFile(configPath);
+  const freshPlugins = (freshConfig.plugins ?? {}) as Record<string, unknown>;
+  const freshEntries = (freshPlugins.entries ?? {}) as Record<string, Record<string, unknown>>;
+
+  if (!freshEntries.nex) freshEntries.nex = {};
+  if (!freshEntries.nex.config) freshEntries.nex.config = {};
+  (freshEntries.nex.config as Record<string, unknown>).apiKey = apiKey;
+  freshEntries.nex.enabled = true;
+
+  freshPlugins.entries = freshEntries;
+  freshConfig.plugins = freshPlugins;
+
+  writeJsonFile(configPath, freshConfig);
+  return { installed: true, message: "OpenClaw plugin installed and configured" };
+}
+
+// ── 5. Custom Agent/Mode Installers ────────────────────────────────────
+
+/**
+ * Install VS Code custom agent (.github/agents/nex.agent.md).
+ */
+export function installVSCodeAgent(): {
+  installed: boolean;
+  agentPath: string;
+} {
+  const templatePath = join(getPlatformPluginsDir(), "vscode-agent.md");
+  if (!existsSync(templatePath)) {
+    return { installed: false, agentPath: "" };
+  }
+
+  const targetDir = join(process.cwd(), ".github", "agents");
+  const targetPath = join(targetDir, "nex.agent.md");
+
+  mkdirSync(targetDir, { recursive: true });
+  copyFileSync(templatePath, targetPath);
+
+  return { installed: true, agentPath: targetPath };
+}
+
+/**
+ * Install Kilo Code custom mode (.kilocodemodes YAML).
+ */
+export function installKiloCodeMode(): {
+  installed: boolean;
+  modePath: string;
+} {
+  const templatePath = join(getPlatformPluginsDir(), "kilocode-modes.yaml");
+  if (!existsSync(templatePath)) {
+    return { installed: false, modePath: "" };
+  }
+
+  const targetPath = join(process.cwd(), ".kilocodemodes");
+
+  // Read existing modes file if present
+  let existing = "";
+  try {
+    existing = readFileSync(targetPath, "utf-8");
+  } catch { /* doesn't exist */ }
+
+  // If already has nex-crm mode, skip
+  if (existing.includes("nex-crm")) {
+    return { installed: true, modePath: targetPath };
+  }
+
+  const template = readFileSync(templatePath, "utf-8");
+
+  if (existing) {
+    // Append to existing customModes
+    // Remove the "customModes:" header from template since it already exists
+    const modesContent = template.replace(/^customModes:\s*\n/, "");
+    writeFileSync(targetPath, existing.trimEnd() + "\n" + modesContent, "utf-8");
+  } else {
+    writeFileSync(targetPath, template, "utf-8");
+  }
+
+  return { installed: true, modePath: targetPath };
+}
+
+/**
+ * Install Continue.dev context provider template.
+ */
+export function installContinueProvider(): {
+  installed: boolean;
+  providerPath: string;
+} {
+  const templatePath = join(getPlatformPluginsDir(), "continue-provider.ts");
+  if (!existsSync(templatePath)) {
+    return { installed: false, providerPath: "" };
+  }
+
+  const continueBase = existsSync(join(process.cwd(), ".continue"))
+    ? join(process.cwd(), ".continue")
+    : join(homedir(), ".continue");
+
+  const targetDir = join(continueBase, ".plugins");
+  const targetPath = join(targetDir, "nex-provider.ts");
+
+  mkdirSync(targetDir, { recursive: true });
+  copyFileSync(templatePath, targetPath);
+
+  return { installed: true, providerPath: targetPath };
+}
+
+// ── 6. Workflow Installers ─────────────────────────────────────────────
+
+/**
+ * Install Windsurf workflow files (slash commands).
+ */
+export function installWindsurfWorkflows(): {
+  installed: boolean;
+  workflowCount: number;
+} {
+  const sourceDir = join(getPlatformPluginsDir(), "windsurf-workflows");
+  if (!existsSync(sourceDir)) {
+    return { installed: false, workflowCount: 0 };
+  }
+
+  const targetDir = join(process.cwd(), ".windsurf", "workflows");
+  mkdirSync(targetDir, { recursive: true });
+
+  let count = 0;
+  try {
+    const entries = readdirSync(sourceDir);
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      copyFileSync(join(sourceDir, entry), join(targetDir, entry));
+      count++;
+    }
+  } catch { /* non-critical */ }
+
+  return { installed: count > 0, workflowCount: count };
+}
+
+// ── 7. Rules File Installer ────────────────────────────────────────────
+
+const NEX_RULES_MARKER_START = "# --- Nex Context & Memory ---";
+const NEX_RULES_MARKER_END = "# --- End Nex ---";
+
+/**
+ * Map platform ID to its rules template filename.
+ */
+const RULES_TEMPLATE_MAP: Record<string, string> = {
+  cursor: "cursor-rules.md",
+  vscode: "vscode-instructions.md",
+  windsurf: "windsurf-rules.md",
+  cline: "cline-rules.md",
+  continue: "continue-rules.md",
+  zed: "zed-rules.md",
+  kilocode: "kilocode-rules.md",
+  opencode: "opencode-agents.md",
+  aider: "aider-conventions.md",
+};
+
+/**
+ * Platforms where rules are APPENDED to an existing file (with markers)
+ * rather than written as a standalone file.
+ */
+const APPEND_PLATFORMS = new Set(["zed", "opencode", "aider"]);
+
+export function installRulesFile(
+  platform: Platform,
+): { installed: boolean; rulesPath: string } {
+  const rulesPath = platform.rulesPath;
+  if (!rulesPath) {
+    return { installed: false, rulesPath: "" };
+  }
+
+  const templateName = RULES_TEMPLATE_MAP[platform.id];
+  if (!templateName) {
+    return { installed: false, rulesPath: "" };
+  }
+
+  const templatePath = join(getPluginRulesDir(), templateName);
+  if (!existsSync(templatePath)) {
+    return { installed: false, rulesPath: "" };
+  }
+
+  const template = readFileSync(templatePath, "utf-8");
+
+  if (APPEND_PLATFORMS.has(platform.id)) {
+    // Append mode: add/replace section in existing file
+    let existing = "";
+    try {
+      existing = readFileSync(rulesPath, "utf-8");
+    } catch {
+      // File doesn't exist — will create
+    }
+
+    // Check if nex section already exists
+    const startIdx = existing.indexOf(NEX_RULES_MARKER_START);
+    const endIdx = existing.indexOf(NEX_RULES_MARKER_END);
+
+    if (startIdx !== -1 && endIdx !== -1) {
+      // Replace existing section
+      const before = existing.slice(0, startIdx);
+      const after = existing.slice(endIdx + NEX_RULES_MARKER_END.length);
+      const updated = before + template.trim() + after;
+      mkdirSync(dirname(rulesPath), { recursive: true });
+      writeFileSync(rulesPath, updated, "utf-8");
+    } else if (existing.includes("nex_ask") || existing.includes("Nex Context")) {
+      // Already has nex content without markers — skip to avoid duplicates
+      return { installed: true, rulesPath };
+    } else {
+      // Append to end
+      const separator = existing && !existing.endsWith("\n\n") ? "\n\n" : "";
+      mkdirSync(dirname(rulesPath), { recursive: true });
+      writeFileSync(rulesPath, existing + separator + template.trim() + "\n", "utf-8");
+    }
+  } else {
+    // Standalone mode: write the file directly
+    mkdirSync(dirname(rulesPath), { recursive: true });
+    writeFileSync(rulesPath, template, "utf-8");
+  }
+
+  return { installed: true, rulesPath };
+}
+
+// ── 8. Sync API key to ~/.nex-mcp.json ─────────────────────────────────
 
 export function syncApiKeyToMcpConfig(apiKey: string): void {
   const mcpConfigPath = join(homedir(), ".nex-mcp.json");

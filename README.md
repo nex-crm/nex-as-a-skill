@@ -29,14 +29,35 @@ One fact entered once. Available everywhere, instantly.
 | **Commands** | 50+ CLI commands | 50+ typed tools | 4 tools + 4 commands | 5 slash commands + MCP | bash scripts |
 | **Rate limiting** | File-based | File-based | Queue + file-based | File-based | N/A |
 | **Session tracking** | File-based | File-based | In-memory LRU | File-based | N/A |
-| **Setup** | `npx @nex-ai/cli` | `npm install` + config | Copy plugin | Build + hooks | Set `NEX_API_KEY` |
+| **Setup** | `nex setup` | `nex setup --with-mcp` | Copy plugin | `nex setup` | Set `NEX_API_KEY` |
 
-## Quick Start
+## Quick Start (Recommended)
+
+```bash
+# Install and run setup — handles everything in one step
+npm install -g @nex-ai/nex
+nex setup
+```
+
+`nex setup` registers your API key, auto-detects your AI platforms (Claude Code, Cursor, Windsurf, etc.), installs hooks, scans project files, and creates config. One command, fully configured.
+
+```bash
+# Now use it from any agent
+nex ask "who is Maria Rodriguez?"
+nex remember "Met with Maria, CTO of TechFlow. European expansion Q3, $2M budget."
+```
+
+See [`cli/README.md`](cli/README.md) for all 50+ commands.
+
+---
+
+<details>
+<summary>Manual setup per platform (if you prefer step-by-step)</summary>
 
 ### CLI (any terminal, any AI agent)
 
 ```bash
-npx @nex-ai/cli register --email you@company.com
+npx @nex-ai/nex register --email you@company.com
 ```
 
 That's it. Now use it:
@@ -66,9 +87,7 @@ nex recall "what do I know about TechFlow?"  # Returns <nex-context> XML block
 nex capture "Agent conversation text..."  # Rate-limited, filtered
 ```
 
-Install globally: `npm install -g @nex-ai/cli`
-
-See [`cli/README.md`](cli/README.md) for all 50+ commands.
+Install globally: `npm install -g @nex-ai/nex`
 
 ### MCP Server (Claude Desktop, Cursor, Windsurf)
 
@@ -182,6 +201,8 @@ bash scripts/nex-scan-files.sh --dir . --max-files 10
 ```
 
 See [`SKILL.md`](SKILL.md) for the full API reference.
+
+</details>
 
 ## Shared Config
 
