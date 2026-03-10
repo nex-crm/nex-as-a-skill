@@ -1,5 +1,5 @@
 /**
- * Self-contained HTML graph visualization using Sigma.js v3 + Graphology.
+ * Self-contained HTML graph visualization using Cytoscape.js.
  * Generates a single HTML string that can be opened in any browser.
  */
 
@@ -61,11 +61,9 @@ function escapeJsonForHtml(data: unknown): string {
 export function generateGraphHtml(data: GraphData): string {
   const nodeColors = { ...NODE_COLORS };
   const typeSet = new Set<string>();
-  for (const n of data.nodes) {
-    typeSet.add(n.type);
-  }
+  for (const n of data.nodes) typeSet.add(n.type);
 
-  // Build degree map
+  // Build degree map for sizing
   const degree: Record<string, number> = {};
   for (const n of data.nodes) degree[n.id] = 0;
   for (const e of data.edges) {
@@ -74,27 +72,34 @@ export function generateGraphHtml(data: GraphData): string {
   }
   const maxDeg = Math.max(1, ...Object.values(degree));
 
-  // Build safe node data for embedding
-  const safeNodes = data.nodes.map((n) => ({
-    id: n.id,
-    name: escapeHtml(n.name),
-    rawName: n.name,
-    type: n.type,
-    primary_attribute: n.primary_attribute ? escapeHtml(n.primary_attribute) : undefined,
-    color: nodeColors[n.type] ?? DEFAULT_COLOR,
-    size: 5 + ((degree[n.id] ?? 0) / maxDeg) * 15,
-    created_at: n.created_at,
-  }));
+  // Node set for filtering dangling edges
+  const nodeIds = new Set(data.nodes.map((n) => n.id));
 
-  const safeEdges = data.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: escapeHtml(e.label),
-    definition_id: e.definition_id,
-  }));
+  // Build Cytoscape elements
+  const elements = {
+    nodes: data.nodes.map((n) => ({
+      data: {
+        id: n.id,
+        label: n.name,
+        type: n.type,
+        primary_attribute: n.primary_attribute ?? "",
+        created_at: n.created_at ?? "",
+        color: nodeColors[n.type] ?? DEFAULT_COLOR,
+        size: 20 + ((degree[n.id] ?? 0) / maxDeg) * 40,
+      },
+    })),
+    edges: data.edges
+      .filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+      .map((e) => ({
+        data: {
+          id: "e" + e.id,
+          source: e.source,
+          target: e.target,
+          label: e.label,
+        },
+      })),
+  };
 
-  // Build legend from actual types
   const legendTypes = Array.from(typeSet).sort();
 
   return `<!DOCTYPE html>
@@ -106,7 +111,7 @@ export function generateGraphHtml(data: GraphData): string {
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#1a1a2e;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;overflow:hidden}
-#graph-container{width:100vw;height:100vh}
+#cy{width:100vw;height:100vh}
 #search-box{position:fixed;top:16px;left:16px;z-index:10;background:#25253e;border:1px solid #3a3a5c;border-radius:8px;padding:8px 12px;color:#e0e0e0;font-size:14px;width:240px;outline:none}
 #search-box::placeholder{color:#6a6a8a}
 #search-box:focus{border-color:#4F87E0}
@@ -140,130 +145,137 @@ ${legendTypes
 <h3 id="detail-name"></h3>
 <div id="detail-body"></div>
 </div>
-<div id="graph-container"></div>
+<div id="cy"></div>
 
-<script src="https://unpkg.com/graphology@0.25.4/dist/graphology.umd.min.js"></script>
-<script src="https://unpkg.com/graphology-layout-forceatlas2@0.10.1/dist/graphology-layout-forceatlas2.min.js"></script>
-<script src="https://unpkg.com/sigma@3.0.0-beta.9/build/sigma.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.4/cytoscape.min.js"></script>
 
-<script id="graph-data" type="application/json">${escapeJsonForHtml({ nodes: safeNodes, edges: safeEdges })}</script>
+<script id="graph-data" type="application/json">${escapeJsonForHtml(elements)}</script>
 
 <script>
 (function(){
-  var raw = JSON.parse(document.getElementById("graph-data").textContent);
-  var graph = new graphology.Graph({multi:true});
+  var elements = JSON.parse(document.getElementById("graph-data").textContent);
 
-  raw.nodes.forEach(function(n){
-    graph.addNode(n.id,{
-      label:n.name,
-      x:Math.random()*100,
-      y:Math.random()*100,
-      size:n.size,
-      color:n.color,
-      type:n.type,
-      rawName:n.rawName,
-      primary_attribute:n.primary_attribute,
-      created_at:n.created_at
-    });
-  });
-
-  raw.edges.forEach(function(e){
-    if(graph.hasNode(e.source)&&graph.hasNode(e.target)){
-      graph.addEdge(e.source,e.target,{label:e.label,size:1,color:"#3a3a5c"});
-    }
-  });
-
-  // ForceAtlas2 layout
-  var fa2=graphologyLayoutForceAtlas2;
-  var settings=fa2.inferSettings(graph);
-  settings.gravity=1;
-  settings.scalingRatio=10;
-  fa2.assign(graph,{settings:settings,iterations:150});
-
-  var container=document.getElementById("graph-container");
-  var renderer=new Sigma(graph,container,{
-    renderEdgeLabels:true,
-    labelColor:{color:"#c0c0d0"},
-    labelSize:12,
-    labelRenderedSizeThreshold:8,
-    edgeLabelColor:{color:"#6a6a8a"},
-    edgeLabelSize:10,
-    defaultEdgeType:"line",
-    stagePadding:40
+  var cy = cytoscape({
+    container: document.getElementById("cy"),
+    elements: elements,
+    style: [
+      {
+        selector: "node",
+        style: {
+          "background-color": "data(color)",
+          "label": "data(label)",
+          "width": "data(size)",
+          "height": "data(size)",
+          "color": "#c0c0d0",
+          "font-size": "11px",
+          "text-valign": "bottom",
+          "text-margin-y": "6px",
+          "text-outline-color": "#1a1a2e",
+          "text-outline-width": "2px",
+          "min-zoomed-font-size": 10
+        }
+      },
+      {
+        selector: "edge",
+        style: {
+          "width": 1.5,
+          "line-color": "#3a3a5c",
+          "target-arrow-color": "#3a3a5c",
+          "target-arrow-shape": "triangle",
+          "curve-style": "bezier",
+          "label": "data(label)",
+          "font-size": "9px",
+          "color": "#6a6a8a",
+          "text-rotation": "autorotate",
+          "text-outline-color": "#1a1a2e",
+          "text-outline-width": "1.5px",
+          "min-zoomed-font-size": 12
+        }
+      },
+      {
+        selector: "node.highlighted",
+        style: {
+          "border-width": "3px",
+          "border-color": "#fff"
+        }
+      },
+      {
+        selector: "node.faded",
+        style: {
+          "opacity": 0.15
+        }
+      },
+      {
+        selector: "edge.faded",
+        style: {
+          "opacity": 0.08
+        }
+      }
+    ],
+    layout: {
+      name: "cose",
+      animate: false,
+      nodeRepulsion: function(){ return 8000; },
+      idealEdgeLength: function(){ return 120; },
+      gravity: 0.3,
+      numIter: 300,
+      padding: 40
+    },
+    wheelSensitivity: 0.3
   });
 
   // Hover: highlight neighbors
-  var hoveredNode=null;
-  var hoveredNeighbors=new Set();
-
-  renderer.on("enterNode",function(e){
-    hoveredNode=e.node;
-    hoveredNeighbors=new Set(graph.neighbors(e.node));
-    renderer.refresh();
-  });
-  renderer.on("leaveNode",function(){
-    hoveredNode=null;
-    hoveredNeighbors.clear();
-    renderer.refresh();
+  cy.on("mouseover", "node", function(e){
+    var node = e.target;
+    var neighborhood = node.neighborhood().add(node);
+    cy.elements().addClass("faded");
+    neighborhood.removeClass("faded");
+    node.addClass("highlighted");
   });
 
-  renderer.setSetting("nodeReducer",function(node,data){
-    var res=Object.assign({},data);
-    if(hoveredNode){
-      if(node===hoveredNode){
-        res.highlighted=true;
-      }else if(!hoveredNeighbors.has(node)){
-        res.color="#2a2a3e";
-        res.label=null;
-      }
-    }
-    if(searchQuery){
-      var name=(graph.getNodeAttribute(node,"rawName")||"").toLowerCase();
-      if(!name.includes(searchQuery)){
-        res.color="#2a2a3e";
-        res.label=null;
-      }
-    }
-    return res;
-  });
-
-  renderer.setSetting("edgeReducer",function(edge,data){
-    var res=Object.assign({},data);
-    if(hoveredNode){
-      var src=graph.source(edge);
-      var tgt=graph.target(edge);
-      if(src!==hoveredNode&&tgt!==hoveredNode){
-        res.hidden=true;
-      }else{
-        res.color="#6a6a8a";
-        res.size=2;
-      }
-    }
-    return res;
+  cy.on("mouseout", "node", function(e){
+    cy.elements().removeClass("faded").removeClass("highlighted");
   });
 
   // Search
-  var searchQuery="";
-  var searchBox=document.getElementById("search-box");
-  searchBox.addEventListener("input",function(){
-    searchQuery=searchBox.value.trim().toLowerCase();
-    if(searchQuery){
-      graph.forEachNode(function(node,attrs){
-        if((attrs.rawName||"").toLowerCase().includes(searchQuery)){
-          var pos=renderer.getNodeDisplayData(node);
-          if(pos)renderer.getCamera().animate({x:pos.x,y:pos.y,ratio:0.3},{duration:300});
-          return true;
-        }
-      });
+  var searchBox = document.getElementById("search-box");
+  searchBox.addEventListener("input", function(){
+    var q = searchBox.value.trim().toLowerCase();
+    if (!q) {
+      cy.elements().removeClass("faded");
+      return;
     }
-    renderer.refresh();
+    cy.nodes().forEach(function(n){
+      var name = (n.data("label") || "").toLowerCase();
+      if (name.includes(q)) {
+        n.removeClass("faded");
+        n.neighborhood().add(n).removeClass("faded");
+      } else {
+        n.addClass("faded");
+      }
+    });
+    cy.edges().forEach(function(e){
+      if (e.source().hasClass("faded") && e.target().hasClass("faded")) {
+        e.addClass("faded");
+      } else {
+        e.removeClass("faded");
+      }
+    });
+    // Center on first match
+    var matches = cy.nodes().filter(function(n){
+      return (n.data("label") || "").toLowerCase().includes(q);
+    });
+    if (matches.length > 0) {
+      cy.animate({ center: { eles: matches.first() }, zoom: 1.5, duration: 300 });
+    }
   });
 
-  // Detail panel — uses textContent and DOM methods to avoid innerHTML XSS
-  var panel=document.getElementById("detail-panel");
-  var detailName=document.getElementById("detail-name");
-  var detailBody=document.getElementById("detail-body");
-  document.getElementById("detail-close").addEventListener("click",function(){
+  // Detail panel
+  var panel = document.getElementById("detail-panel");
+  var detailName = document.getElementById("detail-name");
+  var detailBody = document.getElementById("detail-body");
+
+  document.getElementById("detail-close").addEventListener("click", function(){
     panel.classList.remove("open");
   });
 
@@ -281,32 +293,33 @@ ${legendTypes
     parent.appendChild(field);
   }
 
-  renderer.on("clickNode",function(e){
-    var attrs=graph.getNodeAttributes(e.node);
-    var neighbors=graph.neighbors(e.node);
-    detailName.textContent=attrs.rawName||attrs.label||e.node;
-    detailBody.textContent="";
-    addField(detailBody, "Type", attrs.type||"");
-    if(attrs.primary_attribute) addField(detailBody, "Primary", attrs.primary_attribute);
-    if(attrs.created_at) addField(detailBody, "Created", attrs.created_at);
+  cy.on("tap", "node", function(e){
+    var node = e.target;
+    var d = node.data();
+    var neighbors = node.neighborhood("node");
+    detailName.textContent = d.label || d.id;
+    detailBody.textContent = "";
+    addField(detailBody, "Type", d.type || "");
+    if (d.primary_attribute) addField(detailBody, "Primary", d.primary_attribute);
+    if (d.created_at) addField(detailBody, "Created", d.created_at);
     addField(detailBody, "Connections", String(neighbors.length));
-    if(neighbors.length>0){
-      var field=document.createElement("div");
-      field.className="field";
-      var lbl=document.createElement("div");
-      lbl.className="label";
-      lbl.textContent="Connected to";
+    if (neighbors.length > 0) {
+      var field = document.createElement("div");
+      field.className = "field";
+      var lbl = document.createElement("div");
+      lbl.className = "label";
+      lbl.textContent = "Connected to";
       field.appendChild(lbl);
-      var val=document.createElement("div");
-      val.className="value";
-      neighbors.slice(0,20).forEach(function(n){
-        var line=document.createElement("div");
-        line.textContent=graph.getNodeAttribute(n,"rawName")||n;
+      var val = document.createElement("div");
+      val.className = "value";
+      neighbors.slice(0, 20).forEach(function(n){
+        var line = document.createElement("div");
+        line.textContent = n.data("label") || n.id();
         val.appendChild(line);
       });
-      if(neighbors.length>20){
-        var more=document.createElement("em");
-        more.textContent="...and "+(neighbors.length-20)+" more";
+      if (neighbors.length > 20) {
+        var more = document.createElement("em");
+        more.textContent = "...and " + (neighbors.length - 20) + " more";
         val.appendChild(more);
       }
       field.appendChild(val);
@@ -315,8 +328,8 @@ ${legendTypes
     panel.classList.add("open");
   });
 
-  renderer.on("clickStage",function(){
-    panel.classList.remove("open");
+  cy.on("tap", function(e){
+    if (e.target === cy) panel.classList.remove("open");
   });
 })();
 </script>

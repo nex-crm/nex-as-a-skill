@@ -15,10 +15,9 @@ function makeData(overrides?: Partial<GraphData>): GraphData {
 }
 
 describe("generateGraphHtml", () => {
-  it("returns HTML containing sigma and graphology references", () => {
+  it("returns HTML containing cytoscape reference", () => {
     const html = generateGraphHtml(makeData());
-    assert.ok(html.includes("sigma"), "should reference sigma");
-    assert.ok(html.includes("graphology"), "should reference graphology");
+    assert.ok(html.includes("cytoscape"), "should reference cytoscape");
     assert.ok(html.includes("<!DOCTYPE html>"), "should be a full HTML document");
   });
 
