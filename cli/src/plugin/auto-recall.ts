@@ -9,38 +9,16 @@
  * On ANY error: outputs {} and exits 0 (graceful degradation).
  */
 
-import { loadConfig, isHookEnabled } from "./config.js";
-import { NexClient } from "./nex-client.js";
-import { formatNexContext } from "./context-format.js";
-import { SessionStore } from "./session-store.js";
-import { shouldRecall, recordRecall } from "./recall-filter.js";
-
-const sessions = new SessionStore();
+import { doRecall, readStdin, claudeCodeOutput } from "./shared.js";
 
 interface HookInput {
   prompt?: string;
   session_id?: string;
 }
 
-/**
- * Check if this is the first prompt for this session.
- * A session with no stored Nex session ID is considered "first prompt"
- * (SessionStart may have already set one, but that's fine — it means
- * baseline context was loaded, and first user prompt still gets recall).
- */
-function isFirstPrompt(sessionKey: string | undefined): boolean {
-  if (!sessionKey) return true;
-  return !sessions.get(sessionKey);
-}
-
 async function main(): Promise<void> {
   try {
-    // Read stdin
-    const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) {
-      chunks.push(chunk as Buffer);
-    }
-    const raw = Buffer.concat(chunks).toString("utf-8");
+    const raw = await readStdin();
 
     let input: HookInput;
     try {
@@ -51,78 +29,14 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Check .nex.toml kill switch
-    if (!isHookEnabled("recall")) {
+    const result = await doRecall(input.prompt ?? "", input.session_id);
+
+    if (!result) {
       process.stdout.write("{}");
       return;
     }
 
-    const prompt = input.prompt?.trim();
-    if (!prompt || prompt.length < 5) {
-      process.stdout.write("{}");
-      return;
-    }
-
-    // Skip slash commands
-    if (prompt.startsWith("/")) {
-      process.stdout.write("{}");
-      return;
-    }
-
-    // --- Recall filter: decide if this prompt needs memory recall ---
-    const decision = shouldRecall(prompt, isFirstPrompt(input.session_id));
-    if (!decision.shouldRecall) {
-      process.stdout.write("{}");
-      return;
-    }
-
-    let cfg;
-    try {
-      cfg = loadConfig();
-    } catch (err) {
-      process.stderr.write(
-        `[nex-recall] Config error: ${err instanceof Error ? err.message : String(err)}\n`
-      );
-      process.stdout.write("{}");
-      return;
-    }
-
-    const client = new NexClient(cfg.apiKey, cfg.baseUrl);
-
-    // Resolve session ID for multi-turn continuity
-    const sessionKey = input.session_id;
-    const nexSessionId = sessionKey ? sessions.get(sessionKey) : undefined;
-
-    const result = await client.ask(prompt, nexSessionId, 10_000);
-
-    if (!result.answer) {
-      process.stdout.write("{}");
-      return;
-    }
-
-    // Store session ID for future turns
-    if (result.session_id && sessionKey) {
-      sessions.set(sessionKey, result.session_id);
-    }
-
-    // Record successful recall for debounce
-    recordRecall(result.session_id);
-
-    const entityCount = result.entity_references?.length ?? 0;
-    const context = formatNexContext({
-      answer: result.answer,
-      entityCount,
-      sessionId: result.session_id,
-    });
-
-    // Use hookSpecificOutput for discrete context injection (not shown in transcript)
-    const output = JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: context,
-      },
-    });
-    process.stdout.write(output);
+    process.stdout.write(claudeCodeOutput("UserPromptSubmit", result.context));
   } catch (err) {
     process.stderr.write(
       `[nex-recall] Unexpected error: ${err instanceof Error ? err.message : String(err)}\n`

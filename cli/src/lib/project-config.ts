@@ -176,7 +176,7 @@ const DEFAULT_TOML = `# .nex.toml — Nex project configuration
 # depth = 2
 
 # [mcp]
-# enabled = false             # Set to true by \`nex setup --with-mcp\`
+# enabled = true              # MCP installed by default; use --no-mcp to skip
 
 # [output]
 # format = "text"             # "text" | "json"

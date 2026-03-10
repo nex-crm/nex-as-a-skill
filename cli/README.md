@@ -12,7 +12,22 @@ npm install -g @nex-ai/nex
 npx @nex-ai/nex ask "who is Maria?"
 ```
 
-## Quick Start
+## Quick Start (Recommended)
+
+```bash
+# One command to get started — registers, detects platforms, installs hooks, scans files
+nex setup
+```
+
+`nex setup` handles everything: API key registration, platform detection, hook installation, file scanning, and config creation. Run it once and you're ready to go.
+
+```bash
+# Now query your knowledge
+nex ask "what's the latest on the Acme deal?"
+```
+
+<details>
+<summary>Manual setup (if you prefer step-by-step)</summary>
 
 ```bash
 # 1. Register for an API key
@@ -25,22 +40,26 @@ nex setup
 nex ask "what's the latest on the Acme deal?"
 ```
 
+</details>
+
 ## Supported Platforms
 
-`nex setup` auto-detects and configures these platforms:
+`nex setup` auto-detects and configures these platforms with full-depth integration:
 
-| Platform | Detection | Integration |
-|----------|-----------|-------------|
-| **Claude Code** | `~/.claude/` | Hooks (auto-recall, auto-capture, session start) + slash commands + MCP |
-| **Claude Desktop** | App config exists | MCP server |
-| **Cursor** | `~/.cursor/` | MCP server |
-| **VS Code (Copilot)** | `which code` or `.vscode/` | MCP server (workspace-level) |
-| **Windsurf** | `~/.codeium/windsurf/` | MCP server |
-| **Cline** | VS Code extension installed | MCP server (globalStorage config) |
-| **Continue.dev** | `.continue/` or `~/.continue/` | MCP server |
-| **Zed** | `~/.config/zed/` | MCP server (context_servers) |
-| **Kilo Code** | `.kilocode/` in project | MCP server |
-| **OpenCode** | `~/.config/opencode/` | MCP server |
+| Platform | Hooks | Plugins | Agents | Workflows | Rules | MCP |
+|----------|-------|---------|--------|-----------|-------|-----|
+| **Claude Code** | SessionStart, UserPromptSubmit, Stop | — | — | 26 slash commands | — | — |
+| **Cursor** | sessionStart, userPromptSubmit, stop | — | — | — | `.cursor/rules/nex.md` | `~/.cursor/mcp.json` |
+| **Windsurf** | pre_user_prompt, post_cascade_response | — | — | /nex-ask, /nex-remember, /nex-search | `.windsurf/rules/nex.md` | `mcp_config.json` |
+| **Cline** | UserPromptSubmit, TaskStart, TaskComplete | — | — | — | `.clinerules/nex.md` | `cline_mcp_settings.json` |
+| **OpenClaw** | auto-recall, auto-capture (plugin) | `openclaw plugins install` (49 tools) | — | — | — | — |
+| **OpenCode** | — | `.opencode/plugins/nex.ts` | — | — | `AGENTS.md` | `opencode.json` |
+| **VS Code** | — | — | `.github/agents/nex.agent.md` | — | `.github/instructions/` | `.vscode/mcp.json` |
+| **Kilo Code** | — | — | `.kilocodemodes` | — | `.kilocode/rules/nex.md` | `.kilocode/mcp.json` |
+| **Continue.dev** | — | — | — | — | `.continue/rules/nex.md` | `mcp.json` |
+| **Zed** | — | — | — | — | `.rules` | `settings.json` |
+| **Claude Desktop** | — | — | — | — | — | `claude_desktop_config.json` |
+| **Aider** | — | — | — | — | `CONVENTIONS.md` | — |
 
 All MCP-based platforms use the same server entry:
 
@@ -57,10 +76,11 @@ All MCP-based platforms use the same server entry:
 ## Setup Command
 
 ```bash
-nex setup                          # Auto-detect platforms, install plugin, scan files, create .nex.toml
-nex setup --with-mcp               # Also write MCP config to all detected platforms
+nex setup                          # Auto-detect platforms, install full stack, scan files, create .nex.toml
 nex setup --platform cursor        # Install for a specific platform only
-nex setup --no-plugin              # Only create config files, skip hooks/commands
+nex setup --no-hooks               # Skip hook installation for all platforms
+nex setup --no-plugin              # Skip hooks/commands (alias for --no-hooks)
+nex setup --no-rules               # Skip rules/instruction file installation
 nex setup --no-scan                # Skip file scanning during setup
 nex setup status                   # Show all platforms, install status, and connections
 ```
@@ -68,15 +88,14 @@ nex setup status                   # Show all platforms, install status, and con
 **Default behavior** (no flags):
 - If no API key exists: prompts to register
 - If API key exists: offers to regenerate (picks up latest scopes) or change email
-- Claude Code: installs hooks + slash commands (no MCP — avoids filling context windows)
-- Other platforms: detected but MCP not written until `--with-mcp` is passed
+- Installs the full 6-layer hierarchy for each detected platform: hooks → plugins → agents → workflows → rules → MCP
 - Scans current directory and ingests new/changed files into Nex
 - Creates `.nex.toml` project config with commented defaults
 - Syncs API key to `~/.nex-mcp.json` (shared config)
 
-**Single install**: `npm install -g @nex-ai/nex` bundles everything — the Claude Code plugin hooks, slash commands, and MCP server are all included. No separate packages needed.
+**Single install**: `npm install -g @nex-ai/nex` bundles everything — hooks, adapters, platform plugins, slash commands, rules, and MCP server. No separate packages needed.
 
-> **Tip:** AI agents don't automatically know about Nex. Explicitly tell your agent to "use Nex for context and memory" in your prompts or CLAUDE.md instructions.
+**Integration hierarchy** (per platform): Hooks > Custom plugins > Custom agents/modes > Workflows > Rules > MCP. Each platform gets every layer it supports.
 
 ## Project Config: `.nex.toml`
 
@@ -110,7 +129,7 @@ Per-project settings file created by `nex setup`. All fields are optional.
 # depth = 2
 
 [mcp]
-# enabled = false             # Set to true by `nex setup --with-mcp`
+# enabled = false             # Set to true when `nex setup` installs MCP for this project/platform
 
 [output]
 # format = "text"             # "text" | "json"

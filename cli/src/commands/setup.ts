@@ -1,15 +1,16 @@
 /**
- * `nex setup` command — detect platforms, install plugin/MCP, create .nex.toml.
+ * `nex setup` command — detect platforms, install hooks/plugins/MCP, create .nex.toml.
  *
- * nex setup                     Interactive: detect → install plugin + scan files + config
+ * nex setup                     Interactive: detect → install full stack + scan files + config
  * nex setup --platform <name>   Direct install for specific platform
- * nex setup --with-mcp          Also install MCP server
- * nex setup --no-plugin         Skip hooks/commands, only config files
+ * nex setup --no-hooks          Skip hook installation
+ * nex setup --no-rules          Skip rules/instruction file installation
+ * nex setup --no-plugin         Skip hooks/commands (alias for --no-hooks)
  * nex setup --no-scan           Skip file scanning during setup
  * nex setup status              Show install status + integration connections
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { program } from "../cli.js";
 import { resolveApiKey, resolveFormat, resolveTimeout, persistRegistration, loadConfig } from "../lib/config.js";
@@ -31,7 +32,19 @@ const INTEGRATIONS_MAP: Record<string, { type: string; provider: string }> = {
 };
 import { detectPlatforms, getPlatformById, VALID_PLATFORM_IDS } from "../lib/platform-detect.js";
 import type { Platform } from "../lib/platform-detect.js";
-import { installMcpServer, installClaudeCodePlugin, syncApiKeyToMcpConfig } from "../lib/installers.js";
+import {
+  installMcpServer,
+  installClaudeCodePlugin,
+  installRulesFile,
+  syncApiKeyToMcpConfig,
+  installHooks,
+  installOpenCodePlugin,
+  installOpenClawPlugin,
+  installVSCodeAgent,
+  installKiloCodeMode,
+  installContinueProvider,
+  installWindsurfWorkflows,
+} from "../lib/installers.js";
 import { writeDefaultProjectConfig } from "../lib/project-config.js";
 import { scanFiles, loadScanConfig, isScanEnabled } from "../lib/file-scanner.js";
 
@@ -39,6 +52,18 @@ function getClient(): { client: NexClient; format: Format } {
   const opts = program.opts();
   const client = new NexClient(resolveApiKey(opts.apiKey), resolveTimeout(opts.timeout));
   return { client, format: resolveFormat(opts.format) as Format };
+}
+
+// --- Helpers ---
+
+function hasNexMcpInConfig(platform: Platform): boolean {
+  try {
+    const raw = readFileSync(platform.configPath, "utf-8");
+    const config = JSON.parse(raw);
+    return !!(config?.mcpServers?.nex || config?.context_servers?.nex);
+  } catch {
+    return false;
+  }
 }
 
 // --- Status subcommand ---
@@ -57,6 +82,10 @@ async function showStatus(format: Format, overrideApiKey?: string): Promise<void
         detected: p.detected,
         nex_installed: p.nexInstalled,
         plugin_support: p.pluginSupport,
+        hooks: p.supportsHooks,
+        custom_tools: p.supportsCustomTools,
+        custom_agents: p.supportsCustomAgents,
+        workflows: p.supportsWorkflows,
       })),
       project_config: projectConfigExists(),
     };
@@ -105,12 +134,44 @@ async function showStatus(format: Format, overrideApiKey?: string): Promise<void
       return { label: statusLabel };
     }
     const children: string[] = [];
-    if (p.pluginSupport) {
-      children.push(p.nexInstalled ? badge("hooks installed", "success") : badge("not installed", "dim"));
+
+    // Hooks status
+    if (p.supportsHooks || p.pluginSupport) {
+      children.push(p.nexInstalled ? badge("hooks installed", "success") : badge("hooks not installed", "dim"));
     }
-    if (p.id !== "claude-code") {
-      children.push(p.nexInstalled ? badge("MCP installed", "success") : badge("not installed", "dim"));
+
+    // Custom tools/plugins
+    if (p.supportsCustomTools) {
+      children.push(badge("plugin support", "dim"));
     }
+
+    // Custom agents
+    if (p.supportsCustomAgents) {
+      children.push(badge("agent support", "dim"));
+    }
+
+    // Workflows
+    if (p.supportsWorkflows && p.id !== "claude-code") {
+      children.push(badge("workflows", "dim"));
+    }
+
+    // Rules
+    if (p.supportsRules) {
+      const rulesInstalled = p.rulesPath ? existsSync(p.rulesPath) : false;
+      children.push(rulesInstalled ? badge("rules installed", "success") : badge("rules not installed", "dim"));
+    }
+
+    // MCP
+    if (p.id !== "claude-code" && p.id !== "openclaw" && p.id !== "aider" && p.configPath) {
+      const mcpInstalled = hasNexMcpInConfig(p);
+      children.push(mcpInstalled ? badge("MCP installed", "success") : badge("MCP not installed", "dim"));
+    }
+
+    // OpenClaw plugin
+    if (p.id === "openclaw") {
+      children.push(p.nexInstalled ? badge("plugin installed", "success") : badge("plugin not installed", "dim"));
+    }
+
     return { label: `${p.displayName}`, children };
   });
   lines.push(tree(platformItems));
@@ -160,7 +221,7 @@ async function showStatus(format: Format, overrideApiKey?: string): Promise<void
 
 async function registerAndPersist(globalOpts: { timeout?: string; apiKey?: string }, existingEmail?: string): Promise<string> {
   const email = existingEmail ?? await ask("Email (required):", true);
-  const name = await ask("Name (optional):");
+  const name = existingEmail ? undefined : await ask("Name (optional):");
 
   process.stderr.write("\nRegistering...\n");
   const client = new NexClient(undefined, resolveTimeout(globalOpts.timeout));
@@ -179,13 +240,17 @@ async function registerAndPersist(globalOpts: { timeout?: string; apiKey?: strin
 
 async function runSetup(opts: {
   platform?: string;
-  withMcp: boolean;
   noPlugin: boolean;
+  noHooks: boolean;
+  noRules: boolean;
   noScan: boolean;
   format: Format;
 }): Promise<void> {
   const globalOpts = program.opts();
   let apiKey = resolveApiKey(globalOpts.apiKey);
+
+  // Combine --no-plugin and --no-hooks (both skip hooks)
+  const skipHooks = opts.noPlugin || opts.noHooks;
 
   // 1. Register or re-register
   if (!apiKey) {
@@ -203,7 +268,7 @@ async function runSetup(opts: {
       // Still install plugin hooks/commands (they'll gracefully degrade without a key)
       const platforms = detectPlatforms().filter((p) => p.detected);
       for (const platform of platforms) {
-        if (platform.id === "claude-code" && !opts.noPlugin) {
+        if (platform.id === "claude-code" && !skipHooks) {
           installClaudeCodePlugin();
         }
       }
@@ -235,13 +300,10 @@ async function runSetup(opts: {
     ]);
 
     if (choice === 0) {
-      // Regenerate with existing email (no prompt)
       apiKey = await registerAndPersist(globalOpts, existingEmail);
     } else if (choice === 1) {
-      // Change email — prompt for new one
       apiKey = await registerAndPersist(globalOpts);
     }
-    // choice === 2: keep current key, do nothing
   }
 
   // 2. Sync API key to shared config
@@ -271,41 +333,99 @@ async function runSetup(opts: {
 
   const results: string[] = [];
 
-  // 4. Install for each platform
+  // 4. Install for each platform — 6-layer hierarchy
   for (const platform of targetPlatforms) {
-    // Claude Code — install plugin (hooks + commands) unless --no-plugin
-    if (platform.id === "claude-code" && !opts.noPlugin) {
-      const result = installClaudeCodePlugin();
-      if (result.installed) {
-        if (result.hooksAdded.length > 0) {
-          results.push(`Claude Code: hooks installed (${result.hooksAdded.join(", ")})`);
+    const installed: string[] = [];
+
+    // ── Layer 1: Hooks (event-driven scripts) ──
+    if (!skipHooks) {
+      if (platform.id === "claude-code" && platform.pluginSupport) {
+        // Claude Code has its own installer (hooks + slash commands)
+        const result = installClaudeCodePlugin();
+        if (result.installed) {
+          if (result.hooksAdded.length > 0) {
+            installed.push(`hooks (${result.hooksAdded.join(", ")})`);
+          }
+          if (result.commandsCopied.length > 0) {
+            installed.push(`commands (${result.commandsCopied.length} slash commands)`);
+          }
         } else {
-          results.push("Claude Code: hooks already configured");
+          results.push(`${platform.displayName}: bundled plugin not found — reinstall @nex-ai/nex`);
+          continue;
         }
-        if (result.commandsCopied.length > 0) {
-          results.push(`Claude Code: commands installed (${result.commandsCopied.join(", ")})`);
+      } else if (platform.supportsHooks) {
+        const result = installHooks(platform);
+        if (result.installed && result.hooksAdded.length > 0) {
+          installed.push(`hooks (${result.hooksAdded.join(", ")})`);
         }
-      } else {
-        results.push("Claude Code: bundled plugin not found — reinstall @nex-ai/nex");
       }
     }
 
-    // MCP server — only with --with-mcp
-    if (opts.withMcp && platform.id !== "claude-code") {
-      const result = installMcpServer(platform, apiKey);
+    // ── Layer 2: Custom tools/plugins ──
+    if (platform.id === "opencode" && platform.supportsCustomTools) {
+      const result = installOpenCodePlugin();
       if (result.installed) {
-        results.push(`${platform.displayName}: MCP server configured at ${result.configPath}`);
+        installed.push(`plugin (${result.pluginPath.replace(process.cwd() + "/", "")})`);
       }
-    } else if (platform.id !== "claude-code" && !opts.withMcp) {
-      results.push(`${platform.displayName}: detected — use --with-mcp to install MCP server`);
     }
 
-    // Claude Code MCP — also with --with-mcp
-    if (opts.withMcp && platform.id === "claude-code") {
+    if (platform.id === "openclaw" && platform.pluginSupport) {
+      const result = installOpenClawPlugin(apiKey);
+      installed.push(result.message);
+      if (!result.installed) {
+        results.push(`${platform.displayName}: ${result.message}`);
+        continue;
+      }
+    }
+
+    // ── Layer 3: Custom agents/modes ──
+    if (platform.supportsCustomAgents) {
+      if (platform.id === "vscode") {
+        const result = installVSCodeAgent();
+        if (result.installed) {
+          installed.push(`agent (${result.agentPath.replace(process.cwd() + "/", "")})`);
+        }
+      }
+      if (platform.id === "kilocode") {
+        const result = installKiloCodeMode();
+        if (result.installed) {
+          installed.push(`mode (${result.modePath.replace(process.cwd() + "/", "")})`);
+        }
+      }
+    }
+
+    // ── Layer 4: Workflows/slash commands ──
+    if (platform.supportsWorkflows && platform.id !== "claude-code") {
+      if (platform.id === "windsurf") {
+        const result = installWindsurfWorkflows();
+        if (result.installed) {
+          installed.push(`workflows (${result.workflowCount})`);
+        }
+      }
+    }
+
+    // ── Layer 5: Rules/instructions file ──
+    if (platform.supportsRules && !opts.noRules) {
+      const result = installRulesFile(platform);
+      if (result.installed) {
+        const relPath = result.rulesPath.replace(process.cwd() + "/", "");
+        installed.push(`rules (${relPath})`);
+      }
+    }
+
+    // ── Layer 6: MCP server ──
+    // For all platforms except: Claude Code (hooks-only), OpenClaw (plugin-only), Aider (no MCP)
+    if (platform.id !== "claude-code" && platform.id !== "openclaw" && platform.id !== "aider" && platform.configPath) {
       const result = installMcpServer(platform, apiKey);
       if (result.installed) {
-        results.push(`Claude Code: MCP server configured`);
+        installed.push(`MCP (${result.configPath})`);
       }
+    }
+
+    if (installed.length > 0) {
+      results.push(`${platform.displayName}: ${installed.join(" + ")}`);
+    } else {
+      results.push(`${platform.displayName}: detected`);
     }
   }
 
@@ -370,8 +490,6 @@ async function runSetup(opts: {
   }
 }
 
-// --- Helpers ---
-
 function maskKey(key: string): string {
   if (key.length <= 8) return "****";
   return key.slice(0, 4) + "****" + key.slice(-4);
@@ -388,16 +506,18 @@ const setup = program
   .command("setup")
   .description("Set up Nex integration for your development environment")
   .option("--platform <name>", `Target platform: ${VALID_PLATFORM_IDS.join(", ")}`)
-  .option("--with-mcp", "Also install MCP server for detected platforms", false)
   .option("--no-plugin", "Skip plugin (hooks/commands), only update config files")
+  .option("--no-hooks", "Skip hook installation for all platforms")
+  .option("--no-rules", "Skip rules/instruction file installation")
   .option("--no-scan", "Skip file scanning during setup")
   .action(async (cmdOpts) => {
     const globalOpts = program.opts();
     const format = resolveFormat(globalOpts.format) as Format;
     await runSetup({
       platform: cmdOpts.platform,
-      withMcp: cmdOpts.withMcp,
       noPlugin: cmdOpts.plugin === false,
+      noHooks: cmdOpts.hooks === false,
+      noRules: cmdOpts.rules === false,
       noScan: cmdOpts.scan === false,
       format,
     });
