@@ -1,6 +1,6 @@
-# Nex — Cross-Agent Context Layer
+# Nex: Organizational Context & Memory Layer for AI agents
 
-Give any AI agent persistent memory. One knowledge graph, every agent.
+Give any AI agent persistent memory & organizational context. One knowledge graph, every agent.
 
 Tell something to OpenClaw. Ask about it in Claude Code. Reference it from Cursor. Context follows you across tools — no copy-pasting, no re-explaining, no lost context.
 
