@@ -984,11 +984,7 @@ async function executeGraph(args: string[], ctx: CommandContext): Promise<Comman
       const { spawn } = await import("node:child_process");
       const cmd = process.platform === "darwin" ? "open" : process.platform === "linux" ? "xdg-open" : "cmd";
       const cmdArgs = process.platform === "win32" ? ["/c", "start", "", filePath] : [filePath];
-      try {
-        spawn(cmd, cmdArgs, { stdio: "ignore", detached: true }).unref();
-        // Brief pause to let the OS register the open command before process exits
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } catch { /* ignore */ }
+      try { spawn(cmd, cmdArgs, { stdio: "ignore", detached: true }).unref(); } catch { /* ignore */ }
     }
 
     return ok({ path: filePath, message: noOpen ? `Graph saved to ${filePath}` : "Graph opened in browser" }, ctx);
