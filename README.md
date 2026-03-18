@@ -1,8 +1,15 @@
-# Nex: Organizational Context & Memory Layer for AI agents
+# Nex: Compounding Intelligence for AI agents
 
-Give any AI agent persistent memory & organizational context. One knowledge graph, every agent.
+[![npm version](https://img.shields.io/npm/v/@nex-ai/nex)](https://www.npmjs.com/package/@nex-ai/nex)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/gjSySC3PzV)
+
+Turn all your AI agent conversations into a unified knowledge graph. Supports Claude Code, Codex, OpenClaw, Cursor, OpenCode, etc. Adds additional context from Email, Meetings, Slack, HubSpot, Salesforce.
 
 Tell something to OpenClaw. Ask about it in Claude Code. Reference it from Cursor. Context follows you across tools — no copy-pasting, no re-explaining, no lost context.
+
+<a href="https://discord.gg/gjSySC3PzV"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join our Discord" /></a>
+
+Talk to the team, share feedback, and connect with other developers building AI agents with Nex.
 
 ## How It Works
 
@@ -35,7 +42,7 @@ One fact entered once. Available everywhere, instantly.
 
 ```bash
 # Install and run setup — handles everything in one step
-npm install -g @nex-ai/nex
+bun install -g @nex-ai/nex
 nex setup
 ```
 
@@ -87,12 +94,12 @@ nex recall "what do I know about TechFlow?"  # Returns <nex-context> XML block
 nex capture "Agent conversation text..."  # Rate-limited, filtered
 ```
 
-Install globally: `npm install -g @nex-ai/nex`
+Install globally: `bun install -g @nex-ai/nex`
 
 ### MCP Server (Claude Desktop, Cursor, Windsurf)
 
 ```bash
-cd mcp && npm install && npm run build
+cd mcp && bun install && bun run build
 ```
 
 Add to your client config:
@@ -101,8 +108,8 @@ Add to your client config:
 {
   "mcpServers": {
     "nex": {
-      "command": "npx",
-      "args": ["tsx", "/path/to/nex-as-a-skill/mcp/src/index.ts"],
+      "command": "bun",
+      "args": ["/path/to/nex-as-a-skill/mcp/src/index.ts"],
       "env": { "NEX_API_KEY": "sk-your_key_here" }
     }
   }
@@ -117,7 +124,7 @@ See [`mcp/README.md`](mcp/README.md) for all tools.
 
 ```bash
 cp -r openclaw-plugin /path/to/openclaw/plugins/nex
-cd /path/to/openclaw/plugins/nex && npm install && npm run build
+cd /path/to/openclaw/plugins/nex && bun install && bun run build
 ```
 
 Add to `openclaw.json`:
@@ -144,7 +151,7 @@ See [`openclaw-plugin/README.md`](openclaw-plugin/README.md) for details.
 ### Claude Code Plugin (auto-recall + auto-capture)
 
 ```bash
-cd claude-code-plugin && npm install && npm run build
+cd claude-code-plugin && bun install && bun run build
 ```
 
 Add hooks to `~/.claude/settings.json`:
@@ -255,7 +262,7 @@ Register once via any surface → all other surfaces pick up the key automatical
 
 ## Testing
 
-- **CLI**: 65/65 unit tests + 10 E2E smoke tests (`cd cli && npm test`)
+- **CLI**: 119 tests (`cd cli && bun test`)
 - **OpenClaw plugin**: 38/38 unit tests (`cd openclaw-plugin && npx vitest run`)
 - **Claude Code plugin**: 21/21 E2E tests (see `docs/nex-plugin-test-results.md`)
 - **MCP server**: Builds clean, all tools typed with Zod schemas

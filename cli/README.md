@@ -1,9 +1,14 @@
-# @nex-ai/nex
+# Nex: Compounding Intelligence for AI agents
 
 [![npm version](https://img.shields.io/npm/v/@nex-ai/nex)](https://www.npmjs.com/package/@nex-ai/nex)
 [![GitHub](https://img.shields.io/badge/github-nex--crm%2Fnex--as--a--skill-blue)](https://github.com/nex-crm/nex-as-a-skill)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/gjSySC3PzV)
 
-Nex CLI provides organizational context & memory to AI agents across 12 platforms.
+Turn all your AI agent conversations into a unified knowledge graph. Supports Claude Code, Codex, OpenClaw, Cursor, OpenCode, etc. Adds additional context from Email, Meetings, Slack, HubSpot, Salesforce.
+
+<a href="https://discord.gg/gjSySC3PzV"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join our Discord" /></a>
+
+Talk to the team, share feedback, and connect with other developers building AI agents with Nex.
 
 **GitHub**: [github.com/nex-crm/nex-as-a-skill](https://github.com/nex-crm/nex-as-a-skill)
 
@@ -11,7 +16,7 @@ Nex CLI provides organizational context & memory to AI agents across 12 platform
 
 ```bash
 # Install globally
-npm install -g @nex-ai/nex
+bun install -g @nex-ai/nex
 
 # Or run directly (no install)
 npx @nex-ai/nex ask "who is Maria?"
@@ -99,7 +104,7 @@ nex graph                          # Open the workspace graph in your browser
 - Creates `.nex.toml` project config with commented defaults
 - Syncs API key to `~/.nex-mcp.json` (shared config)
 
-**Single install**: `npm install -g @nex-ai/nex` bundles everything — hooks, adapters, platform plugins, slash commands, rules, and MCP server. No separate packages needed.
+**Single install**: `bun install -g @nex-ai/nex` bundles everything — hooks, adapters, platform plugins, slash commands, rules, and MCP server. No separate packages needed.
 
 **Integration hierarchy** (per platform): Hooks > Custom plugins > Custom agents/modes > Workflows > Rules > MCP. Each platform gets every layer it supports.
 
@@ -252,9 +257,9 @@ git diff | nex capture
 ## Development
 
 ```bash
-npm install
-npm run build     # TypeScript → dist/
-npm run dev       # Run with tsx (no build)
-npm test          # Unit tests
+bun install
+bun run build     # TypeScript → dist/
+bun run dev       # Run TS directly (no build)
+bun test          # Unit + integration tests
 NEX_DEV_URL=http://localhost:30000 nex ask "test"  # Local API
 ```
