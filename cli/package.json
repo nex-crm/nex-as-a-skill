@@ -1,6 +1,6 @@
 {
   "name": "@nex-ai/nex",
-  "version": "0.1.22",
+  "version": "0.1.26",
   "description": "Nex CLI provides organizational context & memory to AI agents",
   "type": "module",
   "bin": {
@@ -20,11 +20,10 @@
     "test": "node --import tsx --test tests/**/*.test.ts tests/**/**/*.test.ts",
     "prepublishOnly": "npm run build"
   },
-  "dependencies": {
-    "commander": "^13.0.0"
-  },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/react": "^18.3.18",
+    "ink-testing-library": "^4.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   },
@@ -40,5 +39,10 @@
   "engines": {
     "node": ">=18"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@inkjs/ui": "^2.0.0",
+    "ink": "^5.2.1",
+    "react": "^18.3.1"
+  }
 }
