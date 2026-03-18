@@ -171,7 +171,7 @@ function hashFile(filePath: string): string {
 
 // --- Concurrency helper ---
 
-const DEFAULT_CONCURRENCY = 15;
+const DEFAULT_CONCURRENCY = 5;
 
 async function runConcurrent<T>(
   items: T[],
