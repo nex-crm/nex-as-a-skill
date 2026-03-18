@@ -1,10 +1,13 @@
 /**
- * Smart prompt classifier for selective recall.
+ * Proactive recall filter — surfaces knowledge graph context on every meaningful prompt.
  *
- * Determines whether a prompt is likely knowledge-seeking (needs recall)
- * or a pure coding directive (skip recall). Also handles debounce —
- * skips recall if a successful recall happened within the debounce window,
- * unless the current prompt contains question words.
+ * Philosophy: err heavily on the side of recalling. The moments where context
+ * feels most "magical" are when the user DIDN'T ask for it — they're fixing a
+ * migration, deploying a service, or refactoring code, and suddenly relevant
+ * insights, patterns, or entity context from their knowledge graph appears.
+ *
+ * Only skip on truly trivial inputs (confirmations, single words) or explicit opt-out.
+ * Debounce prevents hammering the API on rapid-fire prompts.
  *
  * Persistence: last-recall timestamp stored in ~/.nex/recall-state.json
  */
@@ -15,22 +18,10 @@ import { homedir } from "node:os";
 
 const DATA_DIR = join(homedir(), ".nex");
 const STATE_FILE = join(DATA_DIR, "recall-state.json");
-const DEBOUNCE_MS = 30_000; // 30 seconds
+const DEBOUNCE_MS = 10_000; // 10 seconds
 
-// --- Question words that signal knowledge-seeking intent ---
-const QUESTION_WORDS = /\b(who|what|when|where|why|how|which|tell|explain|describe|summarize|summarise|list|find|show|get|any|does|did|is|are|was|were|have|has|do|can|could|should|would|will)\b/i;
-
-// --- Tool/action commands that are pure coding directives ---
-const TOOL_COMMANDS = /^\s*(run|build|test|lint|format|deploy|install|uninstall|start|stop|restart|commit|push|pull|merge|rebase|checkout|fetch|init|fix|refactor|rename|move|delete|remove|add|create|update|upgrade|downgrade|migrate|generate|scaffold|compile|bundle|watch|serve|debug|profile|bench|clean|reset|undo|redo|revert|squash|cherry-pick|tag|release|publish|npm|npx|yarn|pnpm|bun|pip|cargo|go|make|docker|kubectl|terraform|git|gh|cd|ls|cat|grep|find|mkdir|rm|cp|mv|touch|echo|export|source|chmod|chown|curl|wget|ssh|scp)\b/i;
-
-// --- File reference pattern (paths, extensions) ---
-const FILE_REF = /(?:[\w./\\-]+\.\w{1,10}|src\/|lib\/|dist\/|node_modules\/|\.\/|\.\.\/)/;
-
-// --- Code-heavy: >50% non-alpha characters (brackets, operators, etc.) ---
-function isCodeHeavy(text: string): boolean {
-  const alpha = text.replace(/[^a-zA-Z]/g, "").length;
-  return alpha < text.length * 0.5;
-}
+// --- Trivial inputs that never benefit from context ---
+const TRIVIAL = /^\s*(y(es)?|no?|ok(ay)?|sure|done|thanks?|k|lgtm|approved?|merge|ship\s*it|looks?\s*good|\+1|👍)\s*[.!?]*\s*$/i;
 
 export interface RecallDecision {
   shouldRecall: boolean;
@@ -70,6 +61,12 @@ export function recordRecall(sessionId?: string): void {
 
 /**
  * Determine whether this prompt should trigger a Nex /ask recall.
+ *
+ * Default: ALWAYS recall. Only skip on:
+ * - Explicit opt-out (prompt starts with !)
+ * - Trivial confirmations (yes, ok, done, lgtm)
+ * - Very short inputs (< 10 chars)
+ * - Debounce (< 10s since last recall, unless first prompt)
  */
 export function shouldRecall(prompt: string, isFirstPrompt: boolean): RecallDecision {
   const trimmed = prompt.trim();
@@ -84,37 +81,22 @@ export function shouldRecall(prompt: string, isFirstPrompt: boolean): RecallDeci
     return { shouldRecall: false, reason: "opt-out" };
   }
 
-  // Too short — likely a directive like "yes", "ok", "done"
-  if (trimmed.length < 15) {
+  // Trivial confirmations
+  if (TRIVIAL.test(trimmed)) {
+    return { shouldRecall: false, reason: "trivial" };
+  }
+
+  // Too short to be meaningful
+  if (trimmed.length < 10) {
     return { shouldRecall: false, reason: "too-short" };
   }
 
-  // Has question words — likely knowledge-seeking
-  const hasQuestion = QUESTION_WORDS.test(trimmed);
-
-  // Check debounce: skip if recent successful recall, unless question
-  if (!hasQuestion) {
-    const state = readState();
-    if (state.lastRecallAt > 0 && Date.now() - state.lastRecallAt < DEBOUNCE_MS) {
-      return { shouldRecall: false, reason: "debounce" };
-    }
+  // Debounce: skip if recent successful recall
+  const state = readState();
+  if (state.lastRecallAt > 0 && Date.now() - state.lastRecallAt < DEBOUNCE_MS) {
+    return { shouldRecall: false, reason: "debounce" };
   }
 
-  // Tool/action commands — pure coding directives
-  if (TOOL_COMMANDS.test(trimmed) && !hasQuestion) {
-    return { shouldRecall: false, reason: "tool-command" };
-  }
-
-  // Code-heavy with file references and no question words
-  if (isCodeHeavy(trimmed) && FILE_REF.test(trimmed) && !hasQuestion) {
-    return { shouldRecall: false, reason: "code-prompt" };
-  }
-
-  // Has question words — always recall
-  if (hasQuestion) {
-    return { shouldRecall: true, reason: "question" };
-  }
-
-  // Default: recall (err on the side of providing context)
-  return { shouldRecall: true, reason: "default" };
+  // Default: always recall — proactive context is the goal
+  return { shouldRecall: true, reason: "proactive" };
 }

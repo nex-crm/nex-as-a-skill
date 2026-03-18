@@ -1,6 +1,6 @@
 {
   "name": "@nex-ai/nex",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "description": "Nex CLI provides organizational context & memory to AI agents",
   "type": "module",
   "bin": {
@@ -23,7 +23,6 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^22.0.0",
-<<<<<<< HEAD
     "@types/react": "^18.3.18",
     "ink-testing-library": "^4.0.0",
     "tsx": "^4.19.0",

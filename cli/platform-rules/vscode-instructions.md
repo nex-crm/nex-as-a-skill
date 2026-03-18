@@ -1,10 +1,6 @@
----
-applyTo: "**"
----
-
 # Nex — Organizational Context & Memory
 
-Nex provides your AI agent with real-time organizational knowledge — contacts, deals, meetings, emails, notes, and more — via MCP tools.
+Nex provides your AI agent with real-time organizational knowledge — contacts, deals, meetings, emails, notes, insights, patterns, and playbooks — via MCP tools. Context is proactively injected into your conversation, so relevant knowledge surfaces automatically even when you don't ask for it.
 
 ## MCP Tools Available
 
@@ -26,13 +22,25 @@ Shows which integrations (Gmail, Slack, Calendar, CRM) are connected and active.
 ### `nex_connect_integration` — Connect a data source
 Initiate OAuth connection for Gmail, Google Calendar, Outlook, Slack, Salesforce, HubSpot, or Attio.
 
-## When to Use Nex
+## Proactive Context
 
-When the user asks about:
-- **People or companies** — contacts, relationships, org charts
-- **Deals or opportunities** — status, history, next steps
-- **Meetings or calls** — past conversations, upcoming schedules
-- **Emails or messages** — communication history
-- **Organizational context** — company knowledge, team notes, decisions
+Nex automatically surfaces relevant context from the user's knowledge graph on every prompt — not just questions. When you see a `<nex-context>` block, use it naturally to inform your response:
+
+- **Entity insights** — facts about people, companies, and deals mentioned or relevant to the task
+- **Knowledge insights** — patterns, lessons learned, and domain knowledge from past work
+- **Playbook rules** — proven approaches and best practices from the user's experience
+
+Leverage this context to provide more informed, personalized responses. If the context mentions a relevant pattern or past decision, incorporate it naturally without explicitly referencing the context block.
+
+## When to Use Nex Tools Directly
+
+Use `nex_ask` proactively when:
+- The user mentions a person, company, or project — look up their context
+- The task involves a domain the knowledge graph may have insights on
+- You need organizational context to make a better recommendation
+
+Use `nex_remember` when:
+- The user shares a decision, preference, or important fact worth persisting
+- A conversation reveals new knowledge that future sessions should have access to
 
 Always try `nex_ask` first for general queries. Use `nex_search` when you need to find a specific record by name.
