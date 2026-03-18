@@ -1264,8 +1264,6 @@ async function executeScan(args: string[], ctx: CommandContext): Promise<Command
 
   try {
     const { scanFiles, loadScanConfig } = await import("../lib/file-scanner.js");
-    const { resolveApiKey, resolveTimeout } = await import("../lib/config.js");
-    const { NexClient } = await import("../lib/client.js");
     const scanOpts = loadScanConfig({
       extensions: extensions?.split(",").map((e: string) => e.trim()),
       maxFiles,
@@ -1273,7 +1271,7 @@ async function executeScan(args: string[], ctx: CommandContext): Promise<Command
       force,
       dryRun,
     });
-    const client = new NexClient(resolveApiKey(), resolveTimeout());
+    const client = makeClient(ctx);
     const result = await scanFiles(dir, scanOpts, async (content, context) => {
       return client.post("/v1/context/text", { content, context });
     });
@@ -1293,9 +1291,8 @@ async function executeRegister(args: string[], ctx: CommandContext): Promise<Com
   if (!email) return fail("Usage: register --email <email>");
 
   try {
-    const { NexClient } = await import("../lib/client.js");
-    const { persistRegistration, resolveTimeout } = await import("../lib/config.js");
-    const client = new NexClient(undefined, resolveTimeout());
+    const { persistRegistration } = await import("../lib/config.js");
+    const client = new NexClient(undefined, ctx.timeout ?? resolveTimeout());
     const data = await client.register(email, typeof opts.name === "string" ? opts.name : undefined, typeof opts.company === "string" ? opts.company : undefined);
     persistRegistration(data);
     return ok(data, ctx);
@@ -1334,58 +1331,30 @@ register("session clear", { execute: executeSessionClear, description: "Clear al
 
 // -- List member operations --
 
-async function executeListAddMember(args: string[], ctx: CommandContext): Promise<CommandResult> {
-  const { positional } = extractOpts(args);
-  const listId = positional[0];
-  const recordId = positional[1];
-  if (!listId || !recordId) return fail("Usage: list add-member <list-id> <record-id>");
-  try {
-    const client = makeClient(ctx);
-    const data = await client.post(`/v1/lists/${listId}/records`, { record_id: recordId });
-    return ok(data, ctx);
-  } catch (err) { return wrapError(err); }
+function makeListRecordCommand(
+  method: "post" | "put" | "patch" | "delete",
+  usage: string,
+  pathFn: (listId: string, recordId: string) => string,
+  bodyFn?: (recordId: string, opts: Record<string, string | true>) => unknown,
+): (args: string[], ctx: CommandContext) => Promise<CommandResult> {
+  return async (args, ctx) => {
+    const { positional, opts } = extractOpts(args);
+    const [listId, recordId] = positional;
+    if (!listId || !recordId) return fail(`Usage: ${usage}`);
+    try {
+      const client = makeClient(ctx);
+      const path = pathFn(listId, recordId);
+      const body = bodyFn?.(recordId, opts);
+      const data = method === "delete" ? await client.delete(path) : await client[method](path, body);
+      return ok(data, ctx);
+    } catch (err) { return wrapError(err); }
+  };
 }
 
-async function executeListUpsertMember(args: string[], ctx: CommandContext): Promise<CommandResult> {
-  const { positional, opts } = extractOpts(args);
-  const listId = positional[0];
-  const recordId = positional[1];
-  if (!listId || !recordId) return fail("Usage: list upsert-member <list-id> <record-id>");
-  try {
-    const client = makeClient(ctx);
-    const data = await client.put(`/v1/lists/${listId}/records/${recordId}`, opts);
-    return ok(data, ctx);
-  } catch (err) { return wrapError(err); }
-}
-
-async function executeListUpdateRecord(args: string[], ctx: CommandContext): Promise<CommandResult> {
-  const { positional, opts } = extractOpts(args);
-  const listId = positional[0];
-  const recordId = positional[1];
-  if (!listId || !recordId) return fail("Usage: list update-record <list-id> <record-id> [--key value]");
-  try {
-    const client = makeClient(ctx);
-    const data = await client.patch(`/v1/lists/${listId}/records/${recordId}`, opts);
-    return ok(data, ctx);
-  } catch (err) { return wrapError(err); }
-}
-
-async function executeListRemoveRecord(args: string[], ctx: CommandContext): Promise<CommandResult> {
-  const { positional } = extractOpts(args);
-  const listId = positional[0];
-  const recordId = positional[1];
-  if (!listId || !recordId) return fail("Usage: list remove-record <list-id> <record-id>");
-  try {
-    const client = makeClient(ctx);
-    const data = await client.delete(`/v1/lists/${listId}/records/${recordId}`);
-    return ok(data, ctx);
-  } catch (err) { return wrapError(err); }
-}
-
-register("list add-member", { execute: executeListAddMember, description: "Add a record to a list", category: "write", usage: "list add-member <list-id> <record-id>" });
-register("list upsert-member", { execute: executeListUpsertMember, description: "Upsert a record in a list", category: "write", usage: "list upsert-member <list-id> <record-id>" });
-register("list update-record", { execute: executeListUpdateRecord, description: "Update a list record", category: "write", usage: "list update-record <list-id> <record-id>" });
-register("list remove-record", { execute: executeListRemoveRecord, description: "Remove a record from a list", category: "write", usage: "list remove-record <list-id> <record-id>" });
+register("list add-member", { execute: makeListRecordCommand("post", "list add-member <list-id> <record-id>", (lid) => `/v1/lists/${lid}/records`, (rid) => ({ record_id: rid })), description: "Add a record to a list", category: "write", usage: "list add-member <list-id> <record-id>" });
+register("list upsert-member", { execute: makeListRecordCommand("put", "list upsert-member <list-id> <record-id>", (lid, rid) => `/v1/lists/${lid}/records/${rid}`, (_rid, opts) => opts), description: "Upsert a record in a list", category: "write", usage: "list upsert-member <list-id> <record-id>" });
+register("list update-record", { execute: makeListRecordCommand("patch", "list update-record <list-id> <record-id>", (lid, rid) => `/v1/lists/${lid}/records/${rid}`, (_rid, opts) => opts), description: "Update a list record", category: "write", usage: "list update-record <list-id> <record-id>" });
+register("list remove-record", { execute: makeListRecordCommand("delete", "list remove-record <list-id> <record-id>", (lid, rid) => `/v1/lists/${lid}/records/${rid}`), description: "Remove a record from a list", category: "write", usage: "list remove-record <list-id> <record-id>" });
 
 // -- TUI view hints (so aliases resolve and dispatch does not return "unknown command") --
 register("chat", {
