@@ -78,7 +78,7 @@ export function loadScanConfig(overrides?: Partial<ScanOptions>): ScanOptions {
 
   const envMaxFiles = process.env.NEX_SCAN_MAX_FILES;
   const maxFiles = overrides?.maxFiles
-    ?? (envMaxFiles ? parseInt(envMaxFiles, 10) : 500);
+    ?? (envMaxFiles ? parseInt(envMaxFiles, 10) : 1000);
 
   const envDepth = process.env.NEX_SCAN_DEPTH;
   const depth = overrides?.depth
