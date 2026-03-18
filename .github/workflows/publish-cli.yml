@@ -79,7 +79,8 @@ jobs:
 
       - name: Publish to npm
         run: |
-          VERSION=${{ steps.bump.outputs.version }}
+          VERSION="${{ steps.bump.outputs.version }}"
+          if [ -z "$VERSION" ]; then echo "ERROR: version output is empty"; exit 1; fi
           # Check if this version already exists on npm
           if npm view "@nex-ai/nex@$VERSION" version 2>/dev/null; then
             echo "Version $VERSION already published, skipping."
