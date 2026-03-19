@@ -30,6 +30,7 @@ async function main(): Promise<void> {
 
     await doCapture({
       message: input.last_assistant_message ?? "",
+      sessionId: input.session_id,
     });
 
     process.stdout.write("{}");
