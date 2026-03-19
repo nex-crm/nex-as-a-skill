@@ -1257,7 +1257,13 @@ async function executeScan(args: string[], ctx: CommandContext): Promise<Command
   const { positional, opts } = extractOpts(args);
   const dir = positional[0] || ".";
   const maxFiles = typeof opts["max-files"] === "string" ? parseInt(opts["max-files"], 10) : undefined;
+  if (maxFiles !== undefined && (!Number.isInteger(maxFiles) || maxFiles <= 0)) {
+    return fail("Invalid --max-files. Expected a positive integer.");
+  }
   const depth = typeof opts.depth === "string" ? parseInt(opts.depth, 10) : undefined;
+  if (depth !== undefined && (!Number.isInteger(depth) || depth < 0)) {
+    return fail("Invalid --depth. Expected a non-negative integer.");
+  }
   const extensions = typeof opts.extensions === "string" ? opts.extensions : undefined;
   const force = opts.force === true;
   const dryRun = opts["dry-run"] === true;
@@ -1301,7 +1307,7 @@ async function executeRegister(args: string[], ctx: CommandContext): Promise<Com
   }
 }
 
-register("register", { execute: executeRegister, description: "Register a new Nex workspace", category: "config", usage: "register --email <email> [--name <name>]" });
+register("register", { execute: executeRegister, description: "Register a new Nex workspace", category: "config", usage: "register --email <email> [--name <name>] [--company <company>]" });
 
 // -- Session --
 
@@ -1343,7 +1349,7 @@ function makeListRecordCommand(
     if (!listId || !recordId) return fail(`Usage: ${usage}`);
     try {
       const client = makeClient(ctx);
-      const path = pathFn(listId, recordId);
+      const path = pathFn(encodeURIComponent(listId), encodeURIComponent(recordId));
       const body = bodyFn?.(recordId, opts);
       const data = method === "delete" ? await client.delete(path) : await client[method](path, body);
       return ok(data, ctx);
