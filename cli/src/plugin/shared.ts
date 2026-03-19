@@ -18,6 +18,7 @@ import { ingestContextFiles } from "./context-files.js";
 import { readManifest, writeManifest, isChanged, markIngested } from "./file-manifest.js";
 import { readdirSync, statSync, readFileSync } from "node:fs";
 import { join, extname } from "node:path";
+import { homedir } from "node:os";
 
 export interface RecallResult {
   context: string;
@@ -26,6 +27,7 @@ export interface RecallResult {
 
 export interface CaptureInput {
   message: string;
+  sessionId?: string;
   planDir?: string;
 }
 
@@ -143,6 +145,15 @@ export async function doCapture(input: CaptureInput): Promise<void> {
       `[nex-capture] Plan file scan error: ${err instanceof Error ? err.message : String(err)}\n`
     );
   }
+
+  // Transcript ingestion — ingest the full session conversation
+  if (input.sessionId) {
+    try {
+      await ingestTranscript(client, input.sessionId);
+    } catch {
+      // non-fatal
+    }
+  }
 }
 
 async function ingestPlanFiles(
@@ -190,6 +201,72 @@ async function ingestPlanFiles(
   }
 
   if (ingested > 0) writeManifest(manifest);
+}
+
+/**
+ * Read a Claude Code session transcript and ingest the full conversation.
+ *
+ * Extracts user and assistant messages from the JSONL transcript file,
+ * builds a condensed conversation text, and sends it to Nex in one shot.
+ * This captures the full context instead of just the last assistant message.
+ */
+const MAX_TRANSCRIPT_LENGTH = 100_000;
+
+async function ingestTranscript(client: NexClient, sessionId: string): Promise<void> {
+  const cwd = process.cwd();
+  // Claude Code stores transcripts at ~/.claude/projects/<project-hash>/<session-id>.jsonl
+  // Project hash is the CWD path with / replaced by -
+  const projectHash = "-" + cwd.replace(/\//g, "-");
+  const transcriptPath = join(homedir(), ".claude", "projects", projectHash, `${sessionId}.jsonl`);
+
+  let raw: string;
+  try {
+    raw = readFileSync(transcriptPath, "utf-8");
+  } catch {
+    return; // transcript doesn't exist yet or path is wrong
+  }
+
+  // Extract user/assistant messages
+  const lines: string[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line);
+      const role = entry.message?.role;
+      if (role !== "user" && role !== "assistant") continue;
+
+      let text = "";
+      const content = entry.message?.content;
+      if (typeof content === "string") {
+        text = content;
+      } else if (Array.isArray(content)) {
+        text = content
+          .filter((c: any) => c.type === "text")
+          .map((c: any) => c.text)
+          .join("\n");
+      }
+
+      if (!text.trim()) continue;
+      // Strip nex-context blocks to avoid feedback loops
+      text = text.replace(/<nex-context>[\s\S]*?<\/nex-context>/g, "").trim();
+      if (!text) continue;
+
+      lines.push(`[${role}]: ${text}`);
+    } catch {
+      continue;
+    }
+  }
+
+  if (lines.length < 2) return; // need at least one exchange
+
+  let transcript = lines.join("\n\n");
+  if (transcript.length > MAX_TRANSCRIPT_LENGTH) {
+    // Keep the most recent messages (end of conversation is most valuable)
+    transcript = transcript.slice(-MAX_TRANSCRIPT_LENGTH);
+    transcript = "[...earlier messages truncated]\n\n" + transcript;
+  }
+
+  await client.ingest(transcript, `claude-code-transcript:${sessionId}`, 30_000);
 }
 
 // ── Session Start ───────────────────────────────────────────────────────
