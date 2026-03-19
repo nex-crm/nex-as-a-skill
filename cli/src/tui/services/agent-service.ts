@@ -9,6 +9,7 @@ import { createClaudeCodeStreamFn } from "../../agent/providers/claude-code.js";
 import { ToolRegistry, createBuiltinTools } from "../../agent/tools.js";
 import { AgentSessionStore } from "../../agent/session-store.js";
 import { MessageQueues } from "../../agent/queues.js";
+import { TickManager } from "../../agent/tick-manager.js";
 import { NexClient } from "../../lib/client.js";
 import { resolveApiKey, loadConfig } from "../../lib/config.js";
 import { templates } from "../../agent/templates.js";
@@ -26,6 +27,7 @@ export class AgentService {
   private toolRegistry: ToolRegistry;
   private sessionStore: AgentSessionStore;
   private queues: MessageQueues;
+  private tickManager = new TickManager(1000); // 1s tick rate for LLM providers
   private client: NexClient | undefined;
   private listeners: Array<() => void> = [];
 
@@ -165,10 +167,13 @@ export class AgentService {
     this.queues.followUp(slug, message);
   }
 
-  /** Ensure an agent's tick loop is running (idempotent, no-op if TickManager not wired). */
-  ensureRunning(_slug: string): void {
-    // Placeholder — TickManager integration wired in Phase 2.
-    // Keeps orchestrate.ts from breaking when it calls ensureRunning after delegation.
+  /** Ensure an agent's tick loop is running via TickManager (idempotent). */
+  ensureRunning(slug: string): void {
+    const managed = this.agents.get(slug);
+    if (!managed) return;
+    this.tickManager.startLoop(slug, managed.loop, () => {
+      return this.queues.hasMessages(slug);
+    });
   }
 
   /** Get a managed agent by slug. */

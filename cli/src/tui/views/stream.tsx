@@ -12,6 +12,10 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Box, Text, useStdout } from "ink";
 import { TextInput } from "@inkjs/ui";
+import { spawn as nodeSpawn } from "node:child_process";
+import { existsSync as fsExists, readFileSync as fsRead, unlinkSync as fsUnlink, mkdirSync as fsMkdir } from "node:fs";
+import { join as pathJoin } from "node:path";
+import { tmpdir as osTmpdir } from "node:os";
 import { dispatch } from "../../commands/dispatch.js";
 import { getAgentService } from "../services/agent-service.js";
 import {
@@ -167,9 +171,14 @@ export function StreamHome({ push }: StreamHomeProps): React.JSX.Element {
       timestamp: Date.now(),
     }]);
 
-    // Wire agent message events to the stream
-    const wireAgentMessages = () => {
+    // Wire agent events to the stream
+    const wiredAgents = new Set<string>();
+    const wireAgentEvents = () => {
       for (const managed of agentService.list()) {
+        if (wiredAgents.has(managed.config.slug)) continue;
+        wiredAgents.add(managed.config.slug);
+
+        // Agent text responses → stream messages
         managed.loop.on("message", (content: unknown) => {
           if (typeof content !== "string" || !content.trim()) return;
           setMessages(prev => [...prev, {
@@ -180,13 +189,20 @@ export function StreamHome({ push }: StreamHomeProps): React.JSX.Element {
             timestamp: Date.now(),
           }]);
         });
+
+        // Agent done/error → clear loading
+        managed.loop.on("phase_change", (_prev: unknown, next: unknown) => {
+          if (next === "done" || next === "error") {
+            setIsLoading(false);
+          }
+        });
       }
     };
-    wireAgentMessages();
+    wireAgentEvents();
 
     // Re-wire when agents are added + bump revision for @mention list
     const unsub = agentService.subscribe(() => {
-      wireAgentMessages();
+      wireAgentEvents();
       setAgentRevision(r => r + 1);
     });
     // Bump once now that Team-Lead was created above
@@ -362,37 +378,60 @@ export function StreamHome({ push }: StreamHomeProps): React.JSX.Element {
     const teamLead = agentService.get("team-lead");
 
     if (teamLead) {
-      // Steer Team-Lead with the user's message and run through a full cycle
       setIsLoading(true);
       setLoadingHint("thinking...");
-      agentService.steer("team-lead", trimmed);
 
-      try {
-        // Reset if done/error, then tick through the full cycle:
-        // idle → build_context → stream_llm → done
-        const loop = teamLead.loop;
-        const phase = loop.getState().phase;
-        if (phase === "done" || phase === "error") {
-          loop.start(); // reset to idle
-        }
-        await loop.tick(); // idle → build_context
-        await loop.tick(); // build_context → stream_llm (emits 'message')
-        await loop.tick(); // stream_llm → done (or execute_tool)
-        // If tool was called, keep ticking
-        let guard = 10;
-        while (loop.getState().phase === "execute_tool" && guard-- > 0) {
-          await loop.tick(); // execute_tool → stream_llm
-          await loop.tick(); // stream_llm → done (or another tool)
-        }
-      } catch (err) {
-        addMessage({
-          sender: "system", senderType: "system",
-          content: `Agent error: ${err instanceof Error ? err.message : String(err)}`,
-          isError: true,
-        });
-      } finally {
+      // Spawn claude -p as a detached process that writes to a temp file.
+      // Poll for the done marker with setInterval (sync existsSync).
+      // This is the only pattern that works in Bun+Ink: detached process +
+      // sync file polling from setInterval (no async, no Promises, no Workers).
+      const outDir = pathJoin(osTmpdir(), "nex-claude-out");
+      fsMkdir(outDir, { recursive: true });
+      const outFile = pathJoin(outDir, `msg-${Date.now()}.json`);
+      const doneFile = `${outFile}.done`;
+
+      // Escape single quotes in prompt for safe shell embedding
+      const safePrompt = trimmed.replace(/'/g, "'\\''");
+      const shellCmd = `claude -p '${safePrompt}' --output-format stream-json --verbose --max-turns 5 --no-session-persistence --allowedTools 'Read,Glob,Grep,WebSearch,WebFetch' > '${outFile}' 2>/dev/null; touch '${doneFile}'`;
+      const proc = nodeSpawn("sh", ["-c", shellCmd], {
+        stdio: "ignore",
+        detached: true,
+      });
+      proc.unref();
+
+      // Poll with setInterval (sync check, works in Bun+Ink)
+      const pollId = setInterval(() => {
+        if (!fsExists(doneFile)) return; // not done yet
+        clearInterval(pollId);
         setIsLoading(false);
-      }
+
+        let stdout = "";
+        try { stdout = fsRead(outFile, "utf-8"); } catch { /* no output */ }
+        try { fsUnlink(outFile); } catch {}
+        try { fsUnlink(doneFile); } catch {}
+
+        // Parse NDJSON for assistant text
+        let responseText = "";
+        for (const line of stdout.split("\n")) {
+          try {
+            const event = JSON.parse(line);
+            if (event.type === "assistant" && event.message?.content) {
+              for (const part of (event.message.content as Array<Record<string, unknown>>)) {
+                if (part.type === "text" && part.text) responseText += part.text as string;
+              }
+            }
+            if (event.type === "result" && !responseText && event.result) {
+              responseText = event.result as string;
+            }
+          } catch { continue; }
+        }
+
+        addMessage({
+          sender: "Team-Lead",
+          senderType: "agent",
+          content: responseText || "(no response from Claude Code)",
+        });
+      }, 500);
     } else {
       // Fallback: no Team-Lead agent, use Nex Ask API directly
       setIsLoading(true);
