@@ -390,12 +390,21 @@ export function StreamHome({ push }: StreamHomeProps): React.JSX.Element {
       const outFile = pathJoin(outDir, `msg-${Date.now()}.json`);
       const doneFile = `${outFile}.done`;
 
+      // Strip Claude nesting env vars (Paperclip pattern) — prevents the child
+      // claude from thinking it's nested inside another Claude Code session.
+      const cleanEnv = { ...process.env };
+      delete cleanEnv.CLAUDECODE;
+      delete cleanEnv.CLAUDE_CODE_ENTRYPOINT;
+      delete cleanEnv.CLAUDE_CODE_SESSION;
+      delete cleanEnv.CLAUDE_CODE_PARENT_SESSION;
+
       // Escape single quotes in prompt for safe shell embedding
       const safePrompt = trimmed.replace(/'/g, "'\\''");
       const shellCmd = `claude -p '${safePrompt}' --output-format stream-json --verbose --max-turns 5 --no-session-persistence --allowedTools 'Read,Glob,Grep,WebSearch,WebFetch' > '${outFile}' 2>/dev/null; touch '${doneFile}'`;
       const proc = nodeSpawn("sh", ["-c", shellCmd], {
         stdio: "ignore",
         detached: true,
+        env: cleanEnv,
       });
       proc.unref();
 
