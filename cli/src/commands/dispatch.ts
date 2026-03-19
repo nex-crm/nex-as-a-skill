@@ -60,6 +60,17 @@ function ok(data: unknown, ctx: CommandContext, extra?: Partial<CommandResult>):
   return { output: fmt(data, ctx), data, exitCode: 0, ...extra };
 }
 
+/**
+ * Trigger compounding intelligence jobs (pattern detection, playbook synthesis)
+ * after content ingestion. Runs in the background — errors are non-fatal.
+ */
+async function triggerCompounding(client: NexClient): Promise<void> {
+  const jobs = ["consolidation", "pattern_detection", "playbook_synthesis"];
+  await Promise.allSettled(
+    jobs.map((job) => client.post("/v1/compounding/trigger", { job_type: job, dry_run: false }, 10_000)),
+  );
+}
+
 function fail(error: string, exitCode = 1): CommandResult {
   return { output: "", exitCode, error };
 }
@@ -1281,6 +1292,12 @@ async function executeScan(args: string[], ctx: CommandContext): Promise<Command
     const result = await scanFiles(dir, scanOpts, async (content, context) => {
       return client.post("/v1/context/text", { content, context });
     });
+
+    // Trigger compounding intelligence after successful ingestion
+    if (!dryRun && result.scanned > 0) {
+      triggerCompounding(client).catch(() => {});
+    }
+
     return ok({ scanned: result.scanned, skipped: result.skipped, errors: result.errors }, ctx);
   } catch (err) {
     return wrapError(err);
