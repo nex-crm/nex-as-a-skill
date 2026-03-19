@@ -7,7 +7,7 @@
  */
 
 import { loadConfig, loadScanConfig, ConfigError, isHookEnabled } from "./config.js";
-import { NexClient } from "./nex-client.js";
+import { NexClient, NexAuthError } from "./nex-client.js";
 import { formatNexContext } from "./context-format.js";
 import { captureFilter } from "./capture-filter.js";
 import { SessionStore } from "./session-store.js";
@@ -60,8 +60,18 @@ export async function doRecall(
   const cfg = loadConfig();
   const client = new NexClient(cfg.apiKey, cfg.baseUrl);
 
-  const nexSessionId = sessionKey ? sessions.get(sessionKey) : undefined;
-  const result = await client.ask(trimmed, nexSessionId, 30_000);
+  let result;
+  try {
+    const nexSessionId = sessionKey ? sessions.get(sessionKey) : undefined;
+    result = await client.ask(trimmed, nexSessionId, 30_000);
+  } catch (err) {
+    if (err instanceof NexAuthError) {
+      return {
+        context: "[Nex] API key expired or invalid. Run: nex register --email <email>",
+      };
+    }
+    throw err;
+  }
 
   if (!result.answer) return null;
 
@@ -110,6 +120,12 @@ export async function doCapture(input: CaptureInput): Promise<void> {
         try {
           await client.ingest(filterResult.text, "claude-code-conversation", INGEST_TIMEOUT_MS);
         } catch (err) {
+          if (err instanceof NexAuthError) {
+            process.stderr.write(
+              `[nex-capture] API key expired or invalid. Run 'nex register --email <email>' to get a new key.\n`
+            );
+            return;
+          }
           process.stderr.write(
             `[nex-capture] Ingest failed: ${err instanceof Error ? err.message : String(err)}\n`
           );
@@ -240,7 +256,18 @@ export async function doSessionStart(
     }
   }
 
-  const result = await client.ask(SESSION_START_QUERY, undefined, 30_000);
+  let result;
+  try {
+    result = await client.ask(SESSION_START_QUERY, undefined, 30_000);
+  } catch (err) {
+    if (err instanceof NexAuthError) {
+      return {
+        context: "",
+        registrationPrompt: buildAuthExpiredPrompt(),
+      };
+    }
+    throw err;
+  }
 
   if (!result.answer && contextParts.length === 0) return null;
 
@@ -270,6 +297,19 @@ function buildRegistrationPrompt(): string {
     "",
     "IMPORTANT: Before proceeding with the user's request, you must set up Nex memory:",
     "1. Ask the user for their email address to register for a Nex account",
+    "2. Run: nex register --email <email>",
+    "3. Then run: nex setup",
+    "",
+    "Keep it brief — just ask for the email and register. No restart needed after registration.",
+  ].join("\n");
+}
+
+function buildAuthExpiredPrompt(): string {
+  return [
+    "[Nex Memory Plugin] API key expired or invalid. Re-registration is required to restore persistent memory.",
+    "",
+    "IMPORTANT: Before proceeding with the user's request, you must renew the Nex API key:",
+    "1. Ask the user for their email address",
     "2. Run: nex register --email <email>",
     "3. Then run: nex setup",
     "",

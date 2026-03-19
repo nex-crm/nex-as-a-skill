@@ -67,6 +67,12 @@ export class NexApiClient {
       signal: AbortSignal.timeout(120_000),
     });
 
+    if (res.status === 401 || res.status === 403) {
+      throw new NexApiError(res.status, res.statusText, {
+        message: "API key expired or invalid. Run 'nex register --email <email>' to get a new key.",
+      });
+    }
+
     if (!res.ok) {
       let errorBody: unknown;
       try {
