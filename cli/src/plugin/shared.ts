@@ -6,7 +6,7 @@
  * without duplicating filter/client/format code.
  */
 
-import { loadConfig, loadScanConfig, ConfigError, isHookEnabled } from "./config.js";
+import { loadConfig, loadScanConfig, ConfigError, isHookEnabled, type NexConfig } from "./config.js";
 import { NexClient, NexAuthError } from "./nex-client.js";
 import { formatNexContext } from "./context-format.js";
 import { captureFilter } from "./capture-filter.js";
@@ -249,6 +249,8 @@ export async function doSessionStart(
           contextParts.push(
             `[File scan: ${scanResult.ingested} file${scanResult.ingested === 1 ? "" : "s"} ingested, ${scanResult.scanned} scanned]`
           );
+          // Trigger compounding intelligence after ingestion (non-blocking, best-effort)
+          triggerCompounding(cfg).catch(() => {});
         }
       }
     } catch {
@@ -326,6 +328,26 @@ export async function readStdin(): Promise<string> {
     chunks.push(chunk as Buffer);
   }
   return Buffer.concat(chunks).toString("utf-8");
+}
+
+/**
+ * Trigger compounding intelligence jobs after content ingestion.
+ * Runs consolidation, pattern detection, and playbook synthesis.
+ * Best-effort — errors are silently ignored.
+ */
+async function triggerCompounding(cfg: NexConfig): Promise<void> {
+  const jobs = ["consolidation", "pattern_detection", "playbook_synthesis"];
+  const url = `${cfg.baseUrl}/api/developers/v1/compounding/trigger`;
+  await Promise.allSettled(
+    jobs.map((job) =>
+      fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${cfg.apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ job_type: job, dry_run: false }),
+        signal: AbortSignal.timeout(30_000),
+      }),
+    ),
+  );
 }
 
 /** Wrap output in Claude Code hookSpecificOutput format. */
