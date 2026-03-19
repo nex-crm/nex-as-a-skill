@@ -362,17 +362,34 @@ export function StreamHome({ push }: StreamHomeProps): React.JSX.Element {
     const teamLead = agentService.get("team-lead");
 
     if (teamLead) {
-      // Steer Team-Lead with the user's message and ensure it's ticking
+      // Steer Team-Lead with the user's message and run through a full cycle
       setIsLoading(true);
       setLoadingHint("thinking...");
       agentService.steer("team-lead", trimmed);
-      agentService.ensureRunning("team-lead");
 
-      // Start a tick to process immediately
       try {
-        await agentService.start("team-lead");
-      } catch {
-        // Agent may already be running — that's fine, steer message is queued
+        // Reset if done/error, then tick through the full cycle:
+        // idle → build_context → stream_llm → done
+        const loop = teamLead.loop;
+        const phase = loop.getState().phase;
+        if (phase === "done" || phase === "error") {
+          loop.start(); // reset to idle
+        }
+        await loop.tick(); // idle → build_context
+        await loop.tick(); // build_context → stream_llm (emits 'message')
+        await loop.tick(); // stream_llm → done (or execute_tool)
+        // If tool was called, keep ticking
+        let guard = 10;
+        while (loop.getState().phase === "execute_tool" && guard-- > 0) {
+          await loop.tick(); // execute_tool → stream_llm
+          await loop.tick(); // stream_llm → done (or another tool)
+        }
+      } catch (err) {
+        addMessage({
+          sender: "system", senderType: "system",
+          content: `Agent error: ${err instanceof Error ? err.message : String(err)}`,
+          isError: true,
+        });
       } finally {
         setIsLoading(false);
       }
