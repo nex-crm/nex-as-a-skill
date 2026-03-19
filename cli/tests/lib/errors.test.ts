@@ -12,7 +12,7 @@ describe("AuthError", () => {
 
   test("uses default message when none provided", () => {
     const err = new AuthError();
-    expect(err.message.includes("No API key configured")).toBeTruthy();
+    expect(err.message.includes("API key missing or invalid")).toBeTruthy();
   });
 });
 
