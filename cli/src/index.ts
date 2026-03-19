@@ -8,30 +8,105 @@
  * Piped stdin         → read input, dispatch, exit
  */
 
-import { dispatch, commandNames } from "./commands/dispatch.js";
+import { dispatch, dispatchTokens, commandNames } from "./commands/dispatch.js";
+import { resolveFormat } from "./lib/config.js";
+import type { Format } from "./lib/output.js";
+
+/**
+ * Extract global flags (--format, --api-key, --timeout) from args.
+ * Returns the cleaned args and a context object for dispatch.
+ */
+function extractGlobalFlags(args: string[]): { cleanArgs: string[]; ctx: { format: Format; apiKey?: string; timeout?: number } } {
+  const cleanArgs: string[] = [];
+  let format: string | undefined;
+  let apiKey: string | undefined;
+  let timeout: number | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--format" && args[i + 1]) {
+      format = args[++i];
+    } else if (args[i] === "--api-key" && args[i + 1]) {
+      apiKey = args[++i];
+    } else if (args[i] === "--timeout" && args[i + 1]) {
+      timeout = parseInt(args[++i], 10);
+    } else {
+      cleanArgs.push(args[i]);
+    }
+  }
+
+  return {
+    cleanArgs,
+    ctx: {
+      format: (format ?? resolveFormat()) as Format,
+      apiKey,
+      timeout,
+    },
+  };
+}
+
+/** Print result to stdout/stderr and exit with the appropriate code. */
+function emitAndExit(result: { output: string; error?: string; exitCode: number }): never {
+  if (result.output) console.log(result.output);
+  if (result.error) process.stderr.write(result.error + "\n");
+  process.exit(result.exitCode);
+}
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
+  // --version flag
+  if (args.includes("--version") || args.includes("-v")) {
+    const pkg: any = await import("../package.json");
+    const version = pkg.default?.version ?? pkg.version;
+    console.log(version);
+    process.exit(0);
+  }
+
+  // --help flag
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log(`Usage: nex [command] [options]
+
+Commands:
+  ask <query>           Query your context graph with AI
+  remember <content>    Store a note, fact, or observation
+  object list           List all objects
+  object get <slug>     Get an object by slug
+  record list <slug>    List records for an object
+  record get <id>       Get a record by ID
+  task list             List tasks
+  note list             List notes
+  search <query>        Search across records
+  graph                 View relationship graph
+  detect                Detect installed AI coding platforms
+  setup                 Configure API key and workspace
+  agent templates       List available agent templates
+  agent create          Create a new agent
+
+Options:
+  --cmd <input>         Run a single command and exit
+  --format <fmt>        Output format: json, text, quiet
+  --version             Show version number
+  --help                Show this help message
+
+When no command is given, launches the interactive TUI.`);
+    process.exit(0);
+  }
+
+  // Extract global flags (--format, --api-key, --timeout) from args
+  const { cleanArgs, ctx } = extractGlobalFlags(args);
+
   // --cmd "ask who is important" → run one command and exit
-  const cmdIdx = args.indexOf("--cmd");
-  if (cmdIdx >= 0 && args[cmdIdx + 1]) {
-    const input = args.slice(cmdIdx + 1).join(" ");
-    const result = await dispatch(input);
-    if (result.output) console.log(result.output);
-    process.exit(result.exitCode);
+  const cmdIdx = cleanArgs.indexOf("--cmd");
+  if (cmdIdx >= 0 && cleanArgs[cmdIdx + 1]) {
+    const input = cleanArgs.slice(cmdIdx + 1).join(" ");
+    const result = await dispatch(input, ctx);
+    emitAndExit(result);
   }
 
   // Direct subcommand: `nex graph`, `nex scan`, etc. → dispatch and exit
-  if (args.length > 0 && !args[0].startsWith("-")) {
-    const candidate = args[0];
-    const twoWord = args.length > 1 ? `${args[0]} ${args[1]}` : "";
-    if (commandNames.includes(twoWord) || commandNames.includes(candidate)) {
-      const input = args.join(" ");
-      const result = await dispatch(input);
-      if (result.output) console.log(result.output);
-      process.exit(result.exitCode);
-    }
+  if (cleanArgs.length > 0 && !cleanArgs[0].startsWith("-")) {
+    const result = await dispatchTokens(cleanArgs, ctx);
+    emitAndExit(result);
   }
 
   // Piped stdin → dispatch each line
@@ -42,9 +117,8 @@ async function main(): Promise<void> {
     }
     const input = Buffer.concat(chunks).toString("utf-8").trim();
     if (input) {
-      const result = await dispatch(input);
-      if (result.output) console.log(result.output);
-      process.exit(result.exitCode);
+      const result = await dispatch(input, ctx);
+      emitAndExit(result);
     }
     process.exit(0);
   }

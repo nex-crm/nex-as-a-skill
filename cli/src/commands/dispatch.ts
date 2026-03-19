@@ -1329,6 +1329,14 @@ function resolveCommand(tokens: string[]): { name: string; args: string[] } | un
  */
 export async function dispatch(input: string, ctx?: CommandContext): Promise<CommandResult> {
   const tokens = parseInput(input);
+  return dispatchTokens(tokens, ctx);
+}
+
+/**
+ * Dispatch from pre-tokenized args (e.g. process.argv).
+ * Use this when the shell has already handled quoting/splitting.
+ */
+export async function dispatchTokens(tokens: string[], ctx?: CommandContext): Promise<CommandResult> {
   if (tokens.length === 0) {
     return fail("No command provided.");
   }
