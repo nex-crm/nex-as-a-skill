@@ -1,13 +1,14 @@
 /**
  * Pi-style state machine agent loop.
  * Runs idle -> build_context -> stream_llm -> execute_tool -> done cycle.
- * Mock streamFn used until real LLM integration.
+ * Default streamFn uses Nex Ask API until real LLM provider is wired.
  */
 
 import type { AgentConfig, AgentState, AgentPhase, AgentTool, StreamFn, ToolCall } from './types.js';
 import type { ToolRegistry } from './tools.js';
 import type { AgentSessionStore } from './session-store.js';
 import type { MessageQueues } from './queues.js';
+import type { NexClient } from '../lib/client.js';
 import type { GossipLayer, GossipInsight } from './gossip.js';
 import { scoreInsight } from './adoption.js';
 import type { CredibilityTracker } from './adoption.js';
@@ -16,35 +17,51 @@ type EventName = 'phase_change' | 'tool_call' | 'message' | 'error' | 'done';
 type EventHandler = (...args: unknown[]) => void;
 
 /**
- * Mock streamFn that simulates LLM responses.
- * Returns a text response, optionally followed by a tool call if tools are available.
+ * Create a streamFn backed by the Nex Ask API.
+ * Uses the context graph AI to generate responses.
+ * Falls back to a simple echo if no client is available.
  */
-export function createMockStreamFn(): StreamFn {
-  return async function* mockStream(
+export function createNexAskStreamFn(client?: NexClient): StreamFn {
+  return async function* nexAskStream(
     messages: Array<{ role: string; content: string }>,
-    tools: AgentTool[],
+    _tools: AgentTool[],
   ) {
     const lastMsg = messages[messages.length - 1];
     const content = lastMsg?.content ?? '';
 
-    // If tools available, simulate a tool call for search-like queries
-    if (tools.length > 0 && content.toLowerCase().includes('search')) {
-      const searchTool = tools.find(t => t.name.includes('search'));
-      if (searchTool) {
+    if (client?.isAuthenticated) {
+      try {
+        const result = await client.post('/ask', {
+          question: content,
+          context: messages.slice(0, -1).map(m => `${m.role}: ${m.content}`).join('\n').slice(-2000),
+        }) as { answer?: string };
         yield {
-          type: 'tool_call' as const,
-          toolName: searchTool.name,
-          toolParams: { query: content },
+          type: 'text' as const,
+          content: (result as Record<string, unknown>).answer as string ?? JSON.stringify(result),
+        };
+        return;
+      } catch (err) {
+        yield {
+          type: 'text' as const,
+          content: `Error: ${err instanceof Error ? err.message : String(err)}`,
         };
         return;
       }
     }
 
+    // No client — echo response
     yield {
       type: 'text' as const,
-      content: `Processed: ${content}`,
+      content: `[No API key configured] ${content}`,
     };
   };
+}
+
+/**
+ * @deprecated Use createNexAskStreamFn instead.
+ */
+export function createMockStreamFn(): StreamFn {
+  return createNexAskStreamFn();
 }
 
 export class AgentLoop {

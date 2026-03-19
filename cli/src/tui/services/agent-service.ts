@@ -3,12 +3,13 @@
  * Bridges the agent runtime (loop, tools, queues, sessions) to the view layer.
  */
 
-import { AgentLoop } from "../../agent/loop.js";
+import { AgentLoop, createNexAskStreamFn } from "../../agent/loop.js";
+import { createGeminiStreamFn } from "../../agent/providers/gemini.js";
 import { ToolRegistry, createBuiltinTools } from "../../agent/tools.js";
 import { AgentSessionStore } from "../../agent/session-store.js";
 import { MessageQueues } from "../../agent/queues.js";
 import { NexClient } from "../../lib/client.js";
-import { resolveApiKey } from "../../lib/config.js";
+import { resolveApiKey, loadConfig } from "../../lib/config.js";
 import { templates } from "../../agent/templates.js";
 import type { AgentConfig, AgentState } from "../../agent/types.js";
 import { getChatService } from "./chat-service.js";
@@ -24,6 +25,7 @@ export class AgentService {
   private toolRegistry: ToolRegistry;
   private sessionStore: AgentSessionStore;
   private queues: MessageQueues;
+  private client: NexClient | undefined;
   private listeners: Array<() => void> = [];
 
   constructor(
@@ -34,14 +36,30 @@ export class AgentService {
     if (toolRegistry) {
       this.toolRegistry = toolRegistry;
     } else {
-      const client = new NexClient(resolveApiKey());
+      this.client = new NexClient(resolveApiKey());
       this.toolRegistry = new ToolRegistry();
-      for (const tool of createBuiltinTools(client)) {
+      for (const tool of createBuiltinTools(this.client)) {
         this.toolRegistry.register(tool);
       }
     }
     this.sessionStore = sessionStore ?? new AgentSessionStore();
     this.queues = queues ?? new MessageQueues();
+  }
+
+  /** Resolve the StreamFn based on configured LLM provider. */
+  private resolveStreamFn(): import("../../agent/types.js").StreamFn {
+    let config: Record<string, unknown>;
+    try { config = loadConfig() as Record<string, unknown>; } catch { config = {}; }
+
+    const provider = config.llm_provider as string | undefined;
+    const geminiKey = config.gemini_api_key as string | undefined;
+
+    if (provider === "gemini" && geminiKey) {
+      return createGeminiStreamFn(geminiKey);
+    }
+
+    // Fallback: Nex Ask API (uses context graph AI)
+    return createNexAskStreamFn(this.client);
   }
 
   /** Create an agent from a full config. */
@@ -55,6 +73,7 @@ export class AgentService {
       this.toolRegistry,
       this.sessionStore,
       this.queues,
+      this.resolveStreamFn(),
     );
 
     // Wire phase_change events to notify TUI listeners
