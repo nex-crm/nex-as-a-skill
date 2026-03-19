@@ -5,6 +5,7 @@
 
 import { AgentLoop, createNexAskStreamFn } from "../../agent/loop.js";
 import { createGeminiStreamFn } from "../../agent/providers/gemini.js";
+import { createClaudeCodeStreamFn } from "../../agent/providers/claude-code.js";
 import { ToolRegistry, createBuiltinTools } from "../../agent/tools.js";
 import { AgentSessionStore } from "../../agent/session-store.js";
 import { MessageQueues } from "../../agent/queues.js";
@@ -47,7 +48,7 @@ export class AgentService {
   }
 
   /** Resolve the StreamFn based on configured LLM provider. */
-  private resolveStreamFn(): import("../../agent/types.js").StreamFn {
+  private resolveStreamFn(agentSlug: string): import("../../agent/types.js").StreamFn {
     let config: Record<string, unknown>;
     try { config = loadConfig() as Record<string, unknown>; } catch { config = {}; }
 
@@ -56,6 +57,10 @@ export class AgentService {
 
     if (provider === "gemini" && geminiKey) {
       return createGeminiStreamFn(geminiKey);
+    }
+
+    if (provider === "claude-code") {
+      return createClaudeCodeStreamFn(agentSlug);
     }
 
     // Fallback: Nex Ask API (uses context graph AI)
@@ -73,7 +78,7 @@ export class AgentService {
       this.toolRegistry,
       this.sessionStore,
       this.queues,
-      this.resolveStreamFn(),
+      this.resolveStreamFn(config.slug),
     );
 
     // Wire phase_change events to notify TUI listeners
