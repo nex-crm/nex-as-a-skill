@@ -46,4 +46,8 @@ export class MessageQueues {
     const q = this.followUpQueues.get(agentSlug);
     return q !== undefined && q.length > 0;
   }
+
+  hasMessages(agentSlug: string): boolean {
+    return this.hasSteer(agentSlug) || this.hasFollowUp(agentSlug);
+  }
 }

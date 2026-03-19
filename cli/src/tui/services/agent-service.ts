@@ -141,6 +141,12 @@ export class AgentService {
     this.queues.followUp(slug, message);
   }
 
+  /** Ensure an agent's tick loop is running (idempotent, no-op if TickManager not wired). */
+  ensureRunning(_slug: string): void {
+    // Placeholder — TickManager integration wired in Phase 2.
+    // Keeps orchestrate.ts from breaking when it calls ensureRunning after delegation.
+  }
+
   /** Get a managed agent by slug. */
   get(slug: string): ManagedAgent | undefined {
     return this.agents.get(slug);
