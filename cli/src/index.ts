@@ -103,10 +103,17 @@ When no command is given, launches the interactive TUI.`);
     emitAndExit(result);
   }
 
-  // Direct subcommand: `nex graph`, `nex scan`, etc. → dispatch and exit
-  if (cleanArgs.length > 0 && !cleanArgs[0].startsWith("-")) {
+  // Interactive commands → fall through to Commander (rich TUI with pickers, spinners, workflows)
+  const INTERACTIVE_COMMANDS = new Set(["setup", "integrate", "scan", "register", "status"]);
+  const firstArg = cleanArgs[0]?.toLowerCase();
+
+  if (firstArg && !INTERACTIVE_COMMANDS.has(firstArg)) {
+    // Non-interactive subcommand → dispatch and exit
     const result = await dispatchTokens(cleanArgs, ctx);
-    emitAndExit(result);
+    if (!result.error?.startsWith("Unknown command")) {
+      emitAndExit(result);
+    }
+    // Unknown command falls through to Commander / TUI
   }
 
   // Piped stdin → dispatch each line
@@ -123,7 +130,19 @@ When no command is given, launches the interactive TUI.`);
     process.exit(0);
   }
 
-  // Interactive terminal → TUI (no subcommand given)
+  // Interactive commands or no subcommand → Commander (setup, integrate, scan, register)
+  if (firstArg && INTERACTIVE_COMMANDS.has(firstArg)) {
+    // Load Commander command modules to register their handlers
+    await import("./commands/setup.js");
+    await import("./commands/scan.js");
+    await import("./commands/register.js");
+    await import("./commands/integrate.js");
+    const { program } = await import("./cli.js");
+    program.parse(["node", "nex", ...args]);
+    return;
+  }
+
+  // No subcommand → TUI
   const { startTui } = await import("./tui/index.js");
   startTui();
 }
