@@ -141,7 +141,7 @@ export function App() {
   const onInput = useCallback(
     (
       input: string,
-      key: { escape?: boolean; ctrl?: boolean; shift?: boolean; name?: string },
+      key: { escape?: boolean; ctrl?: boolean; shift?: boolean; tab?: boolean; upArrow?: boolean; downArrow?: boolean; return?: boolean; backspace?: boolean; delete?: boolean; name?: string },
     ) => {
       const currentView =
         state.viewStack[state.viewStack.length - 1]?.name ?? "home";
@@ -165,14 +165,14 @@ export function App() {
         if (currentView === "home") {
           const g = globalThis as Record<string, unknown>;
 
-          if (key.name === "tab" && !key.shift) {
+          if (key.tab && !key.shift) {
             const tabFn = g.__nexHomeTabComplete as ((d: number) => boolean) | undefined;
             if (tabFn) tabFn(1);
             return;
           }
-          if (key.name === "up" || key.name === "down") {
+          if (key.upArrow || key.downArrow) {
             const acNav = g.__nexHomeAutocompleteNav as ((d: number) => boolean) | undefined;
-            if (acNav && acNav(key.name === "up" ? -1 : 1)) return;
+            if (acNav && acNav(key.upArrow ? -1 : 1)) return;
           }
         }
         // Everything else → TextInput
