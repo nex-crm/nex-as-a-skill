@@ -67,7 +67,7 @@ function ok(data: unknown, ctx: CommandContext, extra?: Partial<CommandResult>):
 async function triggerCompounding(client: NexClient): Promise<void> {
   const jobs = ["consolidation", "pattern_detection", "playbook_synthesis"];
   await Promise.allSettled(
-    jobs.map((job) => client.post("/v1/compounding/trigger", { job_type: job, dry_run: false })),
+    jobs.map((job) => client.post("/v1/compounding/trigger", { job_type: job, dry_run: false }, 10_000)),
   );
 }
 
@@ -1295,7 +1295,7 @@ async function executeScan(args: string[], ctx: CommandContext): Promise<Command
 
     // Trigger compounding intelligence after successful ingestion
     if (!dryRun && result.scanned > 0) {
-      await triggerCompounding(client);
+      triggerCompounding(client).catch(() => {});
     }
 
     return ok({ scanned: result.scanned, skipped: result.skipped, errors: result.errors }, ctx);
