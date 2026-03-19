@@ -6,12 +6,11 @@
  *   1. Registration (if no API key)
  *   2. Platform detection
  *   3. Installation per platform (hooks, commands, rules, MCP)
- *   4. Write ~/.nex-mcp.json
+ *   4. Persist config to ~/.nex/config.json
  */
 
 import { NexClient } from "../lib/client.js";
-import { loadConfig, persistRegistration, resolveApiKey } from "../lib/config.js";
-import { saveMcpConfig } from "../lib/nex-mcp-config.js";
+import { loadConfig, persistRegistration, saveConfig, resolveApiKey } from "../lib/config.js";
 import {
   installClaudeCodePlugin,
   installMcpServer,
@@ -22,7 +21,6 @@ import {
   installVSCodeAgent,
   installKiloCodeMode,
   installWindsurfWorkflows,
-  syncApiKeyToMcpConfig,
 } from "../lib/installers.js";
 import {
   detectPlatforms as detectAllPlatforms,
@@ -101,17 +99,10 @@ export async function registerUser(
     throw new Error("Registration did not return an API key.");
   }
 
-  // Persist to ~/.nex/config.json
+  // Persist to ~/.nex/config.json (canonical config)
   persistRegistration({
     api_key: apiKey,
     email,
-    workspace_id: workspaceId,
-    workspace_slug: workspaceSlug,
-  });
-
-  // Persist to ~/.nex-mcp.json
-  saveMcpConfig({
-    api_key: apiKey,
     workspace_id: workspaceId,
     workspace_slug: workspaceSlug,
   });
@@ -294,18 +285,18 @@ export function installForPlatform(
   }
 }
 
-// ── Step 4: Write ~/.nex-mcp.json ────────────────────────────────────
+// ── Step 4: Persist config to ~/.nex/config.json ─────────────────────
 
 export function writeMcpConfig(
   apiKey: string,
   workspaceId: string,
   workspaceSlug: string,
 ): void {
-  saveMcpConfig({
-    api_key: apiKey,
-    workspace_id: workspaceId,
-    workspace_slug: workspaceSlug,
-  });
+  const existing = loadConfig();
+  existing.api_key = apiKey;
+  existing.workspace_id = workspaceId;
+  existing.workspace_slug = workspaceSlug;
+  saveConfig(existing);
 }
 
 // ── Main init flow ───────────────────────────────────────────────────
@@ -394,9 +385,8 @@ export async function runInit(
     installForPlatform(platform, apiKey, onProgress);
   }
 
-  // Step 4: Ensure ~/.nex-mcp.json is written
+  // Step 4: Ensure ~/.nex/config.json is written
   writeMcpConfig(apiKey, workspaceId, workspaceSlug);
-  syncApiKeyToMcpConfig(apiKey);
 
   onProgress({
     step: "complete",

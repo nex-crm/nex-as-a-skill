@@ -1,6 +1,7 @@
 /**
  * Plugin configuration — reads from environment variables,
- * with fallback to ~/.nex-mcp.json (shared with MCP server).
+ * with fallback to ~/.nex/config.json (canonical config),
+ * then ~/.nex-mcp.json (legacy, read-only — kept for backward compatibility).
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -28,12 +29,16 @@ export class ConfigError extends Error {
   }
 }
 
-/** Shared config file with MCP server — stores registration data. */
-const MCP_CONFIG_PATH = join(homedir(), ".nex-mcp.json");
-/** CLI config file — stores API key, workspace, and dev_url. */
+/** Canonical config file — stores API key, workspace, and dev_url. */
 const CLI_CONFIG_PATH = join(homedir(), ".nex", "config.json");
+/**
+ * Legacy config file — read-only fallback for backward compatibility.
+ * Existing installations may still have credentials here. We read from it
+ * but never write to it. All new writes go to CLI_CONFIG_PATH.
+ */
+const LEGACY_MCP_CONFIG_PATH = join(homedir(), ".nex-mcp.json");
 
-export { MCP_CONFIG_PATH };
+export { CLI_CONFIG_PATH as MCP_CONFIG_PATH };
 
 interface McpConfig {
   api_key?: string;
@@ -49,10 +54,13 @@ interface CliConfig {
   workspace_slug?: string;
 }
 
-/** Read ~/.nex-mcp.json (shared with MCP server registration). */
+/**
+ * Read legacy ~/.nex-mcp.json (backward compatibility only).
+ * New code should use loadCliConfig() instead.
+ */
 export function loadMcpConfig(): McpConfig {
   try {
-    const raw = readFileSync(MCP_CONFIG_PATH, "utf-8");
+    const raw = readFileSync(LEGACY_MCP_CONFIG_PATH, "utf-8");
     return JSON.parse(raw) as McpConfig;
   } catch {
     return {};
@@ -69,35 +77,36 @@ function loadCliConfig(): CliConfig {
   }
 }
 
-/** Write registration data to ~/.nex-mcp.json. */
+/** Write registration data to ~/.nex/config.json (canonical config). */
 export function persistRegistration(data: Record<string, unknown>): void {
-  const existing = loadMcpConfig() as Record<string, unknown>;
+  const existing = loadCliConfig() as Record<string, unknown>;
   if (typeof data.api_key === "string") existing.api_key = data.api_key;
   if (typeof data.workspace_id === "string" || typeof data.workspace_id === "number") {
     existing.workspace_id = String(data.workspace_id);
   }
   if (typeof data.workspace_slug === "string") existing.workspace_slug = data.workspace_slug;
-  mkdirSync(dirname(MCP_CONFIG_PATH), { recursive: true });
-  writeFileSync(MCP_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
+  mkdirSync(dirname(CLI_CONFIG_PATH), { recursive: true });
+  writeFileSync(CLI_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
 }
 
 /**
- * Load config from environment variables, with fallback to ~/.nex-mcp.json.
+ * Load config from environment variables, with fallback to config files.
  *
- * Priority: NEX_API_KEY env > ~/.nex-mcp.json api_key
- * If neither is set, throws ConfigError with registration instructions.
+ * Priority: NEX_API_KEY env > ~/.nex/config.json > ~/.nex-mcp.json (legacy)
+ * If none is set, throws ConfigError with registration instructions.
  */
 export function loadConfig(): NexConfig {
   let apiKey = process.env.NEX_API_KEY;
 
   if (!apiKey) {
-    // Fallback: MCP config → CLI config
-    const mcpConfig = loadMcpConfig();
-    apiKey = mcpConfig.api_key;
-  }
-  if (!apiKey) {
+    // Canonical config first
     const cliConfig = loadCliConfig();
     apiKey = cliConfig.api_key;
+  }
+  if (!apiKey) {
+    // Legacy fallback — backward compatibility for existing installations
+    const mcpConfig = loadMcpConfig();
+    apiKey = mcpConfig.api_key;
   }
 
   if (!apiKey) {

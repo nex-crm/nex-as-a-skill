@@ -696,11 +696,15 @@ export function installRulesFile(
   return { installed: true, rulesPath };
 }
 
-// ── 8. Sync API key to ~/.nex-mcp.json ─────────────────────────────────
+// ── 8. Sync API key to ~/.nex/config.json ──────────────────────────────
 
+/**
+ * Persist API key to the canonical config file (~/.nex/config.json).
+ * Name kept as syncApiKeyToMcpConfig for backward compatibility with callers.
+ */
 export function syncApiKeyToMcpConfig(apiKey: string): void {
-  const mcpConfigPath = join(homedir(), ".nex-mcp.json");
-  const config = readJsonFile(mcpConfigPath);
+  const configPath = join(homedir(), ".nex", "config.json");
+  const config = readJsonFile(configPath);
   config.api_key = apiKey;
-  writeJsonFile(mcpConfigPath, config);
+  writeJsonFile(configPath, config);
 }

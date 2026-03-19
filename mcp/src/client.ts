@@ -2,13 +2,13 @@ import { loadConfig } from "./config.js";
 
 function getBaseUrl(): string {
   const config = loadConfig();
-  const base = process.env.NEX_API_BASE_URL || config.base_url || "https://app.nex.ai";
+  const base = process.env.NEX_API_BASE_URL || config.base_url || config.dev_url || "https://app.nex.ai";
   return `${base.replace(/\/+$/, "")}/api/developers`;
 }
 
 function getRegisterUrl(): string {
   const config = loadConfig();
-  const base = process.env.NEX_API_BASE_URL || config.base_url || "https://app.nex.ai";
+  const base = process.env.NEX_API_BASE_URL || config.base_url || config.dev_url || "https://app.nex.ai";
   return `${base.replace(/\/+$/, "")}/api/v1/agents/register`;
 }
 

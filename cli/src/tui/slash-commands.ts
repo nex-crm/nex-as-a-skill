@@ -122,7 +122,7 @@ async function runPlatformInstall(
   const { detectPlatforms, installForPlatform } = await import("../commands/init.js");
   const { syncApiKeyToMcpConfig } = await import("../lib/installers.js");
 
-  // Sync API key to ~/.nex-mcp.json
+  // Sync API key to ~/.nex/config.json
   syncApiKeyToMcpConfig(apiKey);
 
   let platforms: DetectedPlatform[];

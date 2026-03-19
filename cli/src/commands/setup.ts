@@ -38,7 +38,6 @@ import {
   installMcpServer,
   installClaudeCodePlugin,
   installRulesFile,
-  syncApiKeyToMcpConfig,
   installHooks,
   installOpenCodePlugin,
   installOpenClawPlugin,
@@ -264,7 +263,7 @@ async function runSetup(opts: {
       process.stderr.write("\nSetup complete, but no API key configured.\n\n");
       process.stderr.write("To use Nex, set your API key in one of these locations:\n");
       process.stderr.write('  1. Environment variable: export NEX_API_KEY="sk-..."\n');
-      process.stderr.write('  2. Global config:        ~/.nex-mcp.json  → {"api_key": "sk-..."}\n');
+      process.stderr.write('  2. Global config:        ~/.nex/config.json  → {"api_key": "sk-..."}\n');
       process.stderr.write('  3. Project config:       .nex.toml        → [auth] api_key = "sk-..."\n');
       process.stderr.write("\nGet an API key: nex register --email you@company.com\n\n");
 
@@ -309,10 +308,7 @@ async function runSetup(opts: {
     }
   }
 
-  // 2. Sync API key to shared config
-  syncApiKeyToMcpConfig(apiKey);
-
-  // 3. Detect or select platforms
+  // 2. Detect or select platforms
   let targetPlatforms: Platform[];
 
   if (opts.platform) {
@@ -336,7 +332,7 @@ async function runSetup(opts: {
 
   const results: string[] = [];
 
-  // 4. Install for each platform — 6-layer hierarchy
+  // 3. Install for each platform — 6-layer hierarchy
   for (const platform of targetPlatforms) {
     const installed: string[] = [];
 
@@ -432,12 +428,12 @@ async function runSetup(opts: {
     }
   }
 
-  // 5. Interactive integration connection
+  // 4. Interactive integration connection
   if (apiKey && isTTY && opts.format !== "json" && !opts.noIntegrations) {
     await connectIntegrations(apiKey);
   }
 
-  // 6. Create .nex.toml
+  // 5. Create .nex.toml
   const created = writeDefaultProjectConfig();
   if (created) {
     results.push("Created .nex.toml with default settings");
@@ -445,7 +441,7 @@ async function runSetup(opts: {
     results.push(".nex.toml already exists");
   }
 
-  // 7. Scan and ingest project files (requires API key)
+  // 6. Scan and ingest project files (requires API key)
   if (!opts.noScan && apiKey && isScanEnabled()) {
     const showSpinner = opts.format !== "json";
     const spin = showSpinner ? createSpinner(`Scanning project files...  ${exitHint}`) : null;
@@ -474,7 +470,7 @@ async function runSetup(opts: {
     }
   }
 
-  // 8. Output results
+  // 7. Output results
   if (opts.format === "json") {
     printOutput({
       platforms: targetPlatforms.map((p) => ({
@@ -492,7 +488,7 @@ async function runSetup(opts: {
     process.stderr.write("\n");
   }
 
-  // 9. Show status (pass current apiKey — may differ from global opts after re-registration)
+  // 8. Show status (pass current apiKey — may differ from global opts after re-registration)
   if (opts.format !== "json") {
     await showStatus(opts.format, apiKey);
   }

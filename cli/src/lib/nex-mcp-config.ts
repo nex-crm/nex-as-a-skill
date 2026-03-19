@@ -1,11 +1,13 @@
 /**
- * Shared persistence for ~/.nex-mcp.json.
- * Used by the MCP server and hooks to read API credentials without
- * depending on the full CLI config.
+ * Legacy persistence for ~/.nex-mcp.json.
+ *
+ * DEPRECATED: All new config reads/writes should use ~/.nex/config.json
+ * via lib/config.ts. This module is kept for backward compatibility only.
+ * ~/.nex-mcp.json is read-only — never write to it.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 
 const MCP_CONFIG_PATH = join(homedir(), ".nex-mcp.json");
@@ -17,6 +19,7 @@ export interface NexMcpConfig {
   base_url?: string;
 }
 
+/** Read legacy ~/.nex-mcp.json. Prefer lib/config.ts loadConfig() instead. */
 export function loadMcpConfig(): NexMcpConfig {
   try {
     const raw = readFileSync(MCP_CONFIG_PATH, "utf-8");
@@ -26,9 +29,13 @@ export function loadMcpConfig(): NexMcpConfig {
   }
 }
 
-export function saveMcpConfig(config: NexMcpConfig): void {
-  mkdirSync(dirname(MCP_CONFIG_PATH), { recursive: true });
-  writeFileSync(MCP_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", "utf-8");
+/**
+ * @deprecated No longer writes to ~/.nex-mcp.json. Use lib/config.ts saveConfig() instead.
+ * Kept as a no-op to avoid breaking callers that haven't been updated yet.
+ */
+export function saveMcpConfig(_config: NexMcpConfig): void {
+  // No-op: ~/.nex-mcp.json is now read-only (legacy fallback).
+  // All writes go to ~/.nex/config.json via lib/config.ts.
 }
 
 export function getMcpConfigPath(): string {
