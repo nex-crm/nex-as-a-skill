@@ -97,6 +97,7 @@ export type InitState =
   | { phase: "idle" }
   | { phase: "awaiting_email"; loginOnly?: boolean }
   | { phase: "awaiting_new_email"; loginOnly?: boolean }
+  | { phase: "awaiting_gemini_key" }
   | { phase: "awaiting_agent_prompt" };
 
 let initState: InitState = { phase: "idle" };
@@ -149,7 +150,7 @@ async function runPlatformInstall(
       content: "No supported AI coding platforms detected. API key is saved and ready to use.",
       timestamp: Date.now(),
     });
-    promptAgentChoice(ctx);
+    promptProviderChoice(ctx);
     return;
   }
 
@@ -184,13 +185,97 @@ async function runPlatformInstall(
     timestamp: Date.now(),
   });
 
-  promptAgentChoice(ctx);
+  promptProviderChoice(ctx);
 }
 
 /**
- * Show the agent creation choice picker after platform install.
+ * Show the LLM provider choice picker after platform install.
  */
-function promptAgentChoice(ctx: SlashCommandContext): void {
+function promptProviderChoice(ctx: SlashCommandContext): void {
+  ctx.addMessage({
+    id: `init-provider-${Date.now()}`,
+    role: "system",
+    content: "Choose how your agents will think:",
+    timestamp: Date.now(),
+  });
+
+  ctx.showPicker(
+    "LLM Provider",
+    [
+      { label: "Gemini via Nex", value: "gemini", description: "Google Gemini powers your agents (default)" },
+      { label: "Claude Code", value: "claude-code", description: "Use Claude Code with Nex as a plugin" },
+    ],
+    (choice) => handleProviderChoice(choice, ctx),
+  );
+}
+
+async function handleProviderChoice(choice: string, ctx: SlashCommandContext): Promise<void> {
+  if (choice === "gemini") {
+    ctx.addMessage({
+      id: `init-gemini-key-${Date.now()}`,
+      role: "system",
+      content: "Enter your Gemini API key (from ai.google.dev):",
+      timestamp: Date.now(),
+    });
+    initState = { phase: "awaiting_gemini_key" };
+    return;
+  }
+
+  if (choice === "claude-code") {
+    ctx.setLoading(true, "Installing Nex plugin for Claude Code...");
+    try {
+      const { installClaudeCodePlugin } = await import("../lib/claude-code-installer.js");
+      const result = installClaudeCodePlugin();
+      ctx.setLoading(false);
+
+      // Save provider choice
+      const { loadConfig, saveConfig } = await import("../lib/config.js");
+      const config = loadConfig();
+      (config as Record<string, unknown>).llm_provider = "claude-code";
+      saveConfig(config);
+
+      ctx.addMessage({
+        id: `init-claude-code-${Date.now()}`,
+        role: "system",
+        content: result.success
+          ? result.message
+          : `Plugin install failed: ${result.message}`,
+        timestamp: Date.now(),
+        isError: !result.success,
+      });
+    } catch (err) {
+      ctx.setLoading(false);
+      ctx.addMessage({
+        id: `init-claude-err-${Date.now()}`,
+        role: "system",
+        content: `Failed: ${err instanceof Error ? err.message : String(err)}`,
+        timestamp: Date.now(),
+        isError: true,
+      });
+    }
+    promptAgentChoice(ctx);
+    return;
+  }
+}
+
+/**
+ * Show the agent creation choice picker after provider selection.
+ * Skips the picker if agents already exist.
+ */
+async function promptAgentChoice(ctx: SlashCommandContext): Promise<void> {
+  const { getAgentService } = await import("./services/agent-service.js");
+  const existingAgents = getAgentService().list();
+  if (existingAgents.length > 0) {
+    ctx.addMessage({
+      id: `init-agents-exist-${Date.now()}`,
+      role: "system",
+      content: `Your team is ready! You have ${existingAgents.length} agent(s). Use /agents to manage them.`,
+      timestamp: Date.now(),
+    });
+    initState = { phase: "idle" };
+    return;
+  }
+
   ctx.addMessage({
     id: `init-agent-choice-${Date.now()}`,
     role: "system",
@@ -206,7 +291,7 @@ function promptAgentChoice(ctx: SlashCommandContext): void {
     [
       { label: "Pick from specialists", value: "templates", description: "SEO, Lead Gen, Research, Customer Success, etc." },
       { label: "Describe what you need", value: "custom", description: "Tell us in plain English — AI builds the agent" },
-      { label: "Founding Agent", value: "founding", description: "A generalist that handles everything until you add specialists" },
+      { label: "Team Lead", value: "founding", description: "A generalist that handles everything until you add specialists" },
       { label: "Skip — I'll add agents later", value: "skip" },
     ],
     (choice) => handleAgentChoice(choice, ctx),
@@ -298,7 +383,7 @@ async function handleAgentChoice(choice: string, ctx: SlashCommandContext): Prom
   }
 
   if (choice === "founding") {
-    ctx.setLoading(true, "Creating Founding Agent...");
+    ctx.setLoading(true, "Creating Team Lead...");
     try {
       const { getAgentService } = await import("./services/agent-service.js");
       const service = getAgentService();
@@ -597,6 +682,47 @@ export async function handleInitInput(
     return;
   }
 
+  if (initState.phase === "awaiting_gemini_key") {
+    const key = input.trim();
+    if (!key) {
+      context.addMessage({
+        id: `init-gemini-empty-${Date.now()}`,
+        role: "system",
+        content: "Please enter your Gemini API key.",
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    try {
+      const { loadConfig, saveConfig } = await import("../lib/config.js");
+      const config = loadConfig();
+      (config as Record<string, unknown>).gemini_api_key = key;
+      (config as Record<string, unknown>).llm_provider = "gemini";
+      saveConfig(config);
+
+      const masked = `${key.slice(0, 6)}...${key.slice(-4)}`;
+      context.addMessage({
+        id: `init-gemini-saved-${Date.now()}`,
+        role: "system",
+        content: `Gemini API key saved: ${masked}`,
+        timestamp: Date.now(),
+      });
+    } catch (err) {
+      context.addMessage({
+        id: `init-gemini-err-${Date.now()}`,
+        role: "system",
+        content: `Failed to save key: ${err instanceof Error ? err.message : String(err)}`,
+        timestamp: Date.now(),
+        isError: true,
+      });
+    }
+
+    initState = { phase: "idle" };
+    promptAgentChoice(context);
+    return;
+  }
+
   if (initState.phase === "awaiting_agent_prompt") {
     const prompt = input.trim();
     if (!prompt) {
@@ -813,7 +939,7 @@ function showAgentCreatePicker(ctx: SlashCommandContext): void {
   ctx.showPicker(
     "Create an agent:",
     [
-      { label: "Founding Agent", value: "tmpl:founding-agent", description: "generalist — handles everything" },
+      { label: "Team Lead", value: "tmpl:founding-agent", description: "generalist — handles everything" },
       { label: "SEO Analyst", value: "tmpl:seo-agent", description: "keywords, content, search visibility" },
       { label: "Lead Generator", value: "tmpl:lead-gen", description: "prospecting, enrichment, outreach" },
       { label: "Data Enricher", value: "tmpl:enrichment", description: "research, validation, missing data" },
@@ -1684,5 +1810,43 @@ registerSlashCommand({
   execute: async () => {
     process.exit(0);
     return { output: "" };
+  },
+});
+
+registerSlashCommand({
+  name: "provider",
+  description: "Switch LLM provider (Gemini / Claude Code)",
+  execute: async (_args, ctx) => {
+    const { loadConfig } = await import("../lib/config.js");
+    const config = loadConfig();
+    const current = (config as Record<string, unknown>).llm_provider ?? "gemini";
+
+    ctx.addMessage({
+      id: `provider-current-${Date.now()}`,
+      role: "system",
+      content: `Current provider: ${current}`,
+      timestamp: Date.now(),
+    });
+
+    ctx.showPicker(
+      "Switch LLM provider",
+      [
+        { label: "Gemini via Nex", value: "gemini", description: current === "gemini" ? "(current)" : "Google Gemini powers your agents" },
+        { label: "Claude Code", value: "claude-code", description: current === "claude-code" ? "(current)" : "Use Claude Code with Nex as a plugin" },
+      ],
+      async (choice) => {
+        if (choice === current) {
+          ctx.addMessage({
+            id: `provider-same-${Date.now()}`,
+            role: "system",
+            content: `Already using ${choice}.`,
+            timestamp: Date.now(),
+          });
+          return;
+        }
+        await handleProviderChoice(choice, ctx);
+      },
+    );
+    return { silent: true };
   },
 });

@@ -48,9 +48,9 @@ export const templates: Record<string, Omit<AgentConfig, 'slug'>> = {
     tools: ['nex_search', 'nex_ask', 'nex_remember', 'nex_record_list', 'nex_record_get', 'nex_record_create', 'nex_record_update'],
   },
   'founding-agent': {
-    name: 'Founding Agent',
-    expertise: ['general', 'research', 'analysis', 'communication', 'planning'],
-    personality: 'Versatile and proactive. Your first AI team member — handles everything from research to outreach until specialized agents are added.',
+    name: 'Team Lead',
+    expertise: ['general', 'research', 'analysis', 'communication', 'planning', 'orchestration'],
+    personality: 'Versatile and proactive. Your first AI team member — handles everything from research to outreach until specialized agents are added. Delegates to specialists when they exist.',
     heartbeatCron: 'daily',
     tools: ['nex_search', 'nex_ask', 'nex_remember', 'nex_record_list', 'nex_record_get', 'nex_record_create', 'nex_record_update'],
   },
