@@ -1251,6 +1251,117 @@ register("agent steer", { execute: executeAgentSteer, description: "Send a steer
 register("agent inspect", { execute: executeAgentInspect, description: "Inspect agent config and state", category: "agent", usage: "agent inspect <slug>" });
 register("agent templates", { execute: executeAgentTemplates, description: "List available agent templates", category: "agent", usage: "agent templates" });
 
+// -- Scan --
+
+async function executeScan(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { positional, opts } = extractOpts(args);
+  const dir = positional[0] || ".";
+  const maxFiles = typeof opts["max-files"] === "string" ? parseInt(opts["max-files"], 10) : undefined;
+  if (maxFiles !== undefined && (!Number.isInteger(maxFiles) || maxFiles <= 0)) {
+    return fail("Invalid --max-files. Expected a positive integer.");
+  }
+  const depth = typeof opts.depth === "string" ? parseInt(opts.depth, 10) : undefined;
+  if (depth !== undefined && (!Number.isInteger(depth) || depth < 0)) {
+    return fail("Invalid --depth. Expected a non-negative integer.");
+  }
+  const extensions = typeof opts.extensions === "string" ? opts.extensions : undefined;
+  const force = opts.force === true;
+  const dryRun = opts["dry-run"] === true;
+
+  try {
+    const { scanFiles, loadScanConfig } = await import("../lib/file-scanner.js");
+    const scanOpts = loadScanConfig({
+      extensions: extensions?.split(",").map((e: string) => e.trim()),
+      maxFiles,
+      depth,
+      force,
+      dryRun,
+    });
+    const client = makeClient(ctx);
+    const result = await scanFiles(dir, scanOpts, async (content, context) => {
+      return client.post("/v1/context/text", { content, context });
+    });
+    return ok({ scanned: result.scanned, skipped: result.skipped, errors: result.errors }, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+register("scan", { execute: executeScan, description: "Scan directory and ingest files", category: "config", usage: "scan [dir] [--max-files <n>] [--force] [--dry-run]" });
+
+// -- Register --
+
+async function executeRegister(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  const email = typeof opts.email === "string" ? opts.email : undefined;
+  if (!email) return fail("Usage: register --email <email>");
+
+  try {
+    const { persistRegistration } = await import("../lib/config.js");
+    const client = new NexClient(undefined, ctx.timeout ?? resolveTimeout());
+    const data = await client.register(email, typeof opts.name === "string" ? opts.name : undefined, typeof opts.company === "string" ? opts.company : undefined);
+    persistRegistration(data);
+    return ok(data, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+register("register", { execute: executeRegister, description: "Register a new Nex workspace", category: "config", usage: "register --email <email> [--name <name>] [--company <company>]" });
+
+// -- Session --
+
+async function executeSessionList(_args: string[], ctx: CommandContext): Promise<CommandResult> {
+  try {
+    const { SessionStore } = await import("../lib/session-store.js");
+    const store = new SessionStore();
+    return ok(store.list(), ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executeSessionClear(_args: string[], ctx: CommandContext): Promise<CommandResult> {
+  try {
+    const { SessionStore } = await import("../lib/session-store.js");
+    const store = new SessionStore();
+    store.clear();
+    return ok({ message: "All sessions cleared." }, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+register("session list", { execute: executeSessionList, description: "List stored session mappings", category: "config" });
+register("session clear", { execute: executeSessionClear, description: "Clear all session mappings", category: "config" });
+
+// -- List member operations --
+
+function makeListRecordCommand(
+  method: "post" | "put" | "patch" | "delete",
+  usage: string,
+  pathFn: (listId: string, recordId: string) => string,
+  bodyFn?: (recordId: string, opts: Record<string, string | true>) => unknown,
+): (args: string[], ctx: CommandContext) => Promise<CommandResult> {
+  return async (args, ctx) => {
+    const { positional, opts } = extractOpts(args);
+    const [listId, recordId] = positional;
+    if (!listId || !recordId) return fail(`Usage: ${usage}`);
+    try {
+      const client = makeClient(ctx);
+      const path = pathFn(encodeURIComponent(listId), encodeURIComponent(recordId));
+      const body = bodyFn?.(recordId, opts);
+      const data = method === "delete" ? await client.delete(path) : await client[method](path, body);
+      return ok(data, ctx);
+    } catch (err) { return wrapError(err); }
+  };
+}
+
+register("list add-member", { execute: makeListRecordCommand("post", "list add-member <list-id> <record-id>", (lid) => `/v1/lists/${lid}/records`, (rid) => ({ record_id: rid })), description: "Add a record to a list", category: "write", usage: "list add-member <list-id> <record-id>" });
+register("list upsert-member", { execute: makeListRecordCommand("put", "list upsert-member <list-id> <record-id>", (lid, rid) => `/v1/lists/${lid}/records/${rid}`, (_rid, opts) => opts), description: "Upsert a record in a list", category: "write", usage: "list upsert-member <list-id> <record-id>" });
+register("list update-record", { execute: makeListRecordCommand("patch", "list update-record <list-id> <record-id>", (lid, rid) => `/v1/lists/${lid}/records/${rid}`, (_rid, opts) => opts), description: "Update a list record", category: "write", usage: "list update-record <list-id> <record-id>" });
+register("list remove-record", { execute: makeListRecordCommand("delete", "list remove-record <list-id> <record-id>", (lid, rid) => `/v1/lists/${lid}/records/${rid}`), description: "Remove a record from a list", category: "write", usage: "list remove-record <list-id> <record-id>" });
+
 // -- TUI view hints (so aliases resolve and dispatch does not return "unknown command") --
 register("chat", {
   execute: async () => ({ output: "Use the 'c' keybinding to open the chat view.", exitCode: 0 }),
@@ -1278,6 +1389,7 @@ const COMMAND_ALIASES: Record<string, string> = {
   objects: "object list",
   orch: "orchestration",
   setup: "init",
+  sessions: "session list",
 };
 
 /**
