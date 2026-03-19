@@ -52,7 +52,7 @@ function makeClient(ctx: CommandContext): NexClient {
 }
 
 function fmt(data: unknown, ctx: CommandContext): string {
-  const format: Format = ctx.format ?? "text";
+  const format: Format = ctx.format ?? (resolveFormat() as Format);
   return formatOutput(data, format) ?? "";
 }
 
@@ -1329,6 +1329,10 @@ function resolveCommand(tokens: string[]): { name: string; args: string[] } | un
  */
 export async function dispatch(input: string, ctx?: CommandContext): Promise<CommandResult> {
   const tokens = parseInput(input);
+  return dispatchTokens(tokens, ctx);
+}
+
+export async function dispatchTokens(tokens: string[], ctx?: CommandContext): Promise<CommandResult> {
   if (tokens.length === 0) {
     return fail("No command provided.");
   }
