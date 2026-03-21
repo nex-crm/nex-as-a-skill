@@ -22,7 +22,7 @@ const __dirname = dirname(__filename);
 
 const MCP_SERVER_ENTRY = {
   command: "npx",
-  args: ["-y", "@nex-crm/mcp-server"],
+  args: ["-y", "@nex-ai/mcp-server"],
   env: {} as Record<string, string>,
 };
 

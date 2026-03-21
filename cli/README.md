@@ -77,7 +77,7 @@ All MCP-based platforms use the same server entry:
 {
   "nex": {
     "command": "npx",
-    "args": ["-y", "@nex-crm/mcp-server"],
+    "args": ["-y", "@nex-ai/mcp-server"],
     "env": { "NEX_API_KEY": "sk-..." }
   }
 }
