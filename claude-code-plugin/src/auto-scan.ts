@@ -12,6 +12,7 @@ import { loadConfig, loadScanConfig } from "./config.js";
 import { NexClient } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { scanAndIngest } from "./file-scanner.js";
+import { readManifest, markScanned, writeManifest } from "./file-manifest.js";
 
 async function main(): Promise<void> {
   try {
@@ -37,6 +38,11 @@ async function main(): Promise<void> {
 
     console.log(`Scanning ${targetDir} ...`);
     const result = await scanAndIngest(client, rateLimiter, targetDir, scanConfig);
+
+    // Mark scan time so session start can skip if fresh
+    const manifest = readManifest();
+    markScanned(manifest);
+    writeManifest(manifest);
 
     console.log(`Scan complete:`);
     console.log(`  Scanned: ${result.scanned} files`);

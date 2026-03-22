@@ -4,6 +4,7 @@ import { NexApiClient } from "../client.js";
 import { RateLimiter } from "../rate-limiter.js";
 import { scanAndIngest } from "../file-scanner.js";
 import { ingestContextFiles } from "../context-files.js";
+import { readManifest, markScanned, writeManifest } from "../file-manifest.js";
 
 const rateLimiter = new RateLimiter();
 
@@ -28,6 +29,12 @@ export function registerScanTools(server: McpServer, client: NexApiClient) {
       };
       const cwd = directory || process.cwd();
       const result = await scanAndIngest(client, rateLimiter, cwd, scanConfig);
+
+      // Mark scan time so session start can skip if fresh
+      const manifest = readManifest();
+      markScanned(manifest);
+      writeManifest(manifest);
+
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );

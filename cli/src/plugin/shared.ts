@@ -15,7 +15,7 @@ import { shouldRecall, recordRecall } from "./recall-filter.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { scanAndIngest } from "./file-scanner.js";
 import { ingestContextFiles } from "./context-files.js";
-import { readManifest, writeManifest, isChanged, markIngested } from "./file-manifest.js";
+import { readManifest, writeManifest, isChanged, markIngested, isScanFresh, markScanned } from "./file-manifest.js";
 import { readdirSync, statSync, readFileSync } from "node:fs";
 import { join, extname } from "node:path";
 import { homedir } from "node:os";
@@ -304,34 +304,45 @@ export async function doSessionStart(
   // File scan on startup or clear
   const shouldScan = source === "startup" || source === "clear";
   if (shouldScan) {
-    const rateLimiter = new RateLimiter();
-    const cwd = process.cwd();
+    // Skip expensive file scanning if a scan completed recently (within 1 hour).
+    // The context query below still runs — only the file walk + ingest is skipped.
+    const scanManifest = readManifest();
+    const scanFresh = isScanFresh(scanManifest);
 
-    try {
-      const ctxResult = await ingestContextFiles(client, rateLimiter, cwd);
-      if (ctxResult.ingested > 0) {
-        contextParts.push(
-          `[Context files: ${ctxResult.ingested} ingested (${ctxResult.files.join(", ")})]`
-        );
-      }
-    } catch {
-      // non-fatal
-    }
+    if (!scanFresh) {
+      const rateLimiter = new RateLimiter();
+      const cwd = process.cwd();
 
-    try {
-      const scanConfig = loadScanConfig();
-      if (scanConfig.enabled) {
-        const scanResult = await scanAndIngest(client, rateLimiter, cwd, scanConfig);
-        if (scanResult.ingested > 0) {
+      try {
+        const ctxResult = await ingestContextFiles(client, rateLimiter, cwd);
+        if (ctxResult.ingested > 0) {
           contextParts.push(
-            `[File scan: ${scanResult.ingested} file${scanResult.ingested === 1 ? "" : "s"} ingested, ${scanResult.scanned} scanned]`
+            `[Context files: ${ctxResult.ingested} ingested (${ctxResult.files.join(", ")})]`
           );
-          // Trigger compounding intelligence after ingestion (non-blocking, best-effort)
-          triggerCompounding(cfg).catch(() => {});
         }
+      } catch {
+        // non-fatal
       }
-    } catch {
-      // non-fatal
+
+      try {
+        const scanConfig = loadScanConfig();
+        if (scanConfig.enabled) {
+          const scanResult = await scanAndIngest(client, rateLimiter, cwd, scanConfig);
+          if (scanResult.ingested > 0) {
+            contextParts.push(
+              `[File scan: ${scanResult.ingested} file${scanResult.ingested === 1 ? "" : "s"} ingested, ${scanResult.scanned} scanned]`
+            );
+            // Trigger compounding intelligence after ingestion (non-blocking, best-effort)
+            triggerCompounding(cfg).catch(() => {});
+          }
+        }
+      } catch {
+        // non-fatal
+      }
+
+      // Mark scan as complete so subsequent sessions skip it
+      markScanned(scanManifest);
+      writeManifest(scanManifest);
     }
   }
 
