@@ -106,6 +106,23 @@ func TestMessageRouter_FollowUpExpires(t *testing.T) {
 	}
 }
 
+func TestRouteUsesConfiguredTeamLead(t *testing.T) {
+	router := NewMessageRouter()
+	router.SetTeamLeadSlug("ceo")
+	router.RegisterAgent("ceo", []string{"strategy", "delegation"})
+	router.RegisterAgent("pm", []string{"roadmap", "requirements"})
+
+	agents := []AgentInfo{
+		{Slug: "ceo", Expertise: []string{"strategy"}},
+		{Slug: "pm", Expertise: []string{"roadmap"}},
+	}
+
+	result := router.Route("do something random", agents)
+	if result.Primary != "ceo" {
+		t.Errorf("expected primary='ceo', got '%s'", result.Primary)
+	}
+}
+
 func TestMessageRouter_RecordActivity(t *testing.T) {
 	mr := NewMessageRouter()
 	mr.RecordAgentActivity("agent-x")

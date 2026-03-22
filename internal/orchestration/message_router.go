@@ -28,10 +28,11 @@ type threadContext struct {
 
 // MessageRouter routes free-text messages to the most appropriate agent.
 type MessageRouter struct {
-	router        *TaskRouter
-	recentThreads map[string]*threadContext
+	router         *TaskRouter
+	recentThreads  map[string]*threadContext
 	followUpWindow time.Duration
-	mu            sync.Mutex
+	teamLeadSlug   string
+	mu             sync.Mutex
 }
 
 // NewMessageRouter returns a MessageRouter with a 30s follow-up window.
@@ -41,6 +42,22 @@ func NewMessageRouter() *MessageRouter {
 		recentThreads: make(map[string]*threadContext),
 		followUpWindow: 30 * time.Second,
 	}
+}
+
+// SetTeamLeadSlug configures which agent slug acts as the team lead.
+func (m *MessageRouter) SetTeamLeadSlug(slug string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.teamLeadSlug = slug
+}
+
+// getTeamLeadSlug returns the configured team-lead slug, defaulting to "team-lead".
+// Caller must hold m.mu.
+func (m *MessageRouter) getTeamLeadSlug() string {
+	if m.teamLeadSlug != "" {
+		return m.teamLeadSlug
+	}
+	return "team-lead"
 }
 
 // RegisterAgent registers an agent's expertise with the underlying TaskRouter.
@@ -99,9 +116,10 @@ func (m *MessageRouter) Route(message string, availableAgents []AgentInfo) Messa
 	}
 
 	// 2. Extract skills from message.
+	teamLead := m.getTeamLeadSlug()
 	skills := m.ExtractSkills(message)
 	if len(skills) == 0 {
-		result.Primary = "team-lead"
+		result.Primary = teamLead
 		result.TeamLeadAware = true
 		return result
 	}
@@ -113,7 +131,7 @@ func (m *MessageRouter) Route(message string, availableAgents []AgentInfo) Messa
 	}
 	capable := m.router.FindCapableAgents(task)
 	if len(capable) == 0 {
-		result.Primary = "team-lead"
+		result.Primary = teamLead
 		result.TeamLeadAware = true
 		return result
 	}
@@ -124,7 +142,7 @@ func (m *MessageRouter) Route(message string, availableAgents []AgentInfo) Messa
 			result.Collaborators = append(result.Collaborators, rr.AgentSlug)
 		}
 	}
-	result.TeamLeadAware = result.Primary == "team-lead" || len(result.Collaborators) > 0
+	result.TeamLeadAware = result.Primary == teamLead || len(result.Collaborators) > 0
 	return result
 }
 
