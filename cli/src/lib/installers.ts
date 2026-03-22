@@ -21,8 +21,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const MCP_SERVER_ENTRY = {
-  command: "npx",
-  args: ["-y", "@nex-ai/mcp-server"],
+  command: "nex-mcp",
   env: {} as Record<string, string>,
 };
 
@@ -112,7 +111,7 @@ function installZedMcp(
     config.context_servers = {};
   }
   (config.context_servers as Record<string, unknown>).nex = {
-    command: { path: entry.command, args: entry.args, env: entry.env },
+    command: { path: entry.command, env: entry.env },
   };
 
   writeJsonFile(configPath, config);
