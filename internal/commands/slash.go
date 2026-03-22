@@ -238,7 +238,7 @@ func cmdQuit(ctx *SlashContext, args string) error {
 }
 
 func cmdInit(ctx *SlashContext, args string) error {
-	ctx.AddMessage("system", "Run /init to set up — coming in next update.")
+	ctx.AddMessage("system", "Starting setup — follow the prompts to configure your environment.")
 	return nil
 }
 
