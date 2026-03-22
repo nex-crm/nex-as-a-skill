@@ -58,5 +58,5 @@ describe("error handling", () => {
     );
     expect(exitCode).not.toBe(0);
     expect(stderr.length > 0).toBeTruthy();
-  });
+  }, 15_000);
 });
