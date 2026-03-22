@@ -71,21 +71,12 @@ func (r RosterModel) View() string {
 			nameStr = nameStr[:rosterWidth-6]
 		}
 
-		phaseLabel := phaseShortLabel(ag.Phase)
+		label := phaseLabel(ag.Phase)
+		pStyle := phaseColor(ag.Phase)
 
-		var iconStyle lipgloss.Style
-		switch ag.Phase {
-		case "error":
-			iconStyle = ErrorStyle
-		case "done":
-			iconStyle = SuccessStyle
-		default:
-			iconStyle = SystemStyle
-		}
-
-		line := iconStyle.Render(icon) + " " +
+		line := pStyle.Render(icon) + " " +
 			lipgloss.NewStyle().Foreground(lipgloss.Color(ValueColor)).Render(nameStr) +
-			" " + SystemStyle.Render(phaseLabel)
+			" " + pStyle.Render(label)
 
 		rows = append(rows, line)
 	}
@@ -133,5 +124,41 @@ func phaseShortLabel(phase string) string {
 		return "err"
 	default:
 		return phase
+	}
+}
+
+func phaseLabel(phase string) string {
+	switch phase {
+	case "build_context":
+		return "preparing"
+	case "stream_llm":
+		return "thinking"
+	case "execute_tool":
+		return "running tool"
+	case "idle":
+		return "idle"
+	case "done":
+		return "done"
+	case "error":
+		return "error"
+	default:
+		return phase
+	}
+}
+
+func phaseColor(phase string) lipgloss.Style {
+	switch phase {
+	case "build_context":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(Warning))
+	case "stream_llm":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(Info))
+	case "execute_tool":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(NexPurple))
+	case "done":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(Success))
+	case "error":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(Error))
+	default:
+		return SystemStyle
 	}
 }

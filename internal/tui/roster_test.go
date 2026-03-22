@@ -100,3 +100,23 @@ func TestRosterPhaseLabels(t *testing.T) {
 		}
 	}
 }
+
+func TestPhaseLabels(t *testing.T) {
+	tests := []struct {
+		phase    string
+		expected string
+	}{
+		{"build_context", "preparing"},
+		{"stream_llm", "thinking"},
+		{"execute_tool", "running tool"},
+		{"idle", "idle"},
+		{"done", "done"},
+		{"error", "error"},
+	}
+	for _, tt := range tests {
+		got := phaseLabel(tt.phase)
+		if got != tt.expected {
+			t.Errorf("phaseLabel(%q) = %q, want %q", tt.phase, got, tt.expected)
+		}
+	}
+}
