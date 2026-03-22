@@ -105,7 +105,7 @@ When no command is given, launches the interactive TUI.`);
   }
 
   // Interactive commands → fall through to Commander (rich TUI with pickers, spinners, workflows)
-  const INTERACTIVE_COMMANDS = new Set(["setup", "integrate", "scan", "register", "status"]);
+  const INTERACTIVE_COMMANDS = new Set(["setup", "integrate", "scan", "register", "status", "workspace"]);
   const firstArg = cleanArgs[0]?.toLowerCase();
 
   // nex mcp → start embedded MCP server
@@ -120,6 +120,18 @@ When no command is given, launches the interactive TUI.`);
     emitAndExit(result);
   }
 
+  // Interactive commands → Commander (setup, integrate, scan, register, workspace)
+  if (firstArg && INTERACTIVE_COMMANDS.has(firstArg)) {
+    // Load Commander command modules to register their handlers
+    await import("./commands/setup.js");
+    await import("./commands/scan.js");
+    await import("./commands/register.js");
+    await import("./commands/integrate.js");
+    const { program } = await import("./cli.js");
+    program.parse(["node", "nex", ...args]);
+    return;
+  }
+
   // Piped stdin → dispatch each line
   if (!process.stdin.isTTY) {
     const chunks: Buffer[] = [];
@@ -132,18 +144,6 @@ When no command is given, launches the interactive TUI.`);
       emitAndExit(result);
     }
     process.exit(0);
-  }
-
-  // Interactive commands or no subcommand → Commander (setup, integrate, scan, register)
-  if (firstArg && INTERACTIVE_COMMANDS.has(firstArg)) {
-    // Load Commander command modules to register their handlers
-    await import("./commands/setup.js");
-    await import("./commands/scan.js");
-    await import("./commands/register.js");
-    await import("./commands/integrate.js");
-    const { program } = await import("./cli.js");
-    program.parse(["node", "nex", ...args]);
-    return;
   }
 
   // No subcommand → TUI

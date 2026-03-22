@@ -8,6 +8,8 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
 
+import { workspace } from "./commands/workspace.js";
+
 export const program = new Command();
 
 program
@@ -19,3 +21,5 @@ program
   .option("--timeout <ms>", "Request timeout in milliseconds")
   .option("--session <id>", "Session ID for multi-turn context")
   .option("--debug", "Debug output on stderr");
+
+program.addCommand(workspace);
