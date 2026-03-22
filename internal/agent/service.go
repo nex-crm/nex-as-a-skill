@@ -283,7 +283,7 @@ func (s *AgentService) EnsureRunning(slug string) {
 				}
 				_ = ma.Loop.Tick()
 				ma.State = ma.Loop.GetState()
-				running := ma.State.Phase != PhaseDone || s.queues.HasMessages(slug)
+				running := (ma.State.Phase != PhaseDone && ma.State.Phase != PhaseIdle) || s.queues.HasMessages(slug)
 				s.mu.Unlock()
 
 				if !running {

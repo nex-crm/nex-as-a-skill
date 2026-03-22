@@ -191,6 +191,14 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			Content:   fmt.Sprintf("Error from %s: %v", msg.AgentSlug, msg.Err),
 			Timestamp: time.Now(),
 		})
+
+		// Advance queued delegations on specialist failure (free the slot)
+		if msg.AgentSlug != m.runtime.TeamLeadSlug && len(m.queuedDelegations) > 0 {
+			next := m.queuedDelegations[0]
+			m.queuedDelegations = m.queuedDelegations[1:]
+			m.startDelegations([]orchestration.Delegation{next})
+		}
+
 		m.loading = m.hasActiveAgents()
 		if !m.loading {
 			m.spinner.SetActive(false)
@@ -220,6 +228,7 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			cfg.LLMProvider = msg.Value
 			_ = config.Save(cfg)
 			m.runtime.Reconfigure()
+			m.resetDelegationState()
 			m.rewireAllAgents()
 			m.messages = append(m.messages, StreamMessage{
 				Role:      "system",
@@ -242,6 +251,7 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			m.picker.SetActive(true)
 		case InitDone:
 			m.runtime.Reconfigure()
+			m.resetDelegationState()
 			m.rewireAllAgents()
 			heading, instructions := m.initFlow.phaseText()
 			m.messages = append(m.messages, StreamMessage{
@@ -834,6 +844,14 @@ func (m *StreamModel) startDelegations(delegations []orchestration.Delegation) {
 			m.wireAgent(d.AgentSlug)
 		}
 	}
+}
+
+// resetDelegationState clears queued delegations and streaming state after a reconfigure.
+func (m *StreamModel) resetDelegationState() {
+	m.queuedDelegations = nil
+	m.streaming = make(map[string]string)
+	m.loading = false
+	m.spinner.SetActive(false)
 }
 
 // rewireAllAgents resets event wiring and re-wires all agents after a reconfigure.

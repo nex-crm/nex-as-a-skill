@@ -112,18 +112,18 @@ func (m *MessageRouter) Route(message string, availableAgents []AgentInfo) Messa
 
 	teamLead := m.getTeamLeadSlug()
 
-	// 1. Check follow-up — route to the recently active agent.
+	// 1. Check for explicit @slug mention — highest priority, outranks follow-up.
+	if slug := m.detectAtMention(message, availableAgents); slug != "" {
+		result.Primary = slug
+		result.TeamLeadAware = slug == teamLead
+		return result
+	}
+
+	// 2. Check follow-up — route to the recently active agent.
 	if followUpSlug := m.detectFollowUp(message); followUpSlug != "" {
 		result.Primary = followUpSlug
 		result.IsFollowUp = true
 		result.TeamLeadAware = true
-		return result
-	}
-
-	// 2. Check for explicit @slug mention — route directly to that agent.
-	if slug := m.detectAtMention(message, availableAgents); slug != "" {
-		result.Primary = slug
-		result.TeamLeadAware = slug == teamLead
 		return result
 	}
 

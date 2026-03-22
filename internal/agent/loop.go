@@ -172,7 +172,9 @@ func (l *AgentLoop) Tick() error {
 	case PhaseDone:
 		return l.handleDone()
 	case PhaseError:
-		// Stay in error until externally reset.
+		// After error, reset to idle so the agent can process new messages.
+		l.state.Error = ""
+		l.setPhase(PhaseIdle)
 		return nil
 	}
 	return nil
