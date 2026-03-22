@@ -15,8 +15,18 @@ func newTestStreamModel() StreamModel {
 	agentSvc := agent.NewAgentService()
 	msgRouter := orchestration.NewMessageRouter()
 	events := make(chan tea.Msg, 256)
+	delegator := orchestration.NewDelegator(3)
 
-	m := NewStreamModel(agentSvc, msgRouter, events, nil, "team-lead")
+	rt := &Runtime{
+		AgentService:  agentSvc,
+		MessageRouter: msgRouter,
+		Delegator:     delegator,
+		TeamLeadSlug:  "team-lead",
+		PackSlug:      "founding-team",
+		Events:        events,
+	}
+
+	m := NewStreamModel(rt, events)
 	m.width = 120
 	m.height = 40
 	m.statusBar.Width = 120
@@ -111,10 +121,10 @@ func TestSubmitRoutesToAgent(t *testing.T) {
 	m := newTestStreamModel()
 
 	// Create and register team-lead
-	_, _ = m.agentService.CreateFromTemplate("team-lead", "team-lead")
-	_ = m.agentService.Start("team-lead")
-	if tmpl, ok := m.agentService.GetTemplate("team-lead"); ok {
-		m.messageRouter.RegisterAgent("team-lead", tmpl.Expertise)
+	_, _ = m.runtime.AgentService.CreateFromTemplate("team-lead", "team-lead")
+	_ = m.runtime.AgentService.Start("team-lead")
+	if tmpl, ok := m.runtime.AgentService.GetTemplate("team-lead"); ok {
+		m.runtime.MessageRouter.RegisterAgent("team-lead", tmpl.Expertise)
 	}
 
 	m.inputValue = []rune("hello world")
@@ -257,7 +267,7 @@ func TestAgentDoneMsgFinalizesMessage(t *testing.T) {
 	m.streaming["test-agent"] = "final text"
 
 	// Need the agent in service for name lookup — create one
-	_, _ = m.agentService.CreateFromTemplate("team-lead", "team-lead")
+	_, _ = m.runtime.AgentService.CreateFromTemplate("team-lead", "team-lead")
 
 	m2, _ := m.Update(AgentDoneMsg{AgentSlug: "test-agent"})
 

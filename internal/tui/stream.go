@@ -55,12 +55,8 @@ type StreamModel struct {
 	spinner      SpinnerModel
 	statusBar    StatusBarModel
 
-	agentService  *agent.AgentService
-	messageRouter *orchestration.MessageRouter
-	agentEvents   chan tea.Msg
-
-	delegator    *orchestration.Delegator
-	teamLeadSlug string
+	runtime     *Runtime
+	agentEvents chan tea.Msg
 
 	width, height int
 	scrollOffset  int
@@ -73,23 +69,20 @@ type StreamModel struct {
 	initFlow InitFlowModel
 }
 
-// NewStreamModel creates a new StreamModel wired to the agent service and message router.
-func NewStreamModel(agentSvc *agent.AgentService, msgRouter *orchestration.MessageRouter, events chan tea.Msg, delegator *orchestration.Delegator, teamLeadSlug string) StreamModel {
+// NewStreamModel creates a new StreamModel wired to the runtime.
+func NewStreamModel(rt *Runtime, events chan tea.Msg) StreamModel {
 	m := StreamModel{
-		autocomplete:  NewAutocomplete(defaultSlashCommands),
-		mention:       NewMention(nil),
-		roster:        NewRoster(),
-		spinner:       NewSpinner(""),
-		statusBar:     NewStatusBar(),
-		agentService:  agentSvc,
-		messageRouter: msgRouter,
-		agentEvents:   events,
-		delegator:    delegator,
-		teamLeadSlug: teamLeadSlug,
-		mode:          "insert",
-		streaming:     make(map[string]string),
-		wiredAgents:   make(map[string]bool),
-		initFlow:      NewInitFlow(),
+		autocomplete: NewAutocomplete(defaultSlashCommands),
+		mention:      NewMention(nil),
+		roster:       NewRoster(),
+		spinner:      NewSpinner(""),
+		statusBar:    NewStatusBar(),
+		runtime:      rt,
+		agentEvents:  events,
+		mode:         "insert",
+		streaming:    make(map[string]string),
+		wiredAgents:  make(map[string]bool),
+		initFlow:     NewInitFlow(),
 	}
 	m.statusBar.Mode = "INSERT"
 	m.statusBar.Breadcrumbs = []string{"stream"}
@@ -146,7 +139,7 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 	case AgentDoneMsg:
 		if text, ok := m.streaming[msg.AgentSlug]; ok && text != "" {
 			agentName := msg.AgentSlug
-			if ma, ok := m.agentService.Get(msg.AgentSlug); ok {
+			if ma, ok := m.runtime.AgentService.Get(msg.AgentSlug); ok {
 				agentName = ma.Config.Name
 			}
 			m.messages = append(m.messages, StreamMessage{
@@ -159,18 +152,18 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			delete(m.streaming, msg.AgentSlug)
 
 			// If the team-lead just finished, parse for delegations to specialists
-			if msg.AgentSlug == m.teamLeadSlug && m.delegator != nil {
+			if msg.AgentSlug == m.runtime.TeamLeadSlug && m.runtime.Delegator != nil {
 				var knownSlugs []string
-				for _, a := range m.agentService.List() {
-					if a.Config.Slug != m.teamLeadSlug {
+				for _, a := range m.runtime.AgentService.List() {
+					if a.Config.Slug != m.runtime.TeamLeadSlug {
 						knownSlugs = append(knownSlugs, a.Config.Slug)
 					}
 				}
-				delegations := m.delegator.ExtractDelegations(text, knownSlugs)
+				delegations := m.runtime.Delegator.ExtractDelegations(text, knownSlugs)
 				for _, d := range delegations {
 					steerMsg := orchestration.FormatSteerMessage(d)
-					_ = m.agentService.Steer(d.AgentSlug, steerMsg)
-					m.agentService.EnsureRunning(d.AgentSlug)
+					_ = m.runtime.AgentService.Steer(d.AgentSlug, steerMsg)
+					m.runtime.AgentService.EnsureRunning(d.AgentSlug)
 					if !m.wiredAgents[d.AgentSlug] {
 						m.wireAgent(d.AgentSlug)
 					}
@@ -218,6 +211,18 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			var cmd tea.Cmd
 			m.initFlow, cmd = m.initFlow.Update(msg)
 			cmds = append(cmds, cmd)
+		} else if msg.Value != "" {
+			// Standalone /provider pick — save and reconfigure.
+			cfg, _ := config.Load()
+			cfg.LLMProvider = msg.Value
+			_ = config.Save(cfg)
+			m.runtime.Reconfigure()
+			m.rewireAllAgents()
+			m.messages = append(m.messages, StreamMessage{
+				Role:      "system",
+				Content:   fmt.Sprintf("Provider switched to %s. Agents reconfigured.", msg.Value),
+				Timestamp: time.Now(),
+			})
 		}
 
 	case ConfirmMsg:
@@ -233,6 +238,8 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			m.picker = NewPicker("Choose Agent Pack", PackOptions())
 			m.picker.SetActive(true)
 		case InitDone:
+			m.runtime.Reconfigure()
+			m.rewireAllAgents()
 			heading, instructions := m.initFlow.phaseText()
 			m.messages = append(m.messages, StreamMessage{
 				Role:      "system",
@@ -428,31 +435,31 @@ func (m StreamModel) handleSubmit() (StreamModel, tea.Cmd) {
 
 	// Route via message router
 	available := m.availableAgents()
-	result := m.messageRouter.Route(input, available)
+	result := m.runtime.MessageRouter.Route(input, available)
 
 	// Ensure primary agent exists
 	primarySlug := result.Primary
-	if _, ok := m.agentService.Get(primarySlug); !ok {
-		if _, err := m.agentService.CreateFromTemplate(primarySlug, primarySlug); err != nil {
+	if _, ok := m.runtime.AgentService.Get(primarySlug); !ok {
+		if _, err := m.runtime.AgentService.CreateFromTemplate(primarySlug, primarySlug); err != nil {
 			primarySlug = "team-lead"
 		} else {
-			_ = m.agentService.Start(primarySlug)
+			_ = m.runtime.AgentService.Start(primarySlug)
 		}
 	}
 
 	// Wire events + steer
 	m.wireAgent(primarySlug)
-	if ma, ok := m.agentService.Get(primarySlug); ok {
-		m.messageRouter.RegisterAgent(primarySlug, ma.Config.Expertise)
+	if ma, ok := m.runtime.AgentService.Get(primarySlug); ok {
+		m.runtime.MessageRouter.RegisterAgent(primarySlug, ma.Config.Expertise)
 	}
-	_ = m.agentService.Steer(primarySlug, input)
-	m.agentService.EnsureRunning(primarySlug)
+	_ = m.runtime.AgentService.Steer(primarySlug, input)
+	m.runtime.AgentService.EnsureRunning(primarySlug)
 
 	// Collaborators are populated for informational purposes only.
 	// The team-lead will narrate and the delegator will extract delegations
 	// to specialists when the team-lead's response arrives.
 
-	m.messageRouter.RecordAgentActivity(primarySlug)
+	m.runtime.MessageRouter.RecordAgentActivity(primarySlug)
 
 	m.loading = true
 	m.spinner.SetActive(true)
@@ -497,7 +504,7 @@ func (m StreamModel) handleSlashCommand(input string) (StreamModel, tea.Cmd) {
 
 	// Route all other commands through the dispatch registry
 	apiKey := config.ResolveAPIKey("")
-	result := commands.DispatchWithService(input, apiKey, "text", 0, m.agentService)
+	result := commands.DispatchWithService(input, apiKey, "text", 0, m.runtime.AgentService)
 	output := result.Output
 	if output == "" && result.Error != "" {
 		output = "Error: " + result.Error
@@ -599,7 +606,7 @@ func (m StreamModel) renderMessages(width, height int) string {
 	// Append streaming partial texts with cursor
 	for slug, partial := range m.streaming {
 		agentName := slug
-		if ma, ok := m.agentService.Get(slug); ok {
+		if ma, ok := m.runtime.AgentService.Get(slug); ok {
 			agentName = ma.Config.Name
 		}
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(MutedColor))
@@ -651,7 +658,7 @@ func (m StreamModel) renderMessage(msg StreamMessage, width int) string {
 
 // agentPrefix returns a styled name prefix based on the agent's role.
 func (m StreamModel) agentPrefix(slug, name string) string {
-	if slug == m.teamLeadSlug {
+	if slug == m.runtime.TeamLeadSlug {
 		style := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#EAB308")).
 			Bold(true)
@@ -700,7 +707,7 @@ func (m StreamModel) wireAgent(slug string) {
 	if m.wiredAgents[slug] {
 		return
 	}
-	ma, ok := m.agentService.Get(slug)
+	ma, ok := m.runtime.AgentService.Get(slug)
 	if !ok {
 		return
 	}
@@ -759,7 +766,7 @@ func (m *StreamModel) updateInputOverlays() {
 	m.autocomplete.UpdateQuery(input)
 
 	// Refresh mention agent list
-	agents := m.agentService.List()
+	agents := m.runtime.AgentService.List()
 	mentions := make([]AgentMention, len(agents))
 	for i, a := range agents {
 		mentions[i] = AgentMention{Slug: a.Config.Slug, Name: a.Config.Name}
@@ -770,7 +777,7 @@ func (m *StreamModel) updateInputOverlays() {
 
 // updateRoster syncs the roster display with agent service state.
 func (m *StreamModel) updateRoster() {
-	agents := m.agentService.List()
+	agents := m.runtime.AgentService.List()
 	entries := make([]AgentEntry, len(agents))
 	for i, a := range agents {
 		entries[i] = AgentEntry{
@@ -784,7 +791,7 @@ func (m *StreamModel) updateRoster() {
 
 // availableAgents returns AgentInfo for all agents in the service.
 func (m StreamModel) availableAgents() []orchestration.AgentInfo {
-	agents := m.agentService.List()
+	agents := m.runtime.AgentService.List()
 	infos := make([]orchestration.AgentInfo, len(agents))
 	for i, a := range agents {
 		infos[i] = orchestration.AgentInfo{
@@ -797,8 +804,8 @@ func (m StreamModel) availableAgents() []orchestration.AgentInfo {
 
 // hasActiveAgents returns true if any agent is in an active (non-idle, non-done) phase.
 func (m StreamModel) hasActiveAgents() bool {
-	for _, a := range m.agentService.List() {
-		state, ok := m.agentService.GetState(a.Config.Slug)
+	for _, a := range m.runtime.AgentService.List() {
+		state, ok := m.runtime.AgentService.GetState(a.Config.Slug)
 		if !ok {
 			continue
 		}
@@ -808,6 +815,15 @@ func (m StreamModel) hasActiveAgents() bool {
 		}
 	}
 	return false
+}
+
+// rewireAllAgents resets event wiring and re-wires all agents after a reconfigure.
+func (m *StreamModel) rewireAllAgents() {
+	m.wiredAgents = make(map[string]bool)
+	for _, a := range m.runtime.AgentService.List() {
+		m.wireAgent(a.Config.Slug)
+	}
+	m.updateRoster()
 }
 
 // waitForAgentEvent returns a tea.Cmd that blocks until the next agent event arrives.

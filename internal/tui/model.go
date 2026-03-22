@@ -7,11 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/nex-ai/nex-cli/internal/agent"
-	"github.com/nex-ai/nex-cli/internal/api"
 	"github.com/nex-ai/nex-cli/internal/config"
-	"github.com/nex-ai/nex-cli/internal/orchestration"
-	"github.com/nex-ai/nex-cli/internal/provider"
 )
 
 // ViewName identifies a top-level view.
@@ -25,10 +21,8 @@ const (
 
 // Model is the root bubbletea model that owns the stream view and agent infrastructure.
 type Model struct {
-	stream       StreamModel
-	agentService *agent.AgentService
-	msgRouter    *orchestration.MessageRouter
-	agentEvents  chan tea.Msg
+	stream  StreamModel
+	runtime *Runtime
 
 	currentView ViewName
 	width       int
@@ -43,79 +37,26 @@ type Model struct {
 
 // NewModel creates the root model with an agent service, message router, and stream view.
 func NewModel() Model {
-	apiKey := config.ResolveAPIKey("")
-	apiClient := api.NewClient(apiKey)
-	streamResolver := provider.DefaultStreamFnResolver(apiClient)
-	agentSvc := agent.NewAgentService(
-		agent.WithStreamFnResolver(streamResolver),
-		agent.WithClient(apiClient),
-	)
-	msgRouter := orchestration.NewMessageRouter()
 	events := make(chan tea.Msg, 256)
+	rt := NewRuntime(events)
 
-	hasAPIKey := apiKey != ""
+	hasAPIKey := config.ResolveAPIKey("") != ""
 
-	// Load config for pack preference
-	cfg, _ := config.Load()
-	packSlug := cfg.Pack
-	if packSlug == "" {
-		packSlug = "founding-team"
-	}
-
-	teamLeadSlug := cfg.TeamLeadSlug
-
-	// Bootstrap agents from pack definition
-	pack := agent.GetPack(packSlug)
-	if pack != nil {
-		teamLeadSlug = pack.LeadSlug
-		for _, agentCfg := range pack.Agents {
-			// Set system prompt based on role
-			enriched := agentCfg
-			if agentCfg.Slug == pack.LeadSlug {
-				enriched.Personality = agent.BuildTeamLeadPrompt(agentCfg, pack.Agents, pack.Name)
-			} else {
-				enriched.Personality = agent.BuildSpecialistPrompt(agentCfg)
-			}
-			if _, err := agentSvc.Create(enriched); err == nil {
-				_ = agentSvc.Start(agentCfg.Slug)
-			}
-			msgRouter.RegisterAgent(agentCfg.Slug, agentCfg.Expertise)
-		}
-	} else {
-		// Fallback: create single team-lead
-		teamLeadSlug = "team-lead"
-		if _, err := agentSvc.CreateFromTemplate("team-lead", "team-lead"); err == nil {
-			_ = agentSvc.Start("team-lead")
-		}
-		if tmpl, ok := agentSvc.GetTemplate("team-lead"); ok {
-			msgRouter.RegisterAgent("team-lead", tmpl.Expertise)
-		}
-	}
-	msgRouter.SetTeamLeadSlug(teamLeadSlug)
-
-	maxConcurrent := cfg.MaxConcurrent
-	if maxConcurrent <= 0 {
-		maxConcurrent = 3
-	}
-	delegator := orchestration.NewDelegator(maxConcurrent)
-
-	stream := NewStreamModel(agentSvc, msgRouter, events, delegator, teamLeadSlug)
+	stream := NewStreamModel(rt, events)
 
 	// Wire all agents for event forwarding
-	for _, a := range agentSvc.List() {
+	for _, a := range rt.AgentService.List() {
 		stream.wireAgent(a.Config.Slug)
 	}
 	stream.updateRoster()
 
 	return Model{
-		stream:       stream,
-		agentService: agentSvc,
-		msgRouter:    msgRouter,
-		agentEvents:  events,
-		currentView:  ViewStream,
-		doublePress:  NewDoublePress(time.Second),
-		inputMode:    ModeInsert,
-		hasAPIKey:    hasAPIKey,
+		stream:      stream,
+		runtime:     rt,
+		currentView: ViewStream,
+		doublePress: NewDoublePress(time.Second),
+		inputMode:   ModeInsert,
+		hasAPIKey:   hasAPIKey,
 	}
 }
 
@@ -130,7 +71,7 @@ func (m Model) Init() tea.Cmd {
 	}
 	return tea.Batch(
 		m.stream.Init(),
-		waitForAgentEvent(m.agentEvents),
+		waitForAgentEvent(m.runtime.Events),
 		welcomeCmd,
 	)
 }
@@ -190,7 +131,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.stream, cmd = m.stream.Update(msg)
 
 	if resubscribe {
-		return m, tea.Batch(cmd, waitForAgentEvent(m.agentEvents))
+		return m, tea.Batch(cmd, waitForAgentEvent(m.runtime.Events))
 	}
 	return m, cmd
 }
@@ -239,7 +180,7 @@ Insert Mode:
 // renderAgentsView renders the active agent list.
 func (m Model) renderAgentsView() string {
 	title := TitleStyle.Render("Active Agents")
-	agents := m.agentService.List()
+	agents := m.runtime.AgentService.List()
 	if len(agents) == 0 {
 		footer := SystemStyle.Render("  No agents active. Press 'c' or 'esc' to return.")
 		return title + "\n\n" + footer
