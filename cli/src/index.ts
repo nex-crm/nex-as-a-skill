@@ -107,6 +107,12 @@ When no command is given, launches the interactive TUI.`);
   const INTERACTIVE_COMMANDS = new Set(["setup", "integrate", "scan", "register", "status"]);
   const firstArg = cleanArgs[0]?.toLowerCase();
 
+  // nex mcp → start embedded MCP server
+  if (firstArg === "mcp") {
+    await import("./mcp/index.js");
+    return;
+  }
+
   if (firstArg && !INTERACTIVE_COMMANDS.has(firstArg)) {
     // Non-interactive subcommand → dispatch and exit
     const result = await dispatchTokens(cleanArgs, ctx);
