@@ -1,0 +1,20 @@
+# .github/workflows/homebrew-update.yml
+# Auto-updates Homebrew formula on release
+
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  homebrew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Homebrew formula
+        uses: dawidd6/action-homebrew-bump-formula@v4
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          tap: nex-crm/tap
+          formula: nex
+          tag: ${{ github.event.release.tag_name }}
