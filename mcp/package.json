@@ -1,6 +1,6 @@
 {
   "name": "@nex-ai/mcp-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Nex MCP server — use Nex as a tool in Claude Desktop, ChatGPT, Cursor, and any MCP client",
   "type": "module",
   "bin": {
