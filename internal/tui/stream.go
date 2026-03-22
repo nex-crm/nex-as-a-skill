@@ -46,6 +46,9 @@ type StreamModel struct {
 	messageRouter *orchestration.MessageRouter
 	agentEvents   chan tea.Msg
 
+	delegator    *orchestration.Delegator
+	teamLeadSlug string
+
 	width, height int
 	scrollOffset  int
 	loading       bool
@@ -53,10 +56,12 @@ type StreamModel struct {
 
 	streaming   map[string]string // partial text per agent slug
 	wiredAgents map[string]bool   // agents with event handlers registered
+
+	initFlow InitFlowModel
 }
 
 // NewStreamModel creates a new StreamModel wired to the agent service and message router.
-func NewStreamModel(agentSvc *agent.AgentService, msgRouter *orchestration.MessageRouter, events chan tea.Msg) StreamModel {
+func NewStreamModel(agentSvc *agent.AgentService, msgRouter *orchestration.MessageRouter, events chan tea.Msg, delegator *orchestration.Delegator, teamLeadSlug string) StreamModel {
 	m := StreamModel{
 		autocomplete:  NewAutocomplete(defaultSlashCommands),
 		mention:       NewMention(nil),
@@ -66,9 +71,12 @@ func NewStreamModel(agentSvc *agent.AgentService, msgRouter *orchestration.Messa
 		agentService:  agentSvc,
 		messageRouter: msgRouter,
 		agentEvents:   events,
+		delegator:    delegator,
+		teamLeadSlug: teamLeadSlug,
 		mode:          "insert",
 		streaming:     make(map[string]string),
 		wiredAgents:   make(map[string]bool),
+		initFlow:      NewInitFlow(),
 	}
 	m.statusBar.Mode = "INSERT"
 	m.statusBar.Breadcrumbs = []string{"stream"}
@@ -109,6 +117,11 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			m.confirm, cmd = m.confirm.Update(msg)
 			return m, cmd
 		}
+		if m.initFlow.phase == InitAPIKey {
+			var cmd tea.Cmd
+			m.initFlow, cmd = m.initFlow.Update(msg)
+			return m, cmd
+		}
 		if m.mode == "insert" {
 			return m.updateInsertMode(msg)
 		}
@@ -131,6 +144,30 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 				Timestamp: time.Now(),
 			})
 			delete(m.streaming, msg.AgentSlug)
+
+			// If the team-lead just finished, parse for delegations to specialists
+			if msg.AgentSlug == m.teamLeadSlug && m.delegator != nil {
+				var knownSlugs []string
+				for _, a := range m.agentService.List() {
+					if a.Config.Slug != m.teamLeadSlug {
+						knownSlugs = append(knownSlugs, a.Config.Slug)
+					}
+				}
+				delegations := m.delegator.ExtractDelegations(text, knownSlugs)
+				for _, d := range delegations {
+					steerMsg := orchestration.FormatSteerMessage(d)
+					_ = m.agentService.Steer(d.AgentSlug, steerMsg)
+					m.agentService.EnsureRunning(d.AgentSlug)
+					if !m.wiredAgents[d.AgentSlug] {
+						m.wireAgent(d.AgentSlug)
+					}
+				}
+				if len(delegations) > 0 {
+					m.loading = true
+					m.spinner.SetActive(true)
+					m.spinner.SetLabel("agents working...")
+				}
+			}
 		}
 		m.loading = m.hasActiveAgents()
 		if !m.loading {
@@ -164,9 +201,32 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 
 	case PickerSelectMsg:
 		m.picker.SetActive(false)
+		if m.initFlow.IsActive() {
+			var cmd tea.Cmd
+			m.initFlow, cmd = m.initFlow.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 
 	case ConfirmMsg:
 		m.confirm.SetActive(false)
+
+	case InitFlowMsg:
+		m.initFlow, _ = m.initFlow.Update(msg)
+		switch InitPhase(msg.Phase) {
+		case InitProviderChoice:
+			m.picker = NewPicker("Choose LLM Provider", ProviderOptions())
+			m.picker.SetActive(true)
+		case InitPackChoice:
+			m.picker = NewPicker("Choose Agent Pack", PackOptions())
+			m.picker.SetActive(true)
+		case InitDone:
+			heading, instructions := m.initFlow.phaseText()
+			m.messages = append(m.messages, StreamMessage{
+				Role:      "system",
+				Content:   heading + " — " + instructions,
+				Timestamp: time.Now(),
+			})
+		}
 
 	case SlashResultMsg:
 		if msg.Err != nil {
@@ -413,6 +473,18 @@ func (m StreamModel) handleSlashCommand(input string) (StreamModel, tea.Cmd) {
 			Timestamp: time.Now(),
 		}}
 		m.scrollOffset = 0
+	case "init":
+		var initCmd tea.Cmd
+		m.initFlow, initCmd = m.initFlow.Start()
+		m.messages = append(m.messages, StreamMessage{
+			Role:      "system",
+			Content:   "Starting setup...",
+			Timestamp: time.Now(),
+		})
+		return m, initCmd
+	case "provider":
+		m.picker = NewPicker("Switch LLM Provider", ProviderOptions())
+		m.picker.SetActive(true)
 	case "quit", "q":
 		return m, tea.Quit
 	default:
@@ -462,6 +534,16 @@ func (m StreamModel) View() string {
 		leftParts = append(leftParts, m.spinner.View())
 	}
 	leftParts = append(leftParts, m.renderInput(lw))
+
+	// Init flow API key input overlay
+	if m.initFlow.phase == InitAPIKey {
+		leftParts = append(leftParts, m.initFlow.View())
+	}
+
+	// Picker overlay (used by init flow and /provider)
+	if pv := m.picker.View(); pv != "" {
+		leftParts = append(leftParts, pv)
+	}
 
 	// Autocomplete / mention overlays
 	if ac := m.autocomplete.View(); ac != "" {
@@ -554,16 +636,16 @@ func (m StreamModel) renderMessage(msg StreamMessage, width int) string {
 
 // agentPrefix returns a styled name prefix based on the agent's role.
 func (m StreamModel) agentPrefix(slug, name string) string {
-	if slug == "team-lead" {
+	if slug == m.teamLeadSlug {
 		style := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#EAB308")).
 			Bold(true)
-		return style.Render(name+": ")
+		return style.Render(name + ": ")
 	}
 	// Specialist agents: dim with "│ " prefix
 	style := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(MutedColor))
-	return style.Render("│ "+name+": ")
+	return style.Render("│ " + name + ": ")
 }
 
 // renderInput renders the bordered text input area.

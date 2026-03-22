@@ -16,7 +16,7 @@ func newTestStreamModel() StreamModel {
 	msgRouter := orchestration.NewMessageRouter()
 	events := make(chan tea.Msg, 256)
 
-	m := NewStreamModel(agentSvc, msgRouter, events)
+	m := NewStreamModel(agentSvc, msgRouter, events, nil, "team-lead")
 	m.width = 120
 	m.height = 40
 	m.statusBar.Width = 120

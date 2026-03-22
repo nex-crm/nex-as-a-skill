@@ -45,17 +45,57 @@ func NewModel() Model {
 	msgRouter := orchestration.NewMessageRouter()
 	events := make(chan tea.Msg, 256)
 
-	stream := NewStreamModel(agentSvc, msgRouter, events)
-
 	hasAPIKey := config.ResolveAPIKey("") != ""
 
-	// Bootstrap the default team-lead agent
-	if _, err := agentSvc.CreateFromTemplate("team-lead", "team-lead"); err == nil {
-		_ = agentSvc.Start("team-lead")
-		stream.wireAgent("team-lead")
+	// Load config for pack preference
+	cfg, _ := config.Load()
+	packSlug := cfg.Pack
+	if packSlug == "" {
+		packSlug = "founding-team"
+	}
+
+	teamLeadSlug := cfg.TeamLeadSlug
+
+	// Bootstrap agents from pack definition
+	pack := agent.GetPack(packSlug)
+	if pack != nil {
+		teamLeadSlug = pack.LeadSlug
+		for _, agentCfg := range pack.Agents {
+			// Set system prompt based on role
+			enriched := agentCfg
+			if agentCfg.Slug == pack.LeadSlug {
+				enriched.Personality = agent.BuildTeamLeadPrompt(agentCfg, pack.Agents, pack.Name)
+			} else {
+				enriched.Personality = agent.BuildSpecialistPrompt(agentCfg)
+			}
+			if _, err := agentSvc.Create(enriched); err == nil {
+				_ = agentSvc.Start(agentCfg.Slug)
+			}
+			msgRouter.RegisterAgent(agentCfg.Slug, agentCfg.Expertise)
+		}
+	} else {
+		// Fallback: create single team-lead
+		teamLeadSlug = "team-lead"
+		if _, err := agentSvc.CreateFromTemplate("team-lead", "team-lead"); err == nil {
+			_ = agentSvc.Start("team-lead")
+		}
 		if tmpl, ok := agentSvc.GetTemplate("team-lead"); ok {
 			msgRouter.RegisterAgent("team-lead", tmpl.Expertise)
 		}
+	}
+	msgRouter.SetTeamLeadSlug(teamLeadSlug)
+
+	maxConcurrent := cfg.MaxConcurrent
+	if maxConcurrent <= 0 {
+		maxConcurrent = 3
+	}
+	delegator := orchestration.NewDelegator(maxConcurrent)
+
+	stream := NewStreamModel(agentSvc, msgRouter, events, delegator, teamLeadSlug)
+
+	// Wire all agents for event forwarding
+	for _, a := range agentSvc.List() {
+		stream.wireAgent(a.Config.Slug)
 	}
 	stream.updateRoster()
 
