@@ -110,10 +110,7 @@ When no command is given, launches the interactive TUI.`);
   if (firstArg && !INTERACTIVE_COMMANDS.has(firstArg)) {
     // Non-interactive subcommand → dispatch and exit
     const result = await dispatchTokens(cleanArgs, ctx);
-    if (!result.error?.startsWith("Unknown command")) {
-      emitAndExit(result);
-    }
-    // Unknown command falls through to Commander / TUI
+    emitAndExit(result);
   }
 
   // Piped stdin → dispatch each line
