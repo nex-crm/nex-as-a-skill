@@ -289,8 +289,12 @@ func (m StreamModel) updateInsertMode(msg tea.KeyMsg) (StreamModel, tea.Cmd) {
 			m.autocomplete.Prev()
 			return m, nil
 		case "enter":
-			// Enter dismisses autocomplete and submits the input as typed
-			m.autocomplete.Dismiss()
+			// Enter accepts the autocomplete selection and submits
+			name := m.autocomplete.Accept()
+			if name != "" {
+				m.inputValue = []rune("/" + name)
+				m.inputPos = len(m.inputValue)
+			}
 			return m.handleSubmit()
 		case "esc":
 			m.autocomplete.Dismiss()

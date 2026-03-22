@@ -23,8 +23,14 @@ sleep 5
 
 # Helper functions
 send_raw() {
-  local b64=$(echo -n "$1" | base64)
-  termwright exec --socket "$SOCKET" --method raw --params "{\"bytes_base64\": \"$b64\"}" >/dev/null 2>&1
+  # Send each character individually for Bubbletea compatibility
+  local text="$1"
+  for (( i=0; i<${#text}; i++ )); do
+    local ch="${text:$i:1}"
+    local b64=$(printf '%s' "$ch" | base64)
+    termwright exec --socket "$SOCKET" --method raw --params "{\"bytes_base64\": \"$b64\"}" >/dev/null 2>&1
+    sleep 0.05
+  done
 }
 
 send_enter() {
