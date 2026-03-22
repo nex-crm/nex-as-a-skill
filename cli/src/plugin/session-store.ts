@@ -8,10 +8,9 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { workspaceDataDir } from "./workspace-data-dir.js";
 
 const DEFAULT_MAX = 100;
-const DEFAULT_DATA_DIR = join(homedir(), ".nex");
 
 export interface SessionStoreConfig {
   maxSize: number;
@@ -23,7 +22,7 @@ export class SessionStore {
   private maxSize: number;
 
   constructor(config?: Partial<SessionStoreConfig>) {
-    const dataDir = config?.dataDir ?? DEFAULT_DATA_DIR;
+    const dataDir = config?.dataDir ?? workspaceDataDir();
     this.maxSize = config?.maxSize ?? DEFAULT_MAX;
     this.filePath = join(dataDir, "claude-sessions.json");
     mkdirSync(dataDir, { recursive: true });

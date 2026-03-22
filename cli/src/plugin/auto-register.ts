@@ -4,12 +4,32 @@
  *
  * Usage: node dist/auto-register.js <email> [name] [company]
  *
- * On success: prints API key and saves to ~/.nex-mcp.json (shared with MCP server).
+ * On success: saves to workspace credentials.json and legacy ~/.nex-mcp.json.
  * If already registered (API key exists): prints status and exits.
  */
 
-import { loadMcpConfig, persistRegistration, loadBaseUrl, MCP_CONFIG_PATH } from "./config.js";
+import { loadMcpConfig, loadWorkspaceCredentials, persistRegistration, loadBaseUrl, MCP_CONFIG_PATH } from "./config.js";
 import { NexClient } from "./nex-client.js";
+import { workspaceDataDir } from "./workspace-data-dir.js";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+/** Persist credentials to the active workspace directory. */
+function persistWorkspaceCredentials(data: Record<string, unknown>): void {
+  const slug = typeof data.workspace_slug === "string" ? data.workspace_slug : undefined;
+  if (!slug) return;
+
+  const wsDir = workspaceDataDir();
+  mkdirSync(wsDir, { recursive: true });
+
+  const creds = {
+    api_key: data.api_key,
+    email: data.email,
+    workspace_id: typeof data.workspace_id === "number" ? String(data.workspace_id) : data.workspace_id,
+    workspace_slug: slug,
+  };
+  writeFileSync(join(wsDir, "credentials.json"), JSON.stringify(creds, null, 2) + "\n", "utf-8");
+}
 
 async function main(): Promise<void> {
   const email = process.argv[2];
@@ -21,7 +41,15 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Check if already registered
+  // Check if already registered — workspace credentials take priority
+  const wsCreds = loadWorkspaceCredentials();
+  if (wsCreds.api_key) {
+    console.log("Already registered.");
+    console.log(`  API key: ${wsCreds.api_key.slice(0, 12)}...`);
+    console.log(`  Config: ${workspaceDataDir()}/credentials.json`);
+    console.log("\nTo re-register, delete the credentials.json in your workspace directory.");
+    return;
+  }
   const existing = loadMcpConfig();
   if (existing.api_key) {
     console.log("Already registered.");
@@ -43,13 +71,15 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    // Persist to shared config
-    persistRegistration(result as Record<string, unknown>);
+    // Persist to workspace credentials and legacy config
+    const resultData = result as Record<string, unknown>;
+    persistWorkspaceCredentials(resultData);
+    persistRegistration(resultData);
 
     console.log("Registration successful!");
     console.log(`  API key: ${result.api_key.slice(0, 12)}...`);
     if (result.workspace_slug) console.log(`  Workspace: ${result.workspace_slug}`);
-    console.log(`  Saved to: ${MCP_CONFIG_PATH}`);
+    console.log(`  Saved to: ${workspaceDataDir()}/credentials.json`);
     console.log("\nAll Nex memory features are now active. No restart needed.");
   } catch (err) {
     console.error(`Registration failed: ${err instanceof Error ? err.message : String(err)}`);

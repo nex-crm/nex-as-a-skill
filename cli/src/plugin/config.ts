@@ -1,11 +1,12 @@
 /**
  * Plugin configuration — reads from environment variables,
- * with fallback to ~/.nex-mcp.json (shared with MCP server).
+ * with fallback to workspace credentials and legacy ~/.nex-mcp.json.
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { workspaceDataDir } from "./workspace-data-dir.js";
 
 export interface NexConfig {
   apiKey: string;
@@ -62,17 +63,40 @@ export function persistRegistration(data: Record<string, unknown>): void {
   writeFileSync(MCP_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
 }
 
+interface WorkspaceCredentials {
+  api_key?: string;
+  email?: string;
+  workspace_id?: string;
+  workspace_slug?: string;
+}
+
+/** Read credentials.json from the active workspace directory. */
+export function loadWorkspaceCredentials(): WorkspaceCredentials {
+  try {
+    const credPath = join(workspaceDataDir(), "credentials.json");
+    const raw = readFileSync(credPath, "utf-8");
+    return JSON.parse(raw) as WorkspaceCredentials;
+  } catch {
+    return {};
+  }
+}
+
 /**
- * Load config from environment variables, with fallback to ~/.nex-mcp.json.
+ * Load config with workspace-aware credential resolution.
  *
- * Priority: NEX_API_KEY env > ~/.nex-mcp.json api_key
- * If neither is set, throws ConfigError with registration instructions.
+ * Priority: NEX_API_KEY env → workspace credentials → legacy ~/.nex-mcp.json → ConfigError
  */
 export function loadConfig(): NexConfig {
   let apiKey = process.env.NEX_API_KEY;
 
   if (!apiKey) {
-    // Fallback to shared MCP config
+    // Try workspace credentials first
+    const wsCreds = loadWorkspaceCredentials();
+    apiKey = wsCreds.api_key;
+  }
+
+  if (!apiKey) {
+    // Fallback to legacy shared MCP config
     const mcpConfig = loadMcpConfig();
     apiKey = mcpConfig.api_key;
   }

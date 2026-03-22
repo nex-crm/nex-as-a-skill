@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { getActiveCredentials, addWorkspace } from "./workspace-registry.js";
 
 export const CONFIG_PATH = join(homedir(), ".nex", "config.json");
 export const BASE_URL = process.env.NEX_DEV_URL ?? loadConfig().dev_url ?? "https://app.nex.ai";
@@ -25,7 +26,17 @@ export interface NexConfig {
 export function loadConfig(): NexConfig {
   try {
     const raw = readFileSync(CONFIG_PATH, "utf-8");
-    return JSON.parse(raw) as NexConfig;
+    const data = JSON.parse(raw);
+
+    // If migrated format, merge active workspace credentials into return
+    if (data.active_workspace && !data.api_key) {
+      const wsCreds = getActiveCredentials();
+      if (wsCreds) {
+        return { ...data, ...wsCreds } as NexConfig;
+      }
+    }
+
+    return data as NexConfig;
   } catch {
     return {};
   }
@@ -37,10 +48,18 @@ export function saveConfig(config: NexConfig): void {
 }
 
 /**
- * Resolve API key from: flag > env > config file.
+ * Resolve API key from: flag > env > active workspace > config file.
  */
 export function resolveApiKey(flagValue?: string): string | undefined {
-  return flagValue || process.env.NEX_API_KEY || loadConfig().api_key || undefined;
+  if (flagValue) return flagValue;
+  if (process.env.NEX_API_KEY) return process.env.NEX_API_KEY;
+
+  // Try active workspace credentials
+  const wsCreds = getActiveCredentials();
+  if (wsCreds?.api_key) return wsCreds.api_key;
+
+  // Legacy fallback: flat config.json (pre-migration)
+  return loadConfig().api_key || undefined;
 }
 
 /**
@@ -63,9 +82,10 @@ export function resolveTimeout(flagValue?: string): number {
 }
 
 /**
- * Persist registration data to config file.
+ * Persist registration data to config file and workspace registry.
  */
 export function persistRegistration(data: Record<string, unknown>): void {
+  // Legacy: still write to config.json for backwards compat during migration
   const existing = loadConfig();
   if (typeof data.api_key === "string") existing.api_key = data.api_key;
   if (typeof data.email === "string") existing.email = data.email;
@@ -74,4 +94,15 @@ export function persistRegistration(data: Record<string, unknown>): void {
   }
   if (typeof data.workspace_slug === "string") existing.workspace_slug = data.workspace_slug;
   saveConfig(existing);
+
+  // New: add to workspace registry
+  const slug = (data.workspace_slug as string) || (data.workspace_id as string);
+  if (slug && data.api_key) {
+    addWorkspace(slug, {
+      api_key: data.api_key as string,
+      email: (data.email as string) || "",
+      workspace_id: String(data.workspace_id || ""),
+      workspace_slug: slug,
+    });
+  }
 }

@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
+import { workspaceDataDir } from "./workspace-data-dir.js";
 
 const CONFIG_PATH = join(homedir(), ".nex", "config.json");
 
@@ -27,8 +28,29 @@ export function saveConfig(config: NexMcpConfig): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", "utf-8");
 }
 
+interface WorkspaceCredentials {
+  api_key?: string;
+  [key: string]: unknown;
+}
+
+export function loadWorkspaceCredentials(): WorkspaceCredentials {
+  try {
+    const credPath = join(workspaceDataDir(), "credentials.json");
+    const raw = readFileSync(credPath, "utf-8");
+    return JSON.parse(raw) as WorkspaceCredentials;
+  } catch {
+    return {};
+  }
+}
+
 export function loadApiKey(): string | undefined {
-  return process.env.NEX_API_KEY || loadConfig().api_key || undefined;
+  // NEX_API_KEY env → workspace credentials → legacy config → undefined
+  return (
+    process.env.NEX_API_KEY ||
+    loadWorkspaceCredentials().api_key ||
+    loadConfig().api_key ||
+    undefined
+  );
 }
 
 export function persistRegistration(data: Record<string, unknown>): void {

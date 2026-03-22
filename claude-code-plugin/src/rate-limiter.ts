@@ -9,7 +9,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { workspaceDataDir } from "./workspace-data-dir.js";
 
 export interface RateLimiterConfig {
   maxRequests: number;
@@ -20,7 +20,7 @@ export interface RateLimiterConfig {
 const DEFAULTS: RateLimiterConfig = {
   maxRequests: 10,
   windowMs: 60_000,
-  dataDir: join(homedir(), ".nex"),
+  dataDir: workspaceDataDir(),
 };
 
 export class RateLimiter {
