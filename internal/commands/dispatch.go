@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nex-ai/nex-cli/internal/agent"
 	"github.com/nex-ai/nex-cli/internal/api"
 	"github.com/nex-ai/nex-cli/internal/config"
 )
@@ -18,9 +19,21 @@ type CommandResult struct {
 	Error    string
 }
 
+// DispatchWithService is like Dispatch but accepts an AgentService for commands
+// that need access to running agents (e.g. /agents, /agent).
+// DispatchWithService is like Dispatch but accepts an AgentService for commands
+// that need access to running agents (e.g. /agents, /agent).
+func DispatchWithService(input string, apiKey string, format string, timeout int, agentSvc *agent.AgentService) CommandResult {
+	return dispatchInternal(input, apiKey, format, timeout, agentSvc)
+}
+
 // Dispatch parses input and runs the matching command non-interactively.
 // format is "text" or "json"; timeout is in milliseconds (0 = default).
 func Dispatch(input string, apiKey string, format string, timeout int) CommandResult {
+	return dispatchInternal(input, apiKey, format, timeout, nil)
+}
+
+func dispatchInternal(input string, apiKey string, format string, timeout int, agentSvc *agent.AgentService) CommandResult {
 	name, args, isSlash := ParseSlashInput(input)
 	if !isSlash {
 		// Treat plain text as /ask
@@ -56,7 +69,7 @@ func Dispatch(input string, apiKey string, format string, timeout int) CommandRe
 	var execErr error
 
 	ctx := &SlashContext{
-		AgentService: nil,
+		AgentService: agentSvc,
 		APIClient:    client,
 		Config:       &cfg,
 		AddMessage: func(role, content string) {

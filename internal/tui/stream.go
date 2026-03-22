@@ -9,6 +9,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/nex-ai/nex-cli/internal/agent"
+	"github.com/nex-ai/nex-cli/internal/commands"
+	"github.com/nex-ai/nex-cli/internal/config"
 	"github.com/nex-ai/nex-cli/internal/orchestration"
 )
 
@@ -23,6 +25,17 @@ type StreamMessage struct {
 
 // defaultSlashCommands are the built-in slash commands for autocomplete.
 var defaultSlashCommands = []SlashCommand{
+	{Name: "ask", Description: "Ask the AI a question"},
+	{Name: "search", Description: "Search knowledge base"},
+	{Name: "remember", Description: "Store information"},
+	{Name: "agents", Description: "List agents"},
+	{Name: "agent", Description: "Agent details"},
+	{Name: "init", Description: "Run setup"},
+	{Name: "provider", Description: "Switch LLM provider"},
+	{Name: "objects", Description: "List object types"},
+	{Name: "records", Description: "List records"},
+	{Name: "graph", Description: "View context graph"},
+	{Name: "insights", Description: "View insights"},
 	{Name: "help", Description: "Show available commands"},
 	{Name: "clear", Description: "Clear chat history"},
 	{Name: "quit", Description: "Exit nex"},
@@ -255,20 +268,28 @@ func (m StreamModel) updateInsertMode(msg tea.KeyMsg) (StreamModel, tea.Cmd) {
 	if m.autocomplete.IsVisible() {
 		switch key {
 		case "tab":
-			m.autocomplete.Next()
-			return m, nil
-		case "shift+tab":
-			m.autocomplete.Prev()
-			return m, nil
-		case "enter":
+			// Tab accepts the autocomplete selection
 			name := m.autocomplete.Accept()
 			if name != "" {
 				m.inputValue = []rune("/" + name + " ")
 				m.inputPos = len(m.inputValue)
 			}
 			return m, nil
+		case "shift+tab":
+			m.autocomplete.Prev()
+			return m, nil
+		case "enter":
+			// Enter dismisses autocomplete and submits the input as typed
+			m.autocomplete.Dismiss()
+			return m.handleSubmit()
 		case "esc":
 			m.autocomplete.Dismiss()
+			return m, nil
+		case "up":
+			m.autocomplete.Prev()
+			return m, nil
+		case "down":
+			m.autocomplete.Next()
 			return m, nil
 		}
 	}
@@ -449,23 +470,14 @@ func (m StreamModel) handleSubmit() (StreamModel, tea.Cmd) {
 	return m, nil
 }
 
-// handleSlashCommand processes built-in slash commands.
+// handleSlashCommand processes slash commands. TUI-specific commands are handled
+// inline; all others are routed through the commands.Dispatch registry.
 func (m StreamModel) handleSlashCommand(input string) (StreamModel, tea.Cmd) {
 	parts := strings.Fields(input)
 	cmd := strings.TrimPrefix(parts[0], "/")
 
+	// TUI-specific commands that need direct model access
 	switch cmd {
-	case "help":
-		help := "Available commands:\n" +
-			"  /help   — Show this help\n" +
-			"  /clear  — Clear chat history\n" +
-			"  /quit   — Exit nex\n" +
-			"  /q      — Exit nex"
-		m.messages = append(m.messages, StreamMessage{
-			Role:      "system",
-			Content:   help,
-			Timestamp: time.Now(),
-		})
 	case "clear":
 		m.messages = []StreamMessage{{
 			Role:      "system",
@@ -473,6 +485,7 @@ func (m StreamModel) handleSlashCommand(input string) (StreamModel, tea.Cmd) {
 			Timestamp: time.Now(),
 		}}
 		m.scrollOffset = 0
+		return m, nil
 	case "init":
 		var initCmd tea.Cmd
 		m.initFlow, initCmd = m.initFlow.Start()
@@ -485,16 +498,26 @@ func (m StreamModel) handleSlashCommand(input string) (StreamModel, tea.Cmd) {
 	case "provider":
 		m.picker = NewPicker("Switch LLM Provider", ProviderOptions())
 		m.picker.SetActive(true)
+		return m, nil
 	case "quit", "q":
 		return m, tea.Quit
-	default:
-		m.messages = append(m.messages, StreamMessage{
-			Role:      "system",
-			Content:   fmt.Sprintf("Unknown command: /%s", cmd),
-			Timestamp: time.Now(),
-		})
 	}
 
+	// Route all other commands through the dispatch registry
+	apiKey := config.ResolveAPIKey("")
+	result := commands.DispatchWithService(input, apiKey, "text", 0, m.agentService)
+	output := result.Output
+	if output == "" && result.Error != "" {
+		output = "Error: " + result.Error
+	}
+	if output == "" {
+		output = fmt.Sprintf("/%s — done", cmd)
+	}
+	m.messages = append(m.messages, StreamMessage{
+		Role:      "system",
+		Content:   output,
+		Timestamp: time.Now(),
+	})
 	return m, nil
 }
 
