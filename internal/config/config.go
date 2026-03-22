@@ -18,6 +18,9 @@ type NexConfig struct {
 	WorkspaceSlug  string `json:"workspace_slug,omitempty"`
 	LLMProvider    string `json:"llm_provider,omitempty"`
 	GeminiAPIKey   string `json:"gemini_api_key,omitempty"`
+	Pack           string `json:"pack,omitempty"`
+	TeamLeadSlug   string `json:"team_lead_slug,omitempty"`
+	MaxConcurrent  int    `json:"max_concurrent_agents,omitempty"`
 	DefaultFormat  string `json:"default_format,omitempty"`
 	DefaultTimeout int    `json:"default_timeout,omitempty"`
 	DevURL         string `json:"dev_url,omitempty"`
