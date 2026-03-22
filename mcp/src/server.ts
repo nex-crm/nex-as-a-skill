@@ -13,11 +13,25 @@ import { registerRegistrationTools } from "./tools/register.js";
 import { registerScanTools } from "./tools/scan.js";
 import { registerIntegrationTools } from "./tools/integrations.js";
 
-export function createServer(apiKey?: string): McpServer {
-  const server = new McpServer({
-    name: "nex",
-    version: "0.1.0",
-  });
+export function createServer(apiKey?: string): {
+  server: McpServer;
+  client: NexApiClient;
+} {
+  const server = new McpServer(
+    { name: "nex", version: "0.1.0" },
+    {
+      capabilities: {
+        experimental: { "claude/channel": {} },
+      },
+      instructions:
+        'Events from the nex channel arrive as <channel source="nex" type="...">. ' +
+        "They contain daily digest summaries (type=daily_digest) and proactive " +
+        "notifications (type=proactive_notification) about important context " +
+        "changes — deals, meetings, relationships, tasks. These are one-way " +
+        "informational: acknowledge them naturally and incorporate into your " +
+        "awareness. No reply expected.",
+    },
+  );
 
   const client = new NexApiClient(apiKey);
 
@@ -34,5 +48,5 @@ export function createServer(apiKey?: string): McpServer {
   registerScanTools(server, client);
   registerIntegrationTools(server, client);
 
-  return server;
+  return { server, client };
 }

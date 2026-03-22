@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { createServer } from "./server.js";
 import { createServer as createHttpServer } from "node:http";
 import { loadApiKey } from "./config.js";
+import { startChannel } from "./channel.js";
 
 const apiKey = loadApiKey();
 if (!apiKey) {
@@ -14,7 +15,7 @@ if (!apiKey) {
 const transport = process.env.MCP_TRANSPORT ?? "stdio";
 
 async function main() {
-  const server = createServer(apiKey);
+  const { server, client } = createServer(apiKey);
 
   if (transport === "http") {
     const port = parseInt(process.env.MCP_PORT ?? "3001", 10);
@@ -37,12 +38,14 @@ async function main() {
     });
 
     await server.connect(httpTransport);
+    startChannel(server.server, client);
     httpServer.listen(port, () => {
       console.error(`Nex MCP server running on http://localhost:${port}/mcp`);
     });
   } else {
     const stdioTransport = new StdioServerTransport();
     await server.connect(stdioTransport);
+    startChannel(server.server, client);
     console.error("Nex MCP server running on stdio");
   }
 }
