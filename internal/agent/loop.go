@@ -212,6 +212,22 @@ func (l *AgentLoop) buildContext() error {
 		l.state.SessionID = sessionID
 	}
 
+	// Inject system prompt if not already present in session.
+	entries, _ := l.sessions.GetHistory(l.state.SessionID, 0, "")
+	hasSystem := false
+	for _, e := range entries {
+		if e.Type == "system" {
+			hasSystem = true
+			break
+		}
+	}
+	if !hasSystem && l.state.Config.Personality != "" {
+		l.sessions.Append(l.state.SessionID, SessionEntry{
+			Type:    "system",
+			Content: l.state.Config.Personality,
+		})
+	}
+
 	// Drain follow-up message and append as user entry.
 	if msg, ok := l.queues.DrainFollowUp(slug); ok {
 		l.sessions.Append(l.state.SessionID, SessionEntry{
