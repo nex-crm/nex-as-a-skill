@@ -6,7 +6,7 @@
 // --- Error types ---
 
 export class NexAuthError extends Error {
-  constructor(message = "API key expired or invalid. Run 'nex register --email <email>' to get a new key.") {
+  constructor(message = "Invalid or missing API key") {
     super(message);
     this.name = "NexAuthError";
   }

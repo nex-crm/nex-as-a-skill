@@ -1,6 +1,6 @@
 /**
  * Plugin configuration — reads from environment variables,
- * with fallback to ~/.nex/config.json.
+ * with fallback to ~/.nex-mcp.json (shared with MCP server).
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -28,50 +28,53 @@ export class ConfigError extends Error {
   }
 }
 
-const CONFIG_PATH = join(homedir(), ".nex", "config.json");
+/** Shared config file with MCP server — stores registration data. */
+const MCP_CONFIG_PATH = join(homedir(), ".nex-mcp.json");
 
-export { CONFIG_PATH as MCP_CONFIG_PATH };
+export { MCP_CONFIG_PATH };
 
-interface NexFileConfig {
+interface McpConfig {
   api_key?: string;
-  dev_url?: string;
+  base_url?: string;
   workspace_id?: string;
   workspace_slug?: string;
 }
 
-/** Read ~/.nex/config.json. */
-function loadFileConfig(): NexFileConfig {
+/** Read ~/.nex-mcp.json (shared with MCP server registration). */
+export function loadMcpConfig(): McpConfig {
   try {
-    const raw = readFileSync(CONFIG_PATH, "utf-8");
-    return JSON.parse(raw) as NexFileConfig;
+    const raw = readFileSync(MCP_CONFIG_PATH, "utf-8");
+    return JSON.parse(raw) as McpConfig;
   } catch {
     return {};
   }
 }
 
-/** Write registration data to ~/.nex/config.json. */
+/** Write registration data to ~/.nex-mcp.json. */
 export function persistRegistration(data: Record<string, unknown>): void {
-  const existing = loadFileConfig() as Record<string, unknown>;
+  const existing = loadMcpConfig() as Record<string, unknown>;
   if (typeof data.api_key === "string") existing.api_key = data.api_key;
   if (typeof data.workspace_id === "string" || typeof data.workspace_id === "number") {
     existing.workspace_id = String(data.workspace_id);
   }
   if (typeof data.workspace_slug === "string") existing.workspace_slug = data.workspace_slug;
-  mkdirSync(dirname(CONFIG_PATH), { recursive: true });
-  writeFileSync(CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
+  mkdirSync(dirname(MCP_CONFIG_PATH), { recursive: true });
+  writeFileSync(MCP_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
 }
 
 /**
- * Load config from environment variables, with fallback to ~/.nex/config.json.
+ * Load config from environment variables, with fallback to ~/.nex-mcp.json.
  *
- * Priority: NEX_API_KEY env > ~/.nex/config.json
- * If none is set, throws ConfigError with registration instructions.
+ * Priority: NEX_API_KEY env > ~/.nex-mcp.json api_key
+ * If neither is set, throws ConfigError with registration instructions.
  */
 export function loadConfig(): NexConfig {
   let apiKey = process.env.NEX_API_KEY;
 
   if (!apiKey) {
-    apiKey = loadFileConfig().api_key;
+    // Fallback to shared MCP config
+    const mcpConfig = loadMcpConfig();
+    apiKey = mcpConfig.api_key;
   }
 
   if (!apiKey) {
@@ -80,7 +83,8 @@ export function loadConfig(): NexConfig {
     );
   }
 
-  let baseUrl = process.env.NEX_API_BASE_URL ?? loadFileConfig().dev_url ?? "https://app.nex.ai";
+  let baseUrl = process.env.NEX_API_BASE_URL ?? "https://app.nex.ai";
+  // Strip trailing slash
   baseUrl = baseUrl.replace(/\/+$/, "");
 
   return { apiKey, baseUrl };
@@ -91,7 +95,7 @@ export function loadConfig(): NexConfig {
  * Used for registration (which doesn't need auth).
  */
 export function loadBaseUrl(): string {
-  let baseUrl = process.env.NEX_API_BASE_URL ?? loadFileConfig().dev_url ?? "https://app.nex.ai";
+  let baseUrl = process.env.NEX_API_BASE_URL ?? "https://app.nex.ai";
   return baseUrl.replace(/\/+$/, "");
 }
 

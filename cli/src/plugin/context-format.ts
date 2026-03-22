@@ -14,10 +14,6 @@ export interface NexRecallResult {
 
 /**
  * Format a Nex /ask response as an XML block for context injection.
- *
- * The preamble tells the AI to use the context naturally — not as a
- * direct answer, but as background knowledge that informs the response.
- * This makes proactive context feel seamless rather than forced.
  */
 export function formatNexContext(result: NexRecallResult): string {
   const parts: string[] = [
