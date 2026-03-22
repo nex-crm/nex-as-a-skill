@@ -19,8 +19,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Sync plugin into CLI
         run: |
-          rsync -a --delete ../claude-code-plugin/src/ src/plugin/
-          rsync -a --delete ../claude-code-plugin/commands/ plugin-commands/
+          rsync -a ../claude-code-plugin/src/ src/plugin/
+          rsync -a ../claude-code-plugin/commands/ plugin-commands/
       - run: bun install --frozen-lockfile
       - run: bun run build
       - name: Run tests (excluding e2e and node:test mock files)
@@ -31,17 +31,6 @@ jobs:
           tests/tui/agent-colors.test.ts tests/tui/channel-colors.test.ts
           tests/tui/components.test.tsx tests/tui/keybindings.test.ts tests/tui/store.test.ts
           tests/agent tests/calendar tests/chat tests/orchestration
-
-  mcp:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: mcp
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run build
 
   openclaw-plugin:
     runs-on: ubuntu-latest

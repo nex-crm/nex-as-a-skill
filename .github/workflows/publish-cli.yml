@@ -35,8 +35,8 @@ jobs:
 
       - name: Sync plugin into CLI
         run: |
-          rsync -a --delete ../claude-code-plugin/src/ src/plugin/
-          rsync -a --delete ../claude-code-plugin/commands/ plugin-commands/
+          rsync -a ../claude-code-plugin/src/ src/plugin/
+          rsync -a ../claude-code-plugin/commands/ plugin-commands/
 
       - run: bun install --frozen-lockfile
 
