@@ -1,7 +1,8 @@
 {
   "name": "@nex-ai/nex",
   "version": "0.1.40",
-  "description": "Nex CLI provides organizational context & memory to AI agents",
+  "description": "Nex CLI provides organizational context & memory to AI agents. Connect email, CRM, Slack, meetings, and 100+ tools into one knowledge graph.",
+  "mcpName": "ai.nex/nex",
   "type": "module",
   "bin": {
     "nex": "dist/index.js",
@@ -13,6 +14,26 @@
     "platform-rules",
     "platform-plugins",
     "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "ai-agent",
+    "ai-memory",
+    "knowledge-graph",
+    "crm",
+    "context",
+    "nex",
+    "organizational-memory",
+    "agent-memory",
+    "claude",
+    "cursor",
+    "copilot",
+    "openai",
+    "integrations",
+    "slack",
+    "email"
   ],
   "scripts": {
     "build": "tsc",
@@ -34,12 +55,15 @@
     "url": "https://github.com/nex-crm/nex-as-a-skill.git",
     "directory": "cli"
   },
-  "homepage": "https://github.com/nex-crm/nex-as-a-skill#readme",
+  "homepage": "https://nex.ai",
   "bugs": {
     "url": "https://github.com/nex-crm/nex-as-a-skill/issues"
   },
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "MIT",
   "dependencies": {
