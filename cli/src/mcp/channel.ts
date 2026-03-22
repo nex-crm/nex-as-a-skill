@@ -45,8 +45,8 @@ const DIGEST_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 /** Minimum gap between daily digests (24 hours). */
 const DIGEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
-/** How often to poll for proactive notifications (5 minutes). */
-const NOTIFY_INTERVAL_MS = 5 * 60 * 1000;
+/** How often to poll for proactive notifications. Configurable via NEX_NOTIFY_INTERVAL_MINUTES env (default: 15). */
+const NOTIFY_INTERVAL_MS = Math.max(1, parseInt(process.env.NEX_NOTIFY_INTERVAL_MINUTES ?? "15", 10)) * 60 * 1000;
 
 /** Delay before the first digest check after startup (10 seconds). */
 const INITIAL_DIGEST_DELAY_MS = 10_000;
@@ -140,8 +140,9 @@ async function checkNotifications(
 
   try {
     const lastCheck = state.lastNotifyCheckAt || now - NOTIFY_INTERVAL_MS;
+    const notifyIntervalMinutes = NOTIFY_INTERVAL_MS / 60_000;
     const minutesSinceLastCheck = Math.max(
-      5,
+      notifyIntervalMinutes,
       Math.ceil((now - lastCheck) / 60_000),
     );
 
@@ -214,5 +215,5 @@ export function startChannel(
     NOTIFY_INTERVAL_MS,
   );
 
-  console.error("[nex-channel] started (digest: 24h, notifications: 5m)");
+  console.error(`[nex-channel] started (digest: 24h, notifications: ${NOTIFY_INTERVAL_MS / 60_000}m)`);
 }
