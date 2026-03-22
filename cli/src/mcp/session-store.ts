@@ -5,6 +5,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { workspaceDataDir } from "./workspace-data-dir.js";
 
 export interface SessionStoreConfig {
   maxSize: number;
@@ -12,7 +13,7 @@ export interface SessionStoreConfig {
 }
 
 const DEFAULT_MAX = 100;
-const DEFAULT_DATA_DIR = join(homedir(), ".nex");
+const DEFAULT_DATA_DIR = workspaceDataDir();
 
 export class SessionStore {
   private filePath: string;
