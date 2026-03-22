@@ -11,10 +11,15 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { workspaceDataDir } from "./workspace-data-dir.js";
 
-const DATA_DIR = join(homedir(), ".nex");
-const STATE_FILE = join(DATA_DIR, "recall-state.json");
+function dataDir(): string {
+  return workspaceDataDir();
+}
+
+function stateFile(): string {
+  return join(dataDir(), "recall-state.json");
+}
 const DEBOUNCE_MS = 30_000; // 30 seconds
 
 // --- Question words that signal knowledge-seeking intent ---
@@ -44,7 +49,7 @@ interface RecallState {
 
 function readState(): RecallState {
   try {
-    const raw = readFileSync(STATE_FILE, "utf-8");
+    const raw = readFileSync(stateFile(), "utf-8");
     return JSON.parse(raw) as RecallState;
   } catch {
     return { lastRecallAt: 0 };
@@ -53,8 +58,8 @@ function readState(): RecallState {
 
 function writeState(state: RecallState): void {
   try {
-    mkdirSync(DATA_DIR, { recursive: true });
-    writeFileSync(STATE_FILE, JSON.stringify(state), "utf-8");
+    mkdirSync(dataDir(), { recursive: true });
+    writeFileSync(stateFile(), JSON.stringify(state), "utf-8");
   } catch {
     // best-effort
   }
