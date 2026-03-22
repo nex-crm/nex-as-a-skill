@@ -79,6 +79,7 @@ Commands:
   graph                 View relationship graph
   detect                Detect installed AI coding platforms
   setup                 Configure API key and workspace
+  mcp                   Start the embedded MCP server (stdio)
   agent templates       List available agent templates
   agent create          Create a new agent
 
