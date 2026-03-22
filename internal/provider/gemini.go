@@ -24,7 +24,7 @@ func CreateGeminiStreamFn(apiKey string) agent.StreamFn {
 				Backend: genai.BackendGeminiAPI,
 			})
 			if err != nil {
-				ch <- agent.StreamChunk{Type: "error", Content: fmt.Sprintf("gemini client: %v", err)}
+				ch <- agent.StreamChunk{Type: "error", Content: fmt.Sprintf("Gemini client initialization failed: %v. Check your API key and network connection.", err)}
 				return
 			}
 
@@ -38,7 +38,7 @@ func CreateGeminiStreamFn(apiKey string) agent.StreamFn {
 			stream := client.Models.GenerateContentStream(ctx, geminiModel, contents, config)
 			for result, err := range stream {
 				if err != nil {
-					ch <- agent.StreamChunk{Type: "error", Content: fmt.Sprintf("gemini stream: %v", err)}
+					ch <- agent.StreamChunk{Type: "error", Content: fmt.Sprintf("Gemini streaming failed: %v. The model may be unavailable or the request was rejected.", err)}
 					return
 				}
 				for _, cand := range result.Candidates {

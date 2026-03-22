@@ -81,7 +81,7 @@ type Message struct {
 
 // StreamChunk is one piece of streamed output from the LLM.
 type StreamChunk struct {
-	Type       string         `json:"type"` // "text" | "tool_call"
+	Type       string         `json:"type"` // "text" | "tool_call" | "error"
 	Content    string         `json:"content,omitempty"`
 	ToolName   string         `json:"toolName,omitempty"`
 	ToolParams map[string]any `json:"toolParams,omitempty"`

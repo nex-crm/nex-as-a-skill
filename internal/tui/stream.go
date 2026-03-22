@@ -448,17 +448,9 @@ func (m StreamModel) handleSubmit() (StreamModel, tea.Cmd) {
 	_ = m.agentService.Steer(primarySlug, input)
 	m.agentService.EnsureRunning(primarySlug)
 
-	// Notify collaborators
-	for _, collab := range result.Collaborators {
-		if _, ok := m.agentService.Get(collab); !ok {
-			if _, err := m.agentService.CreateFromTemplate(collab, collab); err == nil {
-				_ = m.agentService.Start(collab)
-			}
-		}
-		m.wireAgent(collab)
-		_ = m.agentService.FollowUp(collab, input)
-		m.agentService.EnsureRunning(collab)
-	}
+	// Collaborators are populated for informational purposes only.
+	// The team-lead will narrate and the delegator will extract delegations
+	// to specialists when the team-lead's response arrives.
 
 	m.messageRouter.RecordAgentActivity(primarySlug)
 

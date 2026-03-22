@@ -41,16 +41,63 @@ func TestMessageRouter_ExtractSkills(t *testing.T) {
 	}
 }
 
-func TestMessageRouter_RoutesToBestAgent(t *testing.T) {
+func TestNewDirectiveGoesToTeamLead(t *testing.T) {
 	mr := NewMessageRouter()
+	mr.SetTeamLeadSlug("ceo")
 	agents := []AgentInfo{
+		{Slug: "ceo", Expertise: []string{"strategy"}},
 		{Slug: "researcher", Expertise: []string{"market-research", "competitive-analysis"}},
 		{Slug: "coder", Expertise: []string{"general", "planning"}},
 	}
 
+	// Even when a specialist matches, new directives should go to team-lead.
 	result := mr.Route("Can you research our market?", agents)
-	if result.Primary != "researcher" {
-		t.Errorf("expected researcher, got %s", result.Primary)
+	if result.Primary != "ceo" {
+		t.Errorf("expected primary='ceo' (team-lead), got '%s'", result.Primary)
+	}
+	if result.IsFollowUp {
+		t.Error("should not be a follow-up")
+	}
+	if !result.TeamLeadAware {
+		t.Error("team-lead should be aware")
+	}
+}
+
+func TestFollowUpGoesToLastActive(t *testing.T) {
+	mr := NewMessageRouter()
+	mr.SetTeamLeadSlug("ceo")
+	mr.mu.Lock()
+	mr.recentThreads["fe"] = &threadContext{
+		agentSlug:    "fe",
+		lastActivity: time.Now(),
+	}
+	mr.mu.Unlock()
+
+	agents := []AgentInfo{
+		{Slug: "ceo", Expertise: []string{"strategy"}},
+		{Slug: "fe", Expertise: []string{"frontend"}},
+	}
+	result := mr.Route("Also add a dark mode toggle", agents)
+	if !result.IsFollowUp {
+		t.Error("should be detected as follow-up")
+	}
+	if result.Primary != "fe" {
+		t.Errorf("expected primary='fe' (last active), got '%s'", result.Primary)
+	}
+}
+
+func TestExplicitMentionRoutes(t *testing.T) {
+	mr := NewMessageRouter()
+	mr.SetTeamLeadSlug("ceo")
+	agents := []AgentInfo{
+		{Slug: "ceo", Expertise: []string{"strategy"}},
+		{Slug: "fe", Expertise: []string{"frontend"}},
+		{Slug: "be", Expertise: []string{"backend"}},
+	}
+
+	result := mr.Route("@fe build the login page", agents)
+	if result.Primary != "fe" {
+		t.Errorf("expected primary='fe' (explicit @mention), got '%s'", result.Primary)
 	}
 	if result.IsFollowUp {
 		t.Error("should not be a follow-up")

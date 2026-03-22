@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// atMentionPattern matches @slug patterns in messages.
+var atMentionPattern = regexp.MustCompile(`@(\S+)`)
+
 // AgentInfo describes an available agent for message routing.
 type AgentInfo struct {
 	Slug      string
@@ -107,7 +110,9 @@ func (m *MessageRouter) Route(message string, availableAgents []AgentInfo) Messa
 
 	result := MessageRoutingResult{}
 
-	// 1. Check follow-up.
+	teamLead := m.getTeamLeadSlug()
+
+	// 1. Check follow-up — route to the recently active agent.
 	if followUpSlug := m.detectFollowUp(message); followUpSlug != "" {
 		result.Primary = followUpSlug
 		result.IsFollowUp = true
@@ -115,34 +120,32 @@ func (m *MessageRouter) Route(message string, availableAgents []AgentInfo) Messa
 		return result
 	}
 
-	// 2. Extract skills from message.
-	teamLead := m.getTeamLeadSlug()
+	// 2. Check for explicit @slug mention — route directly to that agent.
+	if slug := m.detectAtMention(message, availableAgents); slug != "" {
+		result.Primary = slug
+		result.TeamLeadAware = slug == teamLead
+		return result
+	}
+
+	// 3. New directive: always route to team-lead first per spec.
+	// Still populate collaborators for informational purposes.
+	result.Primary = teamLead
+	result.TeamLeadAware = true
+
 	skills := m.ExtractSkills(message)
-	if len(skills) == 0 {
-		result.Primary = teamLead
-		result.TeamLeadAware = true
-		return result
-	}
-
-	// 3. Build a synthetic task and route it.
-	task := TaskDefinition{
-		ID:             "msg-route",
-		RequiredSkills: skills,
-	}
-	capable := m.router.FindCapableAgents(task)
-	if len(capable) == 0 {
-		result.Primary = teamLead
-		result.TeamLeadAware = true
-		return result
-	}
-
-	result.Primary = capable[0].AgentSlug
-	for _, rr := range capable[1:] {
-		if rr.Score > 0.5 {
-			result.Collaborators = append(result.Collaborators, rr.AgentSlug)
+	if len(skills) > 0 {
+		task := TaskDefinition{
+			ID:             "msg-route",
+			RequiredSkills: skills,
+		}
+		capable := m.router.FindCapableAgents(task)
+		for _, rr := range capable {
+			if rr.AgentSlug != teamLead && rr.Score > 0.5 {
+				result.Collaborators = append(result.Collaborators, rr.AgentSlug)
+			}
 		}
 	}
-	result.TeamLeadAware = result.Primary == teamLead || len(result.Collaborators) > 0
+
 	return result
 }
 
@@ -181,6 +184,26 @@ var skillKeywords = []struct {
 	{regexp.MustCompile(`(?i)seo|keyword|ranking|content`), []string{"seo", "content-analysis"}},
 	{regexp.MustCompile(`(?i)customer|success|health|renewal`), []string{"relationship-management", "health-scoring"}},
 	{regexp.MustCompile(`(?i)code|bug|fix|implement`), []string{"general", "planning"}},
+}
+
+// detectAtMention returns the slug of an explicitly @mentioned agent, if any.
+// Caller must hold m.mu.
+func (m *MessageRouter) detectAtMention(message string, agents []AgentInfo) string {
+	matches := atMentionPattern.FindAllStringSubmatch(message, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	known := make(map[string]bool, len(agents))
+	for _, a := range agents {
+		known[a.Slug] = true
+	}
+	for _, match := range matches {
+		slug := match[1]
+		if known[slug] {
+			return slug
+		}
+	}
+	return ""
 }
 
 // ExtractSkills returns a deduplicated list of skills inferred from the message.

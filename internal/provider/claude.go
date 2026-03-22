@@ -40,6 +40,12 @@ func CreateClaudeCodeStreamFn(agentSlug string) agent.StreamFn {
 		go func() {
 			defer close(ch)
 
+			// Verify claude binary is available before spawning.
+			if _, err := exec.LookPath("claude"); err != nil {
+				ch <- agent.StreamChunk{Type: "error", Content: "Claude CLI not found. Run /init to choose a different provider."}
+				return
+			}
+
 			prompt := buildPrompt(msgs)
 
 			cmd := exec.Command(
@@ -53,6 +59,10 @@ func CreateClaudeCodeStreamFn(agentSlug string) agent.StreamFn {
 
 			// Strip Claude Code env vars to prevent recursive detection.
 			cmd.Env = filteredEnv(claudeEnvVarsToStrip)
+
+			// Capture stderr for error reporting.
+			var stderrBuf strings.Builder
+			cmd.Stderr = &stderrBuf
 
 			stdout, err := cmd.StdoutPipe()
 			if err != nil {
@@ -90,7 +100,14 @@ func CreateClaudeCodeStreamFn(agentSlug string) agent.StreamFn {
 				}
 			}
 
-			cmd.Wait() //nolint:errcheck — stream errors are surfaced via chunks
+			if err := cmd.Wait(); err != nil {
+				stderr := strings.TrimSpace(stderrBuf.String())
+				errMsg := fmt.Sprintf("claude exited with error: %v", err)
+				if stderr != "" {
+					errMsg = fmt.Sprintf("claude exited with error: %v — %s", err, stderr)
+				}
+				ch <- agent.StreamChunk{Type: "error", Content: errMsg}
+			}
 		}()
 		return ch
 	}

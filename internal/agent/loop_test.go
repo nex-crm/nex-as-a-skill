@@ -396,6 +396,59 @@ func TestCredibilityRecordOnDone(t *testing.T) {
 	}
 }
 
+// mockErrorStreamFn returns a StreamFn that yields a single error chunk.
+func mockErrorStreamFn(errMsg string) StreamFn {
+	return func(msgs []Message, tools []AgentTool) <-chan StreamChunk {
+		ch := make(chan StreamChunk, 1)
+		go func() {
+			defer close(ch)
+			ch <- StreamChunk{Type: "error", Content: errMsg}
+		}()
+		return ch
+	}
+}
+
+func TestStreamLLMErrorChunk(t *testing.T) {
+	loop, _ := newTestLoop(t, mockErrorStreamFn("provider exploded"))
+
+	var errorEvents []string
+	loop.On(EventError, func(args ...any) {
+		if len(args) >= 1 {
+			if s, ok := args[0].(string); ok {
+				errorEvents = append(errorEvents, s)
+			}
+		}
+	})
+
+	loop.queues.FollowUp("test-agent", "do something")
+	loop.Start()
+
+	// Tick 1: idle → build_context
+	if err := loop.Tick(); err != nil {
+		t.Fatalf("tick 1: %v", err)
+	}
+
+	// Tick 2: build_context → stream_llm (error chunk should trigger PhaseError)
+	err := loop.Tick()
+	if err == nil {
+		t.Fatal("tick 2 should have returned an error")
+	}
+	if err.Error() != "provider error: provider exploded" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	state := loop.GetState()
+	if state.Phase != PhaseError {
+		t.Fatalf("expected phase error, got %s", state.Phase)
+	}
+	if state.Error != "provider exploded" {
+		t.Fatalf("expected state.Error = 'provider exploded', got %q", state.Error)
+	}
+	if len(errorEvents) != 1 || errorEvents[0] != "provider exploded" {
+		t.Fatalf("expected one error event with 'provider exploded', got %v", errorEvents)
+	}
+}
+
 func TestOffRemovesHandler(t *testing.T) {
 	loop, _ := newTestLoop(t, mockStreamFn("test"))
 

@@ -345,6 +345,11 @@ func (l *AgentLoop) streamLLM() error {
 			}
 			// Stop reading — tool needs to execute before continuing.
 			goto done
+		case "error":
+			l.state.Error = chunk.Content
+			l.setPhase(PhaseError)
+			l.emit(EventError, chunk.Content)
+			return fmt.Errorf("provider error: %s", chunk.Content)
 		}
 	}
 
