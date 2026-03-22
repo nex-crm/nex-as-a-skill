@@ -28,15 +28,14 @@ One fact entered once. Available everywhere, instantly.
 
 ## Integration Options
 
-| | CLI | MCP Server | OpenClaw Plugin | Claude Code Plugin | SKILL.md |
-|---|---|---|---|---|---|
-| **Platforms** | Any terminal / AI agent | Claude Desktop, ChatGPT, Cursor, Windsurf | OpenClaw | Claude Code CLI | OpenClaw (script-based) |
-| **Auto-recall** | Via `nex recall` | No (tool calls) | Yes (smart filter) | Yes (smart filter) | No (manual) |
-| **Auto-capture** | Via `nex capture` | No | Yes | Yes | No (manual) |
-| **Commands** | 50+ CLI commands | 50+ typed tools | 4 tools + 4 commands | 5 slash commands + MCP | bash scripts |
-| **Rate limiting** | File-based | File-based | Queue + file-based | File-based | N/A |
-| **Session tracking** | File-based | File-based | In-memory LRU | File-based | N/A |
-| **Setup** | `nex setup` | `nex setup --with-mcp` | Copy plugin | `nex setup` | Set `NEX_API_KEY` |
+| | CLI + MCP Server | OpenClaw Plugin | Claude Code Plugin | SKILL.md |
+|---|---|---|---|---|
+| **Platforms** | Any terminal, Claude Desktop, ChatGPT, Cursor, Windsurf | OpenClaw | Claude Code CLI | OpenClaw (script-based) |
+| **Auto-recall** | Via `nex recall` / MCP tool calls | Yes (smart filter) | Yes (smart filter) | No (manual) |
+| **Auto-capture** | Via `nex capture` | Yes | Yes | No (manual) |
+| **Notifications** | Daily digest + proactive alerts (Channels API) | No | No | No |
+| **Commands** | 50+ CLI commands, 50+ MCP tools, `nex mcp` | 4 tools + 4 commands | 5 slash commands + MCP | bash scripts |
+| **Setup** | `nex setup` | Copy plugin | `nex setup` | Set `NEX_API_KEY` |
 
 ## Quick Start (Recommended)
 
@@ -98,18 +97,27 @@ Install globally: `bun install -g @nex-ai/nex`
 
 ### MCP Server (Claude Desktop, Cursor, Windsurf)
 
-```bash
-cd mcp && bun install && bun run build
-```
-
-Add to your client config:
+The MCP server is bundled inside `@nex-ai/nex`. No separate package needed.
 
 ```json
 {
   "mcpServers": {
     "nex": {
-      "command": "bun",
-      "args": ["/path/to/nex-as-a-skill/mcp/src/index.ts"],
+      "command": "nex-mcp",
+      "env": { "NEX_API_KEY": "sk-your_key_here" }
+    }
+  }
+}
+```
+
+Or without a global install:
+
+```json
+{
+  "mcpServers": {
+    "nex": {
+      "command": "npx",
+      "args": ["-y", "@nex-ai/nex", "mcp"],
       "env": { "NEX_API_KEY": "sk-your_key_here" }
     }
   }
@@ -118,7 +126,7 @@ Add to your client config:
 
 No API key? The server starts in registration mode — call the `register` tool with your email.
 
-See [`mcp/README.md`](mcp/README.md) for all tools.
+**Notification channel**: The MCP server includes a built-in notification channel that pushes daily digests and proactive alerts into Claude Code sessions via the Channels API. Start with `claude --channels` to enable.
 
 ### OpenClaw Plugin (auto-recall + auto-capture)
 
@@ -184,7 +192,7 @@ Slash commands and MCP server:
 
 ```bash
 cp claude-code-plugin/commands/*.md ~/.claude/commands/    # /recall, /remember, /scan, /entities
-claude mcp add nex -- node /path/to/mcp/dist/index.js      # Full toolset
+claude mcp add nex -- nex-mcp                               # Full toolset
 ```
 
 See [`claude-code-plugin/README.md`](claude-code-plugin/README.md) for details.
@@ -265,7 +273,7 @@ Register once via any surface → all other surfaces pick up the key automatical
 - **CLI**: 119 tests (`cd cli && bun test`)
 - **OpenClaw plugin**: 38/38 unit tests (`cd openclaw-plugin && npx vitest run`)
 - **Claude Code plugin**: 21/21 E2E tests (see `docs/nex-plugin-test-results.md`)
-- **MCP server**: Builds clean, all tools typed with Zod schemas
+- **MCP server**: Embedded in CLI, builds clean, all tools typed with Zod schemas
 - **SKILL scripts**: Syntax validated, injection-resistant, cross-platform (macOS + Linux)
 
 ## License

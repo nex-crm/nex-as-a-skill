@@ -71,17 +71,18 @@ nex ask "what's the latest on the Acme deal?"
 | **Claude Desktop** | — | — | — | — | — | `claude_desktop_config.json` |
 | **Aider** | — | — | — | — | `CONVENTIONS.md` | — |
 
-All MCP-based platforms use the same server entry:
+All MCP-based platforms use the same server entry (bundled in this package):
 
 ```json
 {
   "nex": {
-    "command": "npx",
-    "args": ["-y", "@nex-ai/mcp-server"],
+    "command": "nex-mcp",
     "env": { "NEX_API_KEY": "sk-..." }
   }
 }
 ```
+
+Or without a global install: `"command": "npx", "args": ["-y", "@nex-ai/nex", "mcp"]`
 
 ## Setup Command
 
@@ -104,7 +105,7 @@ nex graph                          # Open the workspace graph in your browser
 - Creates `.nex.toml` project config with commented defaults
 - Stores config in `~/.nex/config.json`
 
-**Single install**: `npm install -g @nex-ai/nex` bundles everything — hooks, adapters, platform plugins, slash commands, rules, and MCP server. No separate packages needed.
+**Single install**: `npm install -g @nex-ai/nex` bundles everything — hooks, adapters, platform plugins, slash commands, rules, MCP server, and notification channel. No separate packages needed.
 
 **Integration hierarchy** (per platform): Hooks > Custom plugins > Custom agents/modes > Workflows > Rules > MCP. Each platform gets every layer it supports.
 
@@ -232,6 +233,19 @@ Context is injected as `<nex-context>` blocks that AI agents use naturally witho
 ### Transcript Capture
 
 At session end, the full conversation transcript is automatically ingested into the knowledge graph. This captures complete decision trails, code discussions, and debugging sessions — not just the last message.
+
+### MCP Server & Notifications
+
+```bash
+nex mcp                         # Start the embedded MCP server (stdio)
+MCP_TRANSPORT=http nex mcp      # Start with HTTP transport
+```
+
+The MCP server includes a built-in notification channel (Claude SDK Channels API) that pushes:
+- **Daily digests**: 24h context summary, pushed once per day
+- **Proactive notifications**: New insights polled every 5 minutes
+
+Enable in Claude Code with `claude --channels` or `claude --dangerously-load-development-channels server:nex`.
 
 ### Config & Sessions
 
