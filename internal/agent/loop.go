@@ -12,11 +12,14 @@ import (
 type EventName string
 
 const (
-	EventPhaseChange EventName = "phase_change"
-	EventToolCall    EventName = "tool_call"
-	EventMessage     EventName = "message"
-	EventError       EventName = "error"
-	EventDone        EventName = "done"
+	EventPhaseChange  EventName = "phase_change"
+	EventToolCall     EventName = "tool_call"
+	EventMessage      EventName = "message"
+	EventError        EventName = "error"
+	EventDone         EventName = "done"
+	EventThinking     EventName = "thinking"
+	EventToolUse      EventName = "tool_use"
+	EventToolResult   EventName = "tool_result"
 )
 
 // EventHandler is a callback for agent loop events.
@@ -339,6 +342,12 @@ func (l *AgentLoop) streamLLM() error {
 		case "text":
 			fullText.WriteString(chunk.Content)
 			l.emit(EventMessage, chunk.Content)
+		case "thinking":
+			l.emit(EventThinking, chunk.Content)
+		case "tool_use":
+			l.emit(EventToolUse, chunk.ToolName, chunk.ToolInput)
+		case "tool_result":
+			l.emit(EventToolResult, chunk.Content)
 		case "tool_call":
 			l.pendingToolCall = &ToolCall{
 				ToolName:  chunk.ToolName,

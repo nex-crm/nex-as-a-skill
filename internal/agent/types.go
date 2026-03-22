@@ -80,11 +80,14 @@ type Message struct {
 }
 
 // StreamChunk is one piece of streamed output from the LLM.
+// Type is one of: "text", "tool_call", "error", "thinking", "tool_use", "tool_result"
 type StreamChunk struct {
-	Type       string         `json:"type"` // "text" | "tool_call" | "error"
+	Type       string         `json:"type"`
 	Content    string         `json:"content,omitempty"`
 	ToolName   string         `json:"toolName,omitempty"`
 	ToolParams map[string]any `json:"toolParams,omitempty"`
+	ToolUseID  string         `json:"toolUseId,omitempty"`  // for tool_use / tool_result correlation
+	ToolInput  string         `json:"toolInput,omitempty"`  // serialized tool input for display
 }
 
 // StreamFn is a function that streams LLM output as a channel of chunks.

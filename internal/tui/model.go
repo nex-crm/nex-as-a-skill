@@ -121,7 +121,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-	case AgentTextMsg, AgentDoneMsg, AgentErrorMsg, PhaseChangeMsg:
+	case AgentTextMsg, AgentDoneMsg, AgentErrorMsg, PhaseChangeMsg,
+		AgentThinkingMsg, AgentToolUseMsg, AgentToolResultMsg:
 		resubscribe = true
 	}
 

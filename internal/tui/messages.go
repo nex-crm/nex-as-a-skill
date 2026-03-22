@@ -19,6 +19,22 @@ type AgentErrorMsg struct {
 	Err       error
 }
 
+type AgentThinkingMsg struct {
+	AgentSlug string
+	Text      string
+}
+
+type AgentToolUseMsg struct {
+	AgentSlug string
+	ToolName  string
+	ToolInput string
+}
+
+type AgentToolResultMsg struct {
+	AgentSlug string
+	Content   string
+}
+
 // API messages
 
 type APIResultMsg struct {

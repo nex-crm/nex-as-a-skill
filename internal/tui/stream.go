@@ -137,6 +137,65 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 	case AgentTextMsg:
 		m.streaming[msg.AgentSlug] = m.streaming[msg.AgentSlug] + msg.Text
 
+	case AgentThinkingMsg:
+		// Show thinking as a dimmed system message
+		agentName := msg.AgentSlug
+		if ma, ok := m.runtime.AgentService.Get(msg.AgentSlug); ok {
+			agentName = ma.Config.Name
+		}
+		// Truncate long thinking text
+		thinking := msg.Text
+		if len(thinking) > 200 {
+			thinking = thinking[:200] + "..."
+		}
+		m.messages = append(m.messages, StreamMessage{
+			Role:      "thinking",
+			AgentSlug: msg.AgentSlug,
+			AgentName: agentName,
+			Content:   thinking,
+			Timestamp: time.Now(),
+		})
+
+	case AgentToolUseMsg:
+		agentName := msg.AgentSlug
+		if ma, ok := m.runtime.AgentService.Get(msg.AgentSlug); ok {
+			agentName = ma.Config.Name
+		}
+		// Format tool use display
+		toolDisplay := msg.ToolName
+		if msg.ToolInput != "" && msg.ToolInput != "{}" && msg.ToolInput != "null" {
+			input := msg.ToolInput
+			if len(input) > 120 {
+				input = input[:120] + "..."
+			}
+			toolDisplay = msg.ToolName + " " + input
+		}
+		m.messages = append(m.messages, StreamMessage{
+			Role:      "tool_use",
+			AgentSlug: msg.AgentSlug,
+			AgentName: agentName,
+			Content:   toolDisplay,
+			Timestamp: time.Now(),
+		})
+		m.spinner.SetLabel(agentName + " → " + msg.ToolName)
+
+	case AgentToolResultMsg:
+		agentName := msg.AgentSlug
+		if ma, ok := m.runtime.AgentService.Get(msg.AgentSlug); ok {
+			agentName = ma.Config.Name
+		}
+		content := msg.Content
+		if len(content) > 300 {
+			content = content[:300] + "..."
+		}
+		m.messages = append(m.messages, StreamMessage{
+			Role:      "tool_result",
+			AgentSlug: msg.AgentSlug,
+			AgentName: agentName,
+			Content:   content,
+			Timestamp: time.Now(),
+		})
+
 	case AgentDoneMsg:
 		if text, ok := m.streaming[msg.AgentSlug]; ok && text != "" {
 			agentName := msg.AgentSlug
@@ -661,6 +720,10 @@ func (m StreamModel) renderMessages(width, height int) string {
 
 // renderMessage formats a single stream message by role.
 func (m StreamModel) renderMessage(msg StreamMessage, width int) string {
+	thinkingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Italic(true)
+	toolUseStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(NexPurple)).Bold(true)
+	toolResultStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+
 	switch msg.Role {
 	case "user":
 		return UserStyle.Render("You: ") + msg.Content
@@ -668,6 +731,12 @@ func (m StreamModel) renderMessage(msg StreamMessage, width int) string {
 		return m.agentPrefix(msg.AgentSlug, msg.AgentName) + msg.Content
 	case "system":
 		return SystemStyle.Render("  " + msg.Content)
+	case "thinking":
+		return thinkingStyle.Render("  💭 " + msg.AgentName + ": " + msg.Content)
+	case "tool_use":
+		return toolUseStyle.Render("  ⚡ " + msg.AgentName + " → " + msg.Content)
+	case "tool_result":
+		return toolResultStyle.Render("  ↳ " + msg.Content)
 	default:
 		return msg.Content
 	}
@@ -771,6 +840,43 @@ func (m StreamModel) wireAgent(slug string) {
 		select {
 		case ch <- PhaseChangeMsg{AgentSlug: slug, From: from, To: to}:
 		default:
+		}
+	})
+	ma.Loop.On(agent.EventThinking, func(args ...any) {
+		if len(args) > 0 {
+			if text, ok := args[0].(string); ok {
+				select {
+				case ch <- AgentThinkingMsg{AgentSlug: slug, Text: text}:
+				default:
+				}
+			}
+		}
+	})
+	ma.Loop.On(agent.EventToolUse, func(args ...any) {
+		toolName, toolInput := "", ""
+		if len(args) > 0 {
+			if s, ok := args[0].(string); ok {
+				toolName = s
+			}
+		}
+		if len(args) > 1 {
+			if s, ok := args[1].(string); ok {
+				toolInput = s
+			}
+		}
+		select {
+		case ch <- AgentToolUseMsg{AgentSlug: slug, ToolName: toolName, ToolInput: toolInput}:
+		default:
+		}
+	})
+	ma.Loop.On(agent.EventToolResult, func(args ...any) {
+		if len(args) > 0 {
+			if text, ok := args[0].(string); ok {
+				select {
+				case ch <- AgentToolResultMsg{AgentSlug: slug, Content: text}:
+				default:
+				}
+			}
 		}
 	})
 
