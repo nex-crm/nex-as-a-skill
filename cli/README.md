@@ -243,7 +243,7 @@ MCP_TRANSPORT=http nex mcp      # Start with HTTP transport
 
 The MCP server includes a built-in notification channel (Claude SDK Channels API) that pushes:
 - **Daily digests**: 24h context summary, pushed once per day
-- **Proactive notifications**: New insights polled every 5 minutes
+- **Proactive notifications**: New insights polled every 15 minutes (configurable via `NEX_NOTIFY_INTERVAL_MINUTES`)
 
 Enable in Claude Code with `claude --channels` or `claude --dangerously-load-development-channels server:nex`.
 

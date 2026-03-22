@@ -126,7 +126,7 @@ Or without a global install:
 
 No API key? The server starts in registration mode — call the `register` tool with your email.
 
-**Notification channel**: The MCP server includes a built-in notification channel that pushes daily digests and proactive alerts into Claude Code sessions via the Channels API. Start with `claude --channels` to enable.
+**Notification channel**: The MCP server includes a built-in notification channel that pushes daily digests (24h) and proactive alerts (every 15m, configurable via `NEX_NOTIFY_INTERVAL_MINUTES`) into Claude Code sessions via the Channels API. Start with `claude --channels` to enable.
 
 ### OpenClaw Plugin (auto-recall + auto-capture)
 
@@ -267,6 +267,7 @@ Register once via any surface → all other surfaces pick up the key automatical
 | `NEX_SCAN_DEPTH` | No | `20` |
 | `NEX_SCAN_MAX_FILE_SIZE` | No | `100000` (bytes) |
 | `NEX_SCAN_IGNORE_DIRS` | No | `node_modules,.git,dist,build,.next,__pycache__,vendor,.venv,.claude,coverage,.turbo,.cache` |
+| `NEX_NOTIFY_INTERVAL_MINUTES` | No | `15` |
 
 ## Testing
 
