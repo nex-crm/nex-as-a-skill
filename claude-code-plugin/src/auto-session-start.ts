@@ -20,6 +20,7 @@ import { SessionStore } from "./session-store.js";
 import { recordRecall } from "./recall-filter.js";
 import { scanAndIngest } from "./file-scanner.js";
 import { ingestContextFiles } from "./context-files.js";
+import { readManifest as readScanManifest, isScanFresh, markScanned, writeManifest as writeScanManifest } from "./file-manifest.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -97,39 +98,52 @@ async function main(): Promise<void> {
     const shouldScan = source === "startup" || source === "clear";
 
     if (shouldScan) {
-      const rateLimiter = new RateLimiter();
-      const cwd = process.cwd();
+      // Skip expensive file scanning if a scan completed recently (within 1 hour).
+      // The context query below still runs — only the file walk + ingest is skipped.
+      const scanManifest = readScanManifest();
+      const scanFresh = isScanFresh(scanManifest);
 
-      // --- Ingest CLAUDE.md + memory files (highest priority) ---
-      try {
-        const ctxResult = await ingestContextFiles(client, rateLimiter, cwd);
-        if (ctxResult.ingested > 0) {
-          contextParts.push(
-            `[Context files: ${ctxResult.ingested} ingested (${ctxResult.files.join(", ")})]`
-          );
-        }
-      } catch (err) {
-        process.stderr.write(
-          `[nex-session-start] Context files error: ${err instanceof Error ? err.message : String(err)}\n`
-        );
-      }
+      if (scanFresh) {
+        process.stderr.write("[nex-session-start] Scan fresh — skipping file scan\n");
+      } else {
+        const rateLimiter = new RateLimiter();
+        const cwd = process.cwd();
 
-      // --- Project file scan ---
-      try {
-        const scanConfig = loadScanConfig();
-        if (scanConfig.enabled) {
-          const scanResult = await scanAndIngest(client, rateLimiter, cwd, scanConfig);
-
-          if (scanResult.ingested > 0) {
+        // --- Ingest CLAUDE.md + memory files (highest priority) ---
+        try {
+          const ctxResult = await ingestContextFiles(client, rateLimiter, cwd);
+          if (ctxResult.ingested > 0) {
             contextParts.push(
-              `[File scan: ${scanResult.ingested} file${scanResult.ingested === 1 ? "" : "s"} ingested, ${scanResult.scanned} scanned]`
+              `[Context files: ${ctxResult.ingested} ingested (${ctxResult.files.join(", ")})]`
             );
           }
+        } catch (err) {
+          process.stderr.write(
+            `[nex-session-start] Context files error: ${err instanceof Error ? err.message : String(err)}\n`
+          );
         }
-      } catch (err) {
-        process.stderr.write(
-          `[nex-session-start] File scan error: ${err instanceof Error ? err.message : String(err)}\n`
-        );
+
+        // --- Project file scan ---
+        try {
+          const scanConfig = loadScanConfig();
+          if (scanConfig.enabled) {
+            const scanResult = await scanAndIngest(client, rateLimiter, cwd, scanConfig);
+
+            if (scanResult.ingested > 0) {
+              contextParts.push(
+                `[File scan: ${scanResult.ingested} file${scanResult.ingested === 1 ? "" : "s"} ingested, ${scanResult.scanned} scanned]`
+              );
+            }
+          }
+        } catch (err) {
+          process.stderr.write(
+            `[nex-session-start] File scan error: ${err instanceof Error ? err.message : String(err)}\n`
+          );
+        }
+
+        // Mark scan as complete so subsequent sessions skip it
+        markScanned(scanManifest);
+        writeScanManifest(scanManifest);
       }
     }
 

@@ -18,6 +18,7 @@ export interface FileManifestEntry {
 
 export interface FileManifest {
   version: 1;
+  lastScanAt?: number; // Date.now() of last completed scan
   files: Record<string, FileManifestEntry>; // key = absolute path
 }
 
@@ -64,4 +65,22 @@ export function markIngested(
     ingestedAt: Date.now(),
     context,
   };
+}
+
+/**
+ * Record that a full scan completed at this moment.
+ */
+export function markScanned(manifest: FileManifest): void {
+  manifest.lastScanAt = Date.now();
+}
+
+/**
+ * Check if a scan completed recently (within the given window).
+ * Default window: 1 hour.
+ */
+const DEFAULT_SCAN_FRESHNESS_MS = 60 * 60 * 1000; // 1 hour
+
+export function isScanFresh(manifest: FileManifest, windowMs = DEFAULT_SCAN_FRESHNESS_MS): boolean {
+  if (!manifest.lastScanAt) return false;
+  return Date.now() - manifest.lastScanAt < windowMs;
 }
