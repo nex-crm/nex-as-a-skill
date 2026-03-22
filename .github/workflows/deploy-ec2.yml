@@ -1,0 +1,33 @@
+# .github/workflows/deploy-ec2.yml
+# Auto-deploys remote MCP server to EC2 on push to main
+
+name: Deploy Remote MCP to EC2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp/**'
+      - 'infra/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /opt/nex-mcp
+            git pull origin main
+            npm ci --production
+            npm run build
+            sudo systemctl restart nex-mcp
+            sleep 2
+            curl -sf http://localhost:3100/health || exit 1
+            echo "Deploy successful"
