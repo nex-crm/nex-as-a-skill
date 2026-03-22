@@ -65,6 +65,14 @@ func (d *Delegator) ExtractDelegations(response string, knownSlugs []string) []D
 	return delegations
 }
 
+// ApplyLimit splits delegations into immediate (up to maxConcurrent) and queued.
+func (d *Delegator) ApplyLimit(delegations []Delegation) (immediate, queued []Delegation) {
+	if len(delegations) <= d.maxConcurrent {
+		return delegations, nil
+	}
+	return delegations[:d.maxConcurrent], delegations[d.maxConcurrent:]
+}
+
 // FormatSteerMessage formats a delegation as a steer message for the specialist.
 func FormatSteerMessage(d Delegation) string {
 	return fmt.Sprintf("[TEAM-LEAD DELEGATION] %s", d.Task)

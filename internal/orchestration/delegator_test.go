@@ -64,3 +64,43 @@ func TestConcurrencyLimit(t *testing.T) {
 		t.Fatalf("expected 3 delegations, got %d", len(delegations))
 	}
 }
+
+func TestApplyLimitEnforced(t *testing.T) {
+	d := NewDelegator(1)
+	delegations := []Delegation{
+		{AgentSlug: "fe", Task: "build UI"},
+		{AgentSlug: "be", Task: "build API"},
+		{AgentSlug: "qa", Task: "write tests"},
+	}
+	immediate, queued := d.ApplyLimit(delegations)
+	if len(immediate) != 1 {
+		t.Fatalf("expected 1 immediate, got %d", len(immediate))
+	}
+	if immediate[0].AgentSlug != "fe" {
+		t.Errorf("expected immediate[0]='fe', got '%s'", immediate[0].AgentSlug)
+	}
+	if len(queued) != 2 {
+		t.Fatalf("expected 2 queued, got %d", len(queued))
+	}
+	if queued[0].AgentSlug != "be" {
+		t.Errorf("expected queued[0]='be', got '%s'", queued[0].AgentSlug)
+	}
+	if queued[1].AgentSlug != "qa" {
+		t.Errorf("expected queued[1]='qa', got '%s'", queued[1].AgentSlug)
+	}
+}
+
+func TestApplyLimitUnderLimit(t *testing.T) {
+	d := NewDelegator(5)
+	delegations := []Delegation{
+		{AgentSlug: "fe", Task: "build UI"},
+		{AgentSlug: "be", Task: "build API"},
+	}
+	immediate, queued := d.ApplyLimit(delegations)
+	if len(immediate) != 2 {
+		t.Fatalf("expected 2 immediate, got %d", len(immediate))
+	}
+	if len(queued) != 0 {
+		t.Fatalf("expected 0 queued, got %d", len(queued))
+	}
+}

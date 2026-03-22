@@ -63,8 +63,9 @@ type StreamModel struct {
 	loading       bool
 	mode          string // "normal" or "insert"
 
-	streaming   map[string]string // partial text per agent slug
-	wiredAgents map[string]bool   // agents with event handlers registered
+	streaming          map[string]string              // partial text per agent slug
+	wiredAgents        map[string]bool                // agents with event handlers registered
+	queuedDelegations  []orchestration.Delegation     // delegations waiting for a concurrency slot
 
 	initFlow InitFlowModel
 }
@@ -160,19 +161,21 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 					}
 				}
 				delegations := m.runtime.Delegator.ExtractDelegations(text, knownSlugs)
-				for _, d := range delegations {
-					steerMsg := orchestration.FormatSteerMessage(d)
-					_ = m.runtime.AgentService.Steer(d.AgentSlug, steerMsg)
-					m.runtime.AgentService.EnsureRunning(d.AgentSlug)
-					if !m.wiredAgents[d.AgentSlug] {
-						m.wireAgent(d.AgentSlug)
-					}
-				}
+				immediate, queued := m.runtime.Delegator.ApplyLimit(delegations)
+				m.queuedDelegations = append(m.queuedDelegations, queued...)
+				m.startDelegations(immediate)
 				if len(delegations) > 0 {
 					m.loading = true
 					m.spinner.SetActive(true)
 					m.spinner.SetLabel("agents working...")
 				}
+			}
+
+			// If a specialist just finished, check queued delegations
+			if msg.AgentSlug != m.runtime.TeamLeadSlug && len(m.queuedDelegations) > 0 {
+				next := m.queuedDelegations[0]
+				m.queuedDelegations = m.queuedDelegations[1:]
+				m.startDelegations([]orchestration.Delegation{next})
 			}
 		}
 		m.loading = m.hasActiveAgents()
@@ -815,6 +818,18 @@ func (m StreamModel) hasActiveAgents() bool {
 		}
 	}
 	return false
+}
+
+// startDelegations steers and starts a set of delegations.
+func (m *StreamModel) startDelegations(delegations []orchestration.Delegation) {
+	for _, d := range delegations {
+		steerMsg := orchestration.FormatSteerMessage(d)
+		_ = m.runtime.AgentService.Steer(d.AgentSlug, steerMsg)
+		m.runtime.AgentService.EnsureRunning(d.AgentSlug)
+		if !m.wiredAgents[d.AgentSlug] {
+			m.wireAgent(d.AgentSlug)
+		}
+	}
 }
 
 // rewireAllAgents resets event wiring and re-wires all agents after a reconfigure.
