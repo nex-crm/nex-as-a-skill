@@ -25,6 +25,25 @@ A single terminal window where an autonomous team of AI agents operates like a c
 
 Teams replace single-agent selection. During `/init`, user picks a pack. All agents in the pack are initialized and start listening.
 
+### 2.0 Data Model
+
+```go
+// PackDefinition defines a team of agents that work together.
+type PackDefinition struct {
+    Slug        string        // "founding-team", "coding-team", "lead-gen-agency"
+    Name        string        // Display name
+    Description string        // One-line description
+    LeadSlug    string        // Slug of the Team-Lead agent in this pack
+    Agents      []AgentConfig // All agents in the pack (lead + specialists)
+}
+```
+
+**Registry:** `internal/agent/packs.go` — new file exporting `var Packs = []PackDefinition{...}` with all 3 packs. Replaces individual templates in `templates.go` (old templates kept as aliases for backward compat).
+
+**Config persistence:** Add `Pack string` and `TeamLeadSlug string` fields to `NexConfig` in `config.go`. Saved to `~/.nex/config.json` during `/init`.
+
+**MessageRouter update:** Replace hardcoded `"team-lead"` fallback in `message_router.go` lines 105/117 with `config.TeamLeadSlug`. The router reads this from the loaded config at initialization.
+
 ### 2.1 Founding Team (Default)
 
 The default pack for "zero human company" mode. CEO is Team-Lead.
@@ -68,12 +87,15 @@ Specialized in quiet outbound systems and automated GTM.
 ### 3.1 Fix Agent Echo Bug
 
 **Problem:** Default provider echoes user input instead of calling an LLM.
-**Fix:** Wire Claude Code as default provider. When `config.LLMProvider` is empty or `"claude-code"`, spawn `claude -p` subprocess via goroutine. Ensure session persistence per agent slug.
+**Fix:** Change the `default` case in `resolver.go` from `CreateNexAskStreamFn` to `CreateClaudeCodeStreamFn`. When `config.LLMProvider` is empty or `"claude-code"`, spawn `claude -p` subprocess via goroutine. Enable `--session-persistence` with per-agent session IDs to support multi-turn context.
+
+**Context window management:** Each agent's session history is passed via the prompt. Cap at 20 most recent session entries (user + assistant + tool). Older entries are summarized as a single system message: "Previous context: [summary]".
 
 **Acceptance criteria:**
 - User types message → agent responds with LLM-generated content, not echo
 - Agent responses stream to TUI in real-time (chunk by chunk)
 - Errors from Claude subprocess surface as system messages
+- If `claude` is not in PATH, surface error: "Claude CLI not found. Run `/init` to choose a different provider."
 
 ### 3.2 Team-Lead Narrated Delegation
 
@@ -86,11 +108,19 @@ Specialized in quiet outbound systems and automated GTM.
    - List of available specialist agents and their expertise
 4. Team-Lead response appears in chat stream
 5. New `delegator.go` in `internal/orchestration/`:
-   - Parses Team-Lead response for `@agent-slug` mentions with task context
-   - Extracts sub-tasks using regex patterns (action verbs + agent mentions)
-   - Queues steer messages to mentioned specialists: `[TEAM-LEAD DELEGATION] <sub-task>`
+   - **Hook point:** Called from `stream.go`'s `AgentDoneMsg` handler, AFTER the Team-Lead's full response is accumulated, BEFORE it's appended to messages. If the responding agent's slug matches `config.TeamLeadSlug`, run delegation parsing.
+   - **Parsing strategy:** Regex `@([a-z][a-z0-9-]*)` extracts all mentioned slugs. For each mention, extract the surrounding sentence (from previous period/newline to next period/newline) as the sub-task description.
+   - **Edge cases:**
+     - Unknown `@slug` → ignore, log warning
+     - No `@` mentions found → no delegation, Team-Lead response shown as-is (Team-Lead answered directly)
+     - Specialist already busy → queue the steer message, it will be processed on next idle tick
+   - Queues steer messages to mentioned specialists: `[TEAM-LEAD DELEGATION] <extracted sentence>`
    - Calls `agentService.EnsureRunning()` for each specialist
 6. Specialist agents process their sub-tasks, output appears inline with distinct styling
+
+**Concurrency limits:** `MaxConcurrentAgents` in config (default: 3). If delegation would exceed this, queue excess agents — they start when a slot opens. This prevents spawning 7 concurrent `claude -p` processes.
+
+**Error recovery:** If a specialist agent errors (provider failure, timeout), the error surfaces as a system message in the chat stream: "[ERROR] @slug failed: <reason>". The Team-Lead is NOT automatically notified (avoids feedback loops). User can manually retry via `@slug try again`.
 
 **System prompt template for Team-Lead:**
 ```
@@ -111,14 +141,16 @@ Always delegate to the most appropriate specialist. Never do specialist work you
 - Specialists receive tasks and begin working
 - Agent chatter appears inline with agent-specific colors
 - User can see all agents' phases in the roster sidebar
+- Unknown @mentions are silently ignored
+- Concurrent agent limit respected
 
 ### 3.3 Full `/init` Onboarding Flow
 
 **States:** `idle` → `api_key` → `provider_choice` → `pack_choice` → `platform_detect` → `done`
 
 **Flow:**
-1. **API Key:** Check `~/.nex/config.json` for existing key. If missing, prompt for NEX_API_KEY or run registration.
-2. **Provider Choice:** Picker with 3 options:
+1. **API Key:** Check `~/.nex/config.json` for existing key. If missing, show text input for API key (user gets key from https://app.nex.ai/settings). If key is provided, validate via `GET /v1/objects` (any authenticated endpoint). If invalid, show error and re-prompt. Email-based registration is a P2 feature (requires backend endpoint not yet available in Go port).
+2. **Provider Choice:** Picker with 3 options (if `claude` not in PATH, show warning next to Claude Code option):
    - Claude Code (default) — requires `claude` in PATH
    - Gemini — requires GEMINI_API_KEY
    - Nex Ask — uses NEX_API_KEY only
@@ -170,10 +202,11 @@ Always delegate to the most appropriate specialist. Never do specialist work you
 ### 3.6 Non-Interactive Dispatch
 
 **`nex --cmd "<command>"`** executes a command and exits.
-- Wire `dispatch()` to actually execute commands (currently a stub)
+- Wire `main.go`'s `dispatch()` stub to call `commands.Dispatch()` (which already implements all registered commands via `RegisterAllCommands()`)
+- Create a `SlashContext` with loaded config, API client, and nil AgentService (non-interactive mode doesn't need agents)
 - Support: `ask`, `search`, `remember`, `agents`, `objects`, `records`, `help`, `version`
-- Output to stdout in text or JSON format
-- Exit with appropriate code (0 success, 1 error, 2 auth error)
+- Output to stdout in text or JSON format (respect `--format` flag)
+- Exit codes: 0 success, 1 general error, 2 auth error (add auth error detection in `commands.Dispatch` by checking for 401 responses)
 
 ---
 
@@ -272,7 +305,8 @@ cli/.worktrees/go-bubbletea-port/
 │   │   ├── session.go                 # DAG session store
 │   │   ├── gossip.go                  # Knowledge propagation
 │   │   ├── adoption.go                # Credibility scoring
-│   │   ├── templates.go               # Agent templates (updated for packs)
+│   │   ├── templates.go               # Legacy agent templates (kept for compat)
+│   │   ├── packs.go                   # NEW: Pack definitions (founding, coding, lead-gen)
 │   │   └── queues.go                  # Steer + follow-up queues
 │   ├── orchestration/
 │   │   ├── message_router.go          # Skill-based routing
@@ -288,7 +322,7 @@ cli/.worktrees/go-bubbletea-port/
 │   ├── commands/
 │   │   ├── dispatch.go                # Command registry + execution
 │   │   ├── slash.go                   # Slash command definitions
-│   │   └── context.go                 # Command context
+│   │   └── registry.go               # Command registry + SlashContext type
 │   ├── tui/
 │   │   ├── model.go                   # Root Bubbletea model
 │   │   ├── stream.go                  # Chat stream view
