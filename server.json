@@ -1,0 +1,151 @@
+{
+  "$schema": "https://registry.modelcontextprotocol.io/schemas/server.json",
+  "name": "ai.nex/nex",
+  "displayName": "Nex — Organizational Context & Memory",
+  "description": "Connect your email, CRM, Slack, meetings, and 100+ tools into one knowledge graph. Give any AI agent persistent organizational memory across sessions.",
+  "version": "1.0.0",
+  "publisher": {
+    "name": "Nex AI",
+    "url": "https://nex.ai"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nex-crm/nex-as-a-skill"
+  },
+  "homepage": "https://nex.ai",
+  "license": "MIT",
+  "runtime": "node",
+  "install": {
+    "npm": {
+      "package": "@nex-ai/nex",
+      "command": "npx -y @nex-ai/nex"
+    }
+  },
+  "auth": {
+    "type": "api_key",
+    "env_var": "NEX_API_KEY",
+    "instructions": "Sign up at https://nex.ai to get your API key, or start the server without a key and use the 'register' tool."
+  },
+  "categories": [
+    "memory",
+    "knowledge-management",
+    "crm",
+    "integrations",
+    "productivity"
+  ],
+  "tags": [
+    "organizational-memory",
+    "knowledge-graph",
+    "crm",
+    "email",
+    "slack",
+    "meetings",
+    "ai-agent",
+    "context",
+    "persistent-memory"
+  ],
+  "tools": {
+    "count": 47,
+    "categories": [
+      {
+        "name": "Context & Memory",
+        "tools": [
+          "add_context",
+          "query_context",
+          "get_insights",
+          "search_entities"
+        ]
+      },
+      {
+        "name": "Records",
+        "tools": [
+          "create_record",
+          "get_record",
+          "update_record",
+          "delete_record",
+          "search_records",
+          "list_records",
+          "upsert_record",
+          "get_record_timeline"
+        ]
+      },
+      {
+        "name": "Objects & Attributes",
+        "tools": [
+          "list_objects",
+          "get_object",
+          "create_object",
+          "update_object",
+          "delete_object",
+          "create_attribute",
+          "update_attribute",
+          "delete_attribute"
+        ]
+      },
+      {
+        "name": "Relationships",
+        "tools": [
+          "create_relationship",
+          "delete_relationship",
+          "create_relationship_definition",
+          "delete_relationship_definition",
+          "list_relationship_definitions"
+        ]
+      },
+      {
+        "name": "Lists",
+        "tools": [
+          "create_list",
+          "get_list",
+          "delete_list",
+          "list_object_lists",
+          "add_list_member",
+          "upsert_list_member",
+          "update_list_record",
+          "delete_list_record",
+          "list_list_records",
+          "create_list_job",
+          "get_list_job_status"
+        ]
+      },
+      {
+        "name": "Notes & Tasks",
+        "tools": [
+          "create_note",
+          "get_note",
+          "update_note",
+          "delete_note",
+          "list_notes",
+          "create_task",
+          "get_task",
+          "update_task",
+          "delete_task",
+          "list_tasks"
+        ]
+      },
+      {
+        "name": "Integrations",
+        "tools": [
+          "list_integrations",
+          "connect_integration",
+          "disconnect_integration",
+          "get_connect_status"
+        ]
+      },
+      {
+        "name": "Files",
+        "tools": [
+          "scan_files",
+          "ingest_context_files",
+          "get_artifact_status"
+        ]
+      },
+      {
+        "name": "Account",
+        "tools": [
+          "register"
+        ]
+      }
+    ]
+  }
+}
