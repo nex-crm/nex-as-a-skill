@@ -483,7 +483,7 @@ func (m StreamModel) handleSubmit() (StreamModel, tea.Cmd) {
 	m.spinner.SetLabel("thinking...")
 	m.updateRoster()
 
-	return m, nil
+	return m, m.spinner.Tick()
 }
 
 // handleSlashCommand processes slash commands. TUI-specific commands are handled

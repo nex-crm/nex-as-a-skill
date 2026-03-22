@@ -75,6 +75,7 @@ func CreateClaudeCodeStreamFn(agentSlug string) agent.StreamFn {
 			}
 
 			scanner := bufio.NewScanner(stdout)
+			gotAssistantText := false
 			for scanner.Scan() {
 				line := scanner.Text()
 				if line == "" {
@@ -90,11 +91,14 @@ func CreateClaudeCodeStreamFn(agentSlug string) agent.StreamFn {
 						for _, block := range msg.Message.Content {
 							if block.Type == "text" && block.Text != "" {
 								ch <- agent.StreamChunk{Type: "text", Content: block.Text}
+								gotAssistantText = true
 							}
 						}
 					}
 				case "result":
-					if msg.Result != "" {
+					// Only use result text as fallback if no assistant text was streamed
+					// (Claude emits both assistant + result with same content)
+					if msg.Result != "" && !gotAssistantText {
 						ch <- agent.StreamChunk{Type: "text", Content: msg.Result}
 					}
 				}
