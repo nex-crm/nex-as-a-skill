@@ -7,7 +7,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, type Stats } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { workspaceDataDir } from "./workspace-data-dir.js";
 
 export interface FileManifestEntry {
   mtime: number;      // fs.statSync().mtimeMs
@@ -22,12 +22,17 @@ export interface FileManifest {
   files: Record<string, FileManifestEntry>; // key = absolute path
 }
 
-const DATA_DIR = join(homedir(), ".nex");
-const MANIFEST_PATH = join(DATA_DIR, "file-scan-manifest.json");
+function dataDir(): string {
+  return workspaceDataDir();
+}
+
+function manifestPath(): string {
+  return join(dataDir(), "file-scan-manifest.json");
+}
 
 export function readManifest(): FileManifest {
   try {
-    const raw = readFileSync(MANIFEST_PATH, "utf-8");
+    const raw = readFileSync(manifestPath(), "utf-8");
     const data = JSON.parse(raw);
     if (data && data.version === 1 && data.files) {
       return data as FileManifest;
@@ -40,8 +45,8 @@ export function readManifest(): FileManifest {
 
 export function writeManifest(manifest: FileManifest): void {
   try {
-    mkdirSync(DATA_DIR, { recursive: true });
-    writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2), "utf-8");
+    mkdirSync(dataDir(), { recursive: true });
+    writeFileSync(manifestPath(), JSON.stringify(manifest, null, 2), "utf-8");
   } catch {
     // Best-effort — if we can't write, next scan re-ingests
   }
