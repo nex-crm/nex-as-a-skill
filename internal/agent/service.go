@@ -83,20 +83,18 @@ func WithStreamFnResolver(r StreamFnResolver) AgentServiceOption {
 	return func(s *AgentService) { s.streamFnResolver = r }
 }
 
-// defaultStreamFnResolver returns a no-op StreamFn that echoes a warning.
+// defaultStreamFnResolver returns a StreamFn that emits a configuration error.
+// This is used when no real provider resolver is wired in — it tells the user
+// to run /init so a provider gets configured.
 func defaultStreamFnResolver(client *api.Client) StreamFnResolver {
 	return func(agentSlug string) StreamFn {
 		return func(msgs []Message, tools []AgentTool) <-chan StreamChunk {
 			ch := make(chan StreamChunk, 1)
 			go func() {
 				defer close(ch)
-				var echo string
-				if len(msgs) > 0 {
-					echo = msgs[len(msgs)-1].Content
-				}
 				ch <- StreamChunk{
 					Type:    "text",
-					Content: fmt.Sprintf("[default provider] %s", echo),
+					Content: "No LLM provider configured. Run /init to set up.",
 				}
 			}()
 			return ch

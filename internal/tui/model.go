@@ -8,8 +8,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/nex-ai/nex-cli/internal/agent"
+	"github.com/nex-ai/nex-cli/internal/api"
 	"github.com/nex-ai/nex-cli/internal/config"
 	"github.com/nex-ai/nex-cli/internal/orchestration"
+	"github.com/nex-ai/nex-cli/internal/provider"
 )
 
 // ViewName identifies a top-level view.
@@ -41,11 +43,17 @@ type Model struct {
 
 // NewModel creates the root model with an agent service, message router, and stream view.
 func NewModel() Model {
-	agentSvc := agent.NewAgentService()
+	apiKey := config.ResolveAPIKey("")
+	apiClient := api.NewClient(apiKey)
+	streamResolver := provider.DefaultStreamFnResolver(apiClient)
+	agentSvc := agent.NewAgentService(
+		agent.WithStreamFnResolver(streamResolver),
+		agent.WithClient(apiClient),
+	)
 	msgRouter := orchestration.NewMessageRouter()
 	events := make(chan tea.Msg, 256)
 
-	hasAPIKey := config.ResolveAPIKey("") != ""
+	hasAPIKey := apiKey != ""
 
 	// Load config for pack preference
 	cfg, _ := config.Load()

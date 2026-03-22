@@ -8,9 +8,10 @@ import (
 
 // DefaultStreamFnResolver returns a StreamFnResolver that picks the right provider
 // based on the user's config (llm_provider, gemini_api_key).
+// Config is re-read on each call so runtime provider changes take effect.
 func DefaultStreamFnResolver(client *api.Client) agent.StreamFnResolver {
-	cfg, _ := config.Load()
 	return func(agentSlug string) agent.StreamFn {
+		cfg, _ := config.Load()
 		switch cfg.LLMProvider {
 		case "gemini":
 			return CreateGeminiStreamFn(cfg.GeminiAPIKey)
