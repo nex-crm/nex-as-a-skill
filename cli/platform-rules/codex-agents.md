@@ -1,3 +1,5 @@
+# --- Nex Context & Memory ---
+
 # Nex — Organizational Context & Memory
 
 Nex provides your AI agent with real-time organizational knowledge — contacts, deals, meetings, emails, notes, insights, patterns, and playbooks — via MCP tools. Context is proactively injected into your conversation, so relevant knowledge surfaces automatically even when you don't ask for it.
@@ -53,3 +55,5 @@ Use `nex_remember` when:
 - A conversation reveals new knowledge that future sessions should have access to
 
 Always try `nex_ask` first for general queries. Use `nex_search` when you need to find a specific record by name.
+
+# --- End Nex ---

@@ -22,6 +22,15 @@ Shows which integrations (Gmail, Slack, Calendar, CRM) are connected and active.
 ### `nex_connect_integration` — Connect a data source
 Initiate OAuth connection for Gmail, Google Calendar, Outlook, Slack, Salesforce, HubSpot, or Attio.
 
+### `nex_get_notifications` — View recent notifications
+Check for new notifications from Nex. Shows deal changes, meeting updates, relationship insights, and custom alerts.
+
+### `nex_set_notification_preferences` — Update notification settings
+Change notification frequency or toggle notification types. Example: set polling to every 5 minutes.
+
+### `nex_create_notification_rule` — Create custom notification rules
+Set up AI-powered notification rules in natural language. Example: "notify me when deal value changes by more than 10%".
+
 ## Proactive Context
 
 Nex automatically surfaces relevant context from the user's knowledge graph on every prompt — not just questions. When you see a `<nex-context>` block, use it naturally to inform your response:
