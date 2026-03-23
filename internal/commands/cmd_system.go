@@ -66,30 +66,6 @@ func cmdProvider(ctx *SlashContext, args string) error {
 
 // --- Data commands (existing, staying in system until moved to their own group files) ---
 
-func cmdObjects(ctx *SlashContext, args string) error {
-	if !requireAuth(ctx) {
-		return nil
-	}
-	ctx.SetLoading(true)
-	result, err := api.Get[[]map[string]any](ctx.APIClient, "/v1/objects", 0)
-	ctx.SetLoading(false)
-	if err != nil {
-		return err
-	}
-	if len(result) == 0 {
-		ctx.AddMessage("system", "No object types found.")
-		return nil
-	}
-	var sb strings.Builder
-	sb.WriteString("Object types:\n")
-	for _, obj := range result {
-		name, _ := obj["name"].(string)
-		sb.WriteString("  • " + name + "\n")
-	}
-	ctx.AddMessage("system", strings.TrimRight(sb.String(), "\n"))
-	return nil
-}
-
 func cmdRecords(ctx *SlashContext, args string) error {
 	if args == "" {
 		ctx.AddMessage("system", "Usage: /records <objectType>")

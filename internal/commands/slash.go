@@ -18,9 +18,15 @@ func RegisterAllCommands(r *Registry) {
 	r.Register(SlashCommand{Name: "agents", Description: "List agents", Execute: cmdAgents})
 	r.Register(SlashCommand{Name: "agent", Description: "Agent details", Execute: cmdAgent})
 
-	// Data
-	r.Register(SlashCommand{Name: "objects", Description: "List object types", Execute: cmdObjects})
-	r.Register(SlashCommand{Name: "records", Description: "List records", Execute: cmdRecords})
+	// Data — Objects
+	r.Register(SlashCommand{Name: "object", Description: "Object CRUD (list/get/create/update/delete)", Execute: cmdObject})
+	r.Register(SlashCommand{Name: "objects", Description: "List object types (alias)", Execute: func(ctx *SlashContext, args string) error {
+		return cmdObject(ctx, "list "+args)
+	}})
+	r.Register(SlashCommand{Name: "record", Description: "Record CRUD + timeline", Execute: cmdRecord})
+	r.Register(SlashCommand{Name: "records", Description: "List records (alias)", Execute: func(ctx *SlashContext, args string) error {
+		return cmdRecord(ctx, "list "+args)
+	}})
 	r.Register(SlashCommand{Name: "graph", Description: "View context graph", Execute: cmdGraph})
 	r.Register(SlashCommand{Name: "insights", Description: "View insights", Execute: cmdInsights})
 
