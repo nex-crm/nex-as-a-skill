@@ -22,16 +22,16 @@ func main() {
 	format := flag.String("format", "text", "Output format (text, json)")
 	apiKeyFlag := flag.String("api-key", "", "API key for authentication")
 	showVersion := flag.Bool("version", false, "Print version and exit")
-	panesMode := flag.Bool("panes", false, "Use embedded multi-pane mode instead of channel view")
+	soloMode := flag.Bool("solo", false, "Single-agent TUI (no team)")
 	packFlag := flag.String("pack", "", "Agent pack (founding-team, coding-team, lead-gen-agency)")
-	channelView := flag.Bool("channel-view", false, "Run as channel view (used internally by nex team)")
+	channelView := flag.Bool("channel-view", false, "Run as channel view (internal)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Nex CLI v%s\n\n", version)
 		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  nex              Interactive TUI (single agent)\n")
-		fmt.Fprintf(os.Stderr, "  nex team         Launch multi-agent team in tmux\n")
-		fmt.Fprintf(os.Stderr, "  nex team kill    Stop the running team\n")
+		fmt.Fprintf(os.Stderr, "  nex              Launch multi-agent team\n")
+		fmt.Fprintf(os.Stderr, "  nex kill         Stop the running team\n")
+		fmt.Fprintf(os.Stderr, "  nex --solo       Single-agent TUI (no team)\n")
 		fmt.Fprintf(os.Stderr, "  nex --cmd <cmd>  Run a command non-interactively\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		flag.PrintDefaults()
@@ -50,10 +50,19 @@ func main() {
 		return
 	}
 
-	// Handle "nex team" subcommand
+	// Handle "nex kill" subcommand
 	args := flag.Args()
-	if len(args) > 0 && args[0] == "team" {
-		runTeam(args[1:], *packFlag)
+	if len(args) > 0 && args[0] == "kill" {
+		l, err := team.NewLauncher(*packFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		if err := l.Kill(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Team session killed.")
 		return
 	}
 
@@ -76,31 +85,21 @@ func main() {
 		return
 	}
 
-	// Interactive mode (single agent TUI)
-	p := tea.NewProgram(tui.NewModel(*panesMode), tea.WithAltScreen(), tea.WithMouseCellMotion())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func runTeam(args []string, packSlug string) {
-	// Handle "nex team kill"
-	if len(args) > 0 && args[0] == "kill" {
-		l, err := team.NewLauncher(packSlug)
-		if err != nil {
+	// Solo mode: single-agent TUI
+	if *soloMode {
+		p := tea.NewProgram(tui.NewModel(false), tea.WithAltScreen(), tea.WithMouseCellMotion())
+		if _, err := p.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-		if err := l.Kill(); err != nil {
-			fmt.Fprintf(os.Stderr, "error killing team: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println("Team session killed.")
 		return
 	}
 
-	// Launch team
+	// Default: launch multi-agent team
+	runTeam(nil, *packFlag)
+}
+
+func runTeam(args []string, packSlug string) {
 	l, err := team.NewLauncher(packSlug)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -119,19 +118,14 @@ func runTeam(args []string, packSlug string) {
 		os.Exit(1)
 	}
 
-	fmt.Println("Team launched. Attaching to tmux session...")
+	fmt.Println("Team launched. Attaching...")
 	fmt.Println()
-	fmt.Println("  Layout:")
-	fmt.Println("    Window 0 'team': channel (left) + agent panes (right)")
-	fmt.Printf("    Windows 1-%d: individual agent full-screen sessions\n", l.AgentCount())
-	fmt.Println()
-	fmt.Println("  Navigation:")
-	fmt.Println("    Ctrl+B w         — window list")
-	fmt.Println("    Ctrl+B 0         — team view (channel + agents)")
-	fmt.Println("    Ctrl+B 1-7       — full-screen agent")
-	fmt.Println("    Ctrl+B arrow     — switch pane within window")
-	fmt.Println("    Ctrl+B d         — detach (agents keep running)")
-	fmt.Println("    nex team kill    — stop everything")
+	fmt.Println("  Ctrl+B 0         channel + agent panes")
+	fmt.Printf("  Ctrl+B 1-%d       full-screen agent\n", l.AgentCount())
+	fmt.Println("  Ctrl+B arrow     switch pane")
+	fmt.Println("  Ctrl+B d         detach (keeps running)")
+	fmt.Println("  /quit            exit everything")
+	fmt.Println("  nex kill         stop from outside")
 	fmt.Println()
 
 	if err := l.Attach(); err != nil {
