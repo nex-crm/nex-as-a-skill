@@ -21,7 +21,7 @@ export interface Platform {
   hookConfigPath: string | null;
   rulesPath: string | null;
   configPath: string;
-  configFormat: "standard" | "zed" | "continue";
+  configFormat: "standard" | "zed" | "continue" | "codex";
 }
 
 const home = homedir();
@@ -48,6 +48,19 @@ function hasNexMcpEntry(configPath: string, key = "nex"): boolean {
   } catch {
     return false;
   }
+}
+
+function hasNexMcpInToml(configPath: string): boolean {
+  try {
+    const content = readFileSync(configPath, "utf-8");
+    return content.includes("[mcp_servers.nex]");
+  } catch {
+    return false;
+  }
+}
+
+function codexHome(): string {
+  return process.env.CODEX_HOME || join(home, ".codex");
 }
 
 function hasNexRules(rulesPath: string | null): boolean {
@@ -330,6 +343,22 @@ export function detectPlatforms(): Platform[] {
       configPath: "", // Aider has no MCP support
       configFormat: "standard",
     },
+    {
+      id: "codex",
+      displayName: "Codex",
+      detected: whichExists("codex") || exists(codexHome()),
+      nexInstalled: hasNexMcpInToml(join(codexHome(), "config.toml")) || hasNexRules(join(cwd, "AGENTS.md")),
+      pluginSupport: false,
+      supportsRules: true,
+      supportsHooks: false,
+      supportsCustomTools: false,
+      supportsCustomAgents: false,
+      supportsWorkflows: false,
+      hookConfigPath: null,
+      rulesPath: join(cwd, "AGENTS.md"),
+      configPath: join(codexHome(), "config.toml"),
+      configFormat: "codex",
+    },
   ];
 
   return platforms;
@@ -356,4 +385,5 @@ export const VALID_PLATFORM_IDS = [
   "opencode",
   "openclaw",
   "aider",
+  "codex",
 ];
