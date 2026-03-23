@@ -30,6 +30,25 @@ func RegisterAllCommands(r *Registry) {
 	r.Register(SlashCommand{Name: "graph", Description: "View context graph", Execute: cmdGraph})
 	r.Register(SlashCommand{Name: "insights", Description: "View insights", Execute: cmdInsights})
 
+	// Notes
+	r.Register(SlashCommand{Name: "note", Description: "Manage notes", Execute: cmdNote})
+	r.Register(SlashCommand{Name: "notes", Description: "List notes (alias)", Execute: func(ctx *SlashContext, args string) error {
+		return cmdNote(ctx, "list "+args)
+	}})
+
+	// Tasks
+	r.Register(SlashCommand{Name: "task", Description: "Manage tasks", Execute: cmdTask})
+	r.Register(SlashCommand{Name: "tasks", Description: "List tasks (alias)", Execute: func(ctx *SlashContext, args string) error {
+		return cmdTask(ctx, "list "+args)
+	}})
+
+	// Lists
+	r.Register(SlashCommand{Name: "list", Description: "Manage lists", Execute: cmdList})
+
+	// Relationships & Attributes
+	r.Register(SlashCommand{Name: "rel", Description: "Manage relationships", Execute: cmdRel})
+	r.Register(SlashCommand{Name: "attribute", Description: "Manage object attributes", Execute: cmdAttribute})
+
 	// System
 	r.Register(SlashCommand{Name: "help", Description: "Show help", Execute: cmdHelp})
 	r.Register(SlashCommand{Name: "clear", Description: "Clear messages", Execute: cmdClear})
