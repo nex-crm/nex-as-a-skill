@@ -9,10 +9,10 @@ func RegisterAllCommands(r *Registry) {
 
 	// Navigation
 	r.Register(SlashCommand{Name: "chat", Description: "Switch to chat view"})
-	r.Register(SlashCommand{Name: "calendar", Description: "View calendar"})
+	r.Register(SlashCommand{Name: "calendar", Description: "View calendar", Execute: cmdCalendar})
 	r.Register(SlashCommand{Name: "orchestration", Description: "View orchestration"})
 	r.Register(SlashCommand{Name: "orch", Description: "View orchestration (alias)"})
-	r.Register(SlashCommand{Name: "cal", Description: "View calendar (alias)"})
+	r.Register(SlashCommand{Name: "cal", Description: "View calendar (alias)", Execute: cmdCalendar})
 
 	// Agents
 	r.Register(SlashCommand{Name: "agents", Description: "List agents", Execute: cmdAgents})

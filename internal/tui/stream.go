@@ -50,7 +50,10 @@ var defaultSlashCommands = []SlashCommand{
 	{Name: "provider", Description: "Switch LLM provider"},
 	{Name: "graph", Description: "View context graph"},
 	{Name: "insights", Description: "View insights"},
+	{Name: "calendar", Description: "View agent calendar (add/remove/list)"},
+	{Name: "cal", Description: "View calendar (alias)"},
 	{Name: "help", Description: "Show all commands"},
+	{Name: "generative", Description: "Test generative UI rendering"},
 	{Name: "clear", Description: "Clear chat history"},
 	{Name: "quit", Description: "Exit nex"},
 }
@@ -587,6 +590,51 @@ func (m StreamModel) handleSlashCommand(input string) (StreamModel, tea.Cmd) {
 		m.picker = NewPicker("Switch LLM Provider", ProviderOptions())
 		m.picker.SetActive(true)
 		return m, nil
+	case "generative":
+		g := NewGenerativeModel()
+		g.width = m.width - 10
+		g.SetData(map[string]any{
+			"title":    "Agent Dashboard",
+			"status":   "active",
+			"progress": 0.72,
+			"tasks":    []any{"Scan codebase", "Generate report", "Deploy changes"},
+			"metrics": []any{
+				[]any{"Metric", "Value"},
+				[]any{"Latency", "42ms"},
+				[]any{"Throughput", "1.2k/s"},
+				[]any{"Errors", "0"},
+			},
+		})
+		g.SetSchema(A2UIComponent{
+			Type: "column",
+			Children: []A2UIComponent{
+				{Type: "card", Props: map[string]any{"title": "Overview"}, Children: []A2UIComponent{
+					{Type: "row", Children: []A2UIComponent{
+						{Type: "text", DataRef: "/title", Props: map[string]any{"bold": true}},
+						{Type: "text", DataRef: "/status", Props: map[string]any{"color": Success}},
+					}},
+					{Type: "spacer"},
+					{Type: "text", Props: map[string]any{"content": "Progress:", "dimmed": true}},
+					{Type: "progress", DataRef: "/progress"},
+				}},
+				{Type: "spacer"},
+				{Type: "card", Props: map[string]any{"title": "Tasks"}, Children: []A2UIComponent{
+					{Type: "list", DataRef: "/tasks"},
+				}},
+				{Type: "spacer"},
+				{Type: "card", Props: map[string]any{"title": "Metrics"}, Children: []A2UIComponent{
+					{Type: "table", DataRef: "/metrics"},
+				}},
+			},
+		})
+		m.messages = append(m.messages, StreamMessage{
+			Role:      "system",
+			Content:   "Generative UI demo:\n\n" + g.View(),
+			Timestamp: time.Now(),
+		})
+		return m, nil
+	case "chat":
+		return m, func() tea.Msg { return ViewSwitchMsg{Target: ViewChat} }
 	case "quit", "q":
 		return m, tea.Quit
 	}
