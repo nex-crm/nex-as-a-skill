@@ -1325,13 +1325,13 @@ const plugin = {
     // --- Commands ---
 
     api.registerCommand({
-      name: "recall",
-      description: "Search your Nex knowledge base. Usage: /recall <query>",
+      name: "nex:recall",
+      description: "Search your Nex knowledge base. Usage: /nex:recall <query>",
       acceptsArgs: true,
       async handler(ctx) {
         const query = ctx.args?.trim();
         if (!query) {
-          return { text: "Usage: /recall <query>" };
+          return { text: "Usage: /nex:recall <query>" };
         }
 
         try {
@@ -1368,13 +1368,13 @@ const plugin = {
     });
 
     api.registerCommand({
-      name: "remember",
-      description: "Store information in your Nex knowledge base. Usage: /remember <text>",
+      name: "nex:remember",
+      description: "Store information in your Nex knowledge base. Usage: /nex:remember <text>",
       acceptsArgs: true,
       async handler(ctx) {
         const text = ctx.args?.trim();
         if (!text) {
-          return { text: "Usage: /remember <text>" };
+          return { text: "Usage: /nex:remember <text>" };
         }
 
         try {
@@ -1389,8 +1389,8 @@ const plugin = {
     });
 
     api.registerCommand({
-      name: "scan",
-      description: "Scan a directory for files and ingest into Nex. Usage: /scan [dir]",
+      name: "nex:scan",
+      description: "Scan a directory for files and ingest into Nex. Usage: /nex:scan [dir]",
       acceptsArgs: true,
       async handler(ctx) {
         const dir = ctx.args?.trim() || ".";

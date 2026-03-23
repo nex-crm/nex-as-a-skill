@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Standalone entry point for the /scan slash command.
+ * Standalone entry point for the /nex:scan slash command.
  *
  * Reads optional directory from argv[2] or stdin, scans for project files,
  * and ingests changed ones into Nex. Prints results to stdout.

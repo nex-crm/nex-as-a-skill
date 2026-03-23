@@ -252,7 +252,7 @@ Add hooks to `~/.claude/settings.json`:
 Slash commands and MCP server:
 
 ```bash
-cp claude-code-plugin/commands/*.md ~/.claude/commands/    # /recall, /remember, /scan, /entities
+cp claude-code-plugin/commands/*.md ~/.claude/commands/    # /nex:recall, /nex:remember, /nex:scan, /nex:entities
 claude mcp add nex -- nex-mcp                               # Full toolset
 ```
 

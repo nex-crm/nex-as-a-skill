@@ -1,5 +1,5 @@
 ---
-name: nex-ask
+name: nex:ask
 description: Ask Nex a question about organizational context, people, companies, deals, or meetings
 ---
 

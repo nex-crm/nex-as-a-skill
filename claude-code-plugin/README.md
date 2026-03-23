@@ -6,7 +6,7 @@ Persistent context intelligence for Claude Code, powered by Nex. Automatically r
 
 - **Auto-recall** — `UserPromptSubmit` hook queries Nex and injects relevant context
 - **Auto-capture** — `Stop` hook captures assistant responses to build your knowledge base
-- **Slash commands** — `/recall <query>` and `/remember <text>` for manual control
+- **Slash commands** — `/nex:recall <query>` and `/nex:remember <text>` for manual control
 - **MCP tools** — Full Nex API access via the MCP server
 
 ## Prerequisites
@@ -34,7 +34,7 @@ export NEX_API_BASE_URL="https://app.nex.ai"  # optional, defaults to app.nex.ai
 
 ### 2. MCP Server Registration
 
-Register the Nex MCP server so Claude Code can use `/recall` and `/remember`:
+Register the Nex MCP server so Claude Code can use `/nex:recall` and `/nex:remember`:
 
 ```bash
 claude mcp add nex -- node /path/to/mcp/dist/index.js
@@ -99,8 +99,8 @@ cp -r commands/ ~/.claude/commands/
 ```
 
 Then use:
-- `/recall <query>` — Search your Nex knowledge base
-- `/remember <text>` — Store information in Nex
+- `/nex:recall <query>` — Search your Nex knowledge base
+- `/nex:remember <text>` — Store information in Nex
 
 ## How It Works
 
@@ -143,8 +143,8 @@ claude-code-plugin/
 │   ├── rate-limiter.ts        # Sliding window rate limiter
 │   └── session-store.ts       # LRU session ID mapping
 ├── commands/
-│   ├── recall.md              # /recall slash command
-│   └── remember.md            # /remember slash command
+│   ├── nex:recall.md          # /nex:recall slash command
+│   └── nex:remember.md        # /nex:remember slash command
 ├── settings.json              # Hook configuration template
 └── README.md
 ```
