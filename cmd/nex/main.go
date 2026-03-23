@@ -11,6 +11,7 @@ import (
 
 	"github.com/nex-ai/nex-cli/internal/commands"
 	"github.com/nex-ai/nex-cli/internal/config"
+	"github.com/nex-ai/nex-cli/internal/team"
 	"github.com/nex-ai/nex-cli/internal/tui"
 )
 
@@ -22,11 +23,16 @@ func main() {
 	apiKeyFlag := flag.String("api-key", "", "API key for authentication")
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	panesMode := flag.Bool("panes", false, "Use embedded multi-pane mode instead of channel view")
+	packFlag := flag.String("pack", "", "Agent pack (founding-team, coding-team, lead-gen-agency)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Nex CLI v%s\n\n", version)
-		fmt.Fprintf(os.Stderr, "Usage: nex [flags]\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n")
+		fmt.Fprintf(os.Stderr, "  nex              Interactive TUI (single agent)\n")
+		fmt.Fprintf(os.Stderr, "  nex team         Launch multi-agent team in tmux\n")
+		fmt.Fprintf(os.Stderr, "  nex team kill    Stop the running team\n")
+		fmt.Fprintf(os.Stderr, "  nex --cmd <cmd>  Run a command non-interactively\n")
+		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		flag.PrintDefaults()
 	}
 
@@ -35,6 +41,13 @@ func main() {
 	if *showVersion {
 		fmt.Printf("nex v%s\n", version)
 		os.Exit(0)
+	}
+
+	// Handle "nex team" subcommand
+	args := flag.Args()
+	if len(args) > 0 && args[0] == "team" {
+		runTeam(args[1:], *packFlag)
+		return
 	}
 
 	// Non-interactive: --cmd flag
@@ -56,10 +69,56 @@ func main() {
 		return
 	}
 
-	// Interactive mode
-	p := tea.NewProgram(tui.NewModel(*panesMode), tea.WithAltScreen())
+	// Interactive mode (single agent TUI)
+	p := tea.NewProgram(tui.NewModel(*panesMode), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runTeam(args []string, packSlug string) {
+	// Handle "nex team kill"
+	if len(args) > 0 && args[0] == "kill" {
+		l, err := team.NewLauncher(packSlug)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		if err := l.Kill(); err != nil {
+			fmt.Fprintf(os.Stderr, "error killing team: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Team session killed.")
+		return
+	}
+
+	// Launch team
+	l, err := team.NewLauncher(packSlug)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := l.Preflight(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Launching %s (%d agents)...\n", l.PackName(), l.AgentCount())
+
+	if err := l.Launch(); err != nil {
+		fmt.Fprintf(os.Stderr, "error launching team: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Team launched. Attaching to tmux session...")
+	fmt.Println("  Switch agents: Ctrl+B then window number (0-6)")
+	fmt.Println("  Kill team:     nex team kill")
+	fmt.Println()
+
+	if err := l.Attach(); err != nil {
+		fmt.Fprintf(os.Stderr, "error attaching: %v\n", err)
 		os.Exit(1)
 	}
 }
