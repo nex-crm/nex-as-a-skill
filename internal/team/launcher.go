@@ -29,6 +29,7 @@ type Launcher struct {
 	pack        *agent.PackDefinition
 	sessionName string
 	cwd         string
+	broker      *Broker
 }
 
 // NewLauncher creates a launcher for the given pack.
@@ -71,7 +72,14 @@ func (l *Launcher) Preflight() error {
 }
 
 // Launch creates the tmux session and spawns all agent windows.
+// It also starts the shared message broker.
 func (l *Launcher) Launch() error {
+	// Start the shared channel broker
+	l.broker = NewBroker()
+	if err := l.broker.Start(); err != nil {
+		return fmt.Errorf("start broker: %w", err)
+	}
+
 	// Kill any existing session
 	exec.Command("tmux", "kill-session", "-t", l.sessionName).Run()
 
@@ -121,8 +129,11 @@ func (l *Launcher) Attach() error {
 	return cmd.Run()
 }
 
-// Kill destroys the tmux session and all agent processes.
+// Kill destroys the tmux session, all agent processes, and the broker.
 func (l *Launcher) Kill() error {
+	if l.broker != nil {
+		l.broker.Stop()
+	}
 	return exec.Command("tmux", "kill-session", "-t", l.sessionName).Run()
 }
 
