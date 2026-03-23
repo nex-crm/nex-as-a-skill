@@ -200,6 +200,21 @@ func (b *GossipBus) EventLog() []GossipEvent {
 	return out
 }
 
+// GetActivity returns the latest activity type for an agent based on recent events.
+// Returns "idle" if no events found for the slug.
+func (b *GossipBus) GetActivity(slug string) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Walk backward to find most recent event from this agent.
+	for i := len(b.eventLog) - 1; i >= 0; i-- {
+		if b.eventLog[i].FromSlug == slug {
+			return b.eventLog[i].Type
+		}
+	}
+	return "idle"
+}
+
 // injectContext writes formatted team context to a target.
 func injectContext(target GossipTarget, events []GossipEvent) {
 	var lines []string

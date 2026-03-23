@@ -358,3 +358,37 @@ func TestTruncate(t *testing.T) {
 		t.Error("truncated string should end with ...")
 	}
 }
+
+func TestGetActivity(t *testing.T) {
+	bus := NewGossipBus("ceo")
+	nowFn, advance := fakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	bus.now = nowFn
+
+	// No events yet — should return "idle".
+	if got := bus.GetActivity("ceo"); got != "idle" {
+		t.Errorf("GetActivity with no events = %q, want 'idle'", got)
+	}
+
+	// Emit some events.
+	advance(10 * time.Second)
+	bus.Emit(GossipEvent{FromSlug: "ceo", Type: "thinking", Content: "hmm"})
+	advance(1 * time.Second)
+	bus.Emit(GossipEvent{FromSlug: "ceo", Type: "text", Content: "let's go"})
+	advance(1 * time.Second)
+	bus.Emit(GossipEvent{FromSlug: "fe", Type: "tool_use", Content: "Bash"})
+
+	// Latest ceo activity should be "text".
+	if got := bus.GetActivity("ceo"); got != "text" {
+		t.Errorf("GetActivity('ceo') = %q, want 'text'", got)
+	}
+
+	// Latest fe activity should be "tool_use".
+	if got := bus.GetActivity("fe"); got != "tool_use" {
+		t.Errorf("GetActivity('fe') = %q, want 'tool_use'", got)
+	}
+
+	// Unknown agent should return "idle".
+	if got := bus.GetActivity("unknown"); got != "idle" {
+		t.Errorf("GetActivity('unknown') = %q, want 'idle'", got)
+	}
+}

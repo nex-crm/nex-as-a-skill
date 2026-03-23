@@ -180,9 +180,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Flush any pending gossip batches.
 			m.gossipBus.FlushPending()
 
-			// Update roster from recent gossip events.
-			for _, ev := range m.gossipBus.EventLog() {
-				m.roster.UpdateFromGossip(ev.FromSlug, ev.Type)
+			// Update roster from latest gossip activity per agent.
+			for _, p := range m.paneManager.Panes() {
+				activity := m.gossipBus.GetActivity(p.Slug())
+				if activity != "idle" {
+					m.roster.UpdateFromGossip(p.Slug(), activity)
+				}
 			}
 
 			// Mark dead panes in roster.
