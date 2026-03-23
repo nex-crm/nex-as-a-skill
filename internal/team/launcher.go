@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/nex-ai/nex-cli/internal/agent"
 	"github.com/nex-ai/nex-cli/internal/config"
@@ -152,6 +153,45 @@ func (l *Launcher) Launch() error {
 		).Run()
 	}
 
+	// Enable pane titles and set border format to show agent names
+	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
+		"pane-border-status", "top",
+	).Run()
+	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
+		"pane-border-format", " #{pane_title} ",
+	).Run()
+	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
+		"pane-border-style", "fg=colour240",
+	).Run()
+	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
+		"pane-active-border-style", "fg=colour45",
+	).Run()
+
+	// Set pane titles: pane 0 = channel, pane 1+ = agents
+	exec.Command("tmux", "-L", "nex", "select-pane",
+		"-t", l.sessionName+":team.0", "-T", "📢 channel",
+	).Run()
+
+	// Set titles for agent panes (pane 1 = leader, panes 2+ = specialists)
+	paneIdx := 1
+	orderedSlugs := []string{l.pack.LeadSlug}
+	for _, a := range l.pack.Agents {
+		if a.Slug != l.pack.LeadSlug {
+			orderedSlugs = append(orderedSlugs, a.Slug)
+		}
+	}
+	for i, slug := range orderedSlugs {
+		if i >= 4 { // only 4 agent panes visible (leader + 3)
+			break
+		}
+		name := l.getAgentName(slug)
+		exec.Command("tmux", "-L", "nex", "select-pane",
+			"-t", fmt.Sprintf("%s:team.%d", l.sessionName, paneIdx),
+			"-T", fmt.Sprintf("🤖 %s (@%s)", name, slug),
+		).Run()
+		paneIdx++
+	}
+
 	// Focus back on window 0 (team), select the channel pane
 	exec.Command("tmux", "-L", "nex", "select-window",
 		"-t", l.sessionName+":team",
@@ -160,7 +200,76 @@ func (l *Launcher) Launch() error {
 		"-t", l.sessionName+":team.0",
 	).Run()
 
+	// Start the notification loop that pushes new messages to agent panes
+	go l.notifyAgentsLoop()
+
 	return nil
+}
+
+// notifyAgentsLoop polls the broker for new messages and pushes them
+// to agent Claude Code panes via tmux send-keys, prompting them to check the channel.
+func (l *Launcher) notifyAgentsLoop() {
+	lastCount := 0
+	for {
+		time.Sleep(3 * time.Second)
+
+		msgs := l.broker.Messages()
+		if len(msgs) <= lastCount {
+			continue
+		}
+
+		// New messages arrived — notify agents
+		newMsgs := msgs[lastCount:]
+		lastCount = len(msgs)
+
+		for _, msg := range newMsgs {
+			// Don't notify the sender about their own message
+			// Notify all agent panes about new channel activity
+			for i, slug := range l.agentPaneSlugs() {
+				if slug == msg.From {
+					continue
+				}
+
+				// Build a concise notification to inject into the agent's Claude session
+				notification := fmt.Sprintf(
+					"[Channel update from @%s]: %s\n\nPlease call team_poll with my_slug \"%s\" to see the full channel, then respond with team_broadcast if relevant.",
+					msg.From, truncate(msg.Content, 200), slug,
+				)
+
+				// Use tmux send-keys to type the notification into the agent's pane
+				paneTarget := fmt.Sprintf("%s:team.%d", l.sessionName, i+1) // +1 because pane 0 is channel
+				exec.Command("tmux", "-L", "nex", "send-keys",
+					"-t", paneTarget,
+					notification, "Enter",
+				).Run()
+			}
+		}
+	}
+}
+
+// agentPaneSlugs returns the ordered slugs of agents in the team window panes.
+func (l *Launcher) agentPaneSlugs() []string {
+	var slugs []string
+	slugs = append(slugs, l.pack.LeadSlug)
+	count := 1
+	for _, a := range l.pack.Agents {
+		if a.Slug == l.pack.LeadSlug {
+			continue
+		}
+		if count >= 4 {
+			break
+		}
+		slugs = append(slugs, a.Slug)
+		count++
+	}
+	return slugs
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
 
 // Attach attaches the user's terminal to the tmux session.
