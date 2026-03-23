@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/nex-ai/nex-cli/internal/api"
 )
 
 // ErrQuit is returned by quit commands so the caller can signal clean exit.
