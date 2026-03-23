@@ -62,6 +62,13 @@ var defaultSlashCommands = []SlashCommand{
 	{Name: "quit", Description: "Exit nex"},
 }
 
+// AgentStatusEntry holds the current status for an agent in the status line.
+type AgentStatusEntry struct {
+	Slug     string
+	Name     string
+	Activity string // "idle", "text", "thinking", "tool_use", "tool_result"
+}
+
 // StreamModel is the main chat stream view with agent roster sidebar.
 type StreamModel struct {
 	messages     []StreamMessage
@@ -92,6 +99,10 @@ type StreamModel struct {
 	lastAgentPulse    map[string]time.Time
 	showThinking      bool
 	spinnerTicking    bool
+
+	// Channel mode: agents run in tmux, no provider loop.
+	channelMode  bool
+	agentStatus  []AgentStatusEntry
 
 	initFlow InitFlowModel
 }
@@ -797,23 +808,34 @@ func (m StreamModel) handleSlashCommand(input string) (StreamModel, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the two-column layout: messages+input on the left, roster on the right.
+// View renders the layout. In channel mode: full-width messages + agent status line.
+// In classic mode: two-column with roster sidebar.
 func (m StreamModel) View() string {
 	if m.width == 0 || m.height == 0 {
 		return "Loading..."
 	}
 
-	rw := rosterWidth + 4 // roster content + border padding
-	lw := m.width - rw - 1
-	showRoster := lw >= 30
-	if !showRoster {
+	// In channel mode, use full width (no roster sidebar).
+	showRoster := !m.channelMode
+	var lw int
+	if showRoster {
+		rw := rosterWidth + 4
+		lw = m.width - rw - 1
+		if lw < 30 {
+			showRoster = false
+			lw = m.width
+		}
+	} else {
 		lw = m.width
 	}
 
-	// Height budget: title(1) + messages(flex) + spinner?(1) + input(3) + statusbar(1)
+	// Height budget: title(1) + agentStatus?(1) + messages(flex) + spinner?(1) + input(3) + statusbar(1)
 	usedH := 5
 	if m.loading {
 		usedH++
+	}
+	if m.channelMode && len(m.agentStatus) > 0 {
+		usedH++ // agent status line
 	}
 	msgH := m.height - usedH
 	if msgH < 1 {
@@ -832,6 +854,12 @@ func (m StreamModel) View() string {
 	if m.loading {
 		leftParts = append(leftParts, m.spinner.View())
 	}
+
+	// Agent status line (channel mode only, above input).
+	if m.channelMode && len(m.agentStatus) > 0 {
+		leftParts = append(leftParts, m.renderAgentStatusLine(lw))
+	}
+
 	leftParts = append(leftParts, m.renderInput(lw))
 
 	// Init flow API key input overlay
@@ -854,7 +882,7 @@ func (m StreamModel) View() string {
 
 	left := lipgloss.JoinVertical(lipgloss.Left, leftParts...)
 
-	// Two-column layout
+	// Two-column layout (classic mode only)
 	var content string
 	if showRoster {
 		right := m.roster.View()
@@ -1250,6 +1278,83 @@ func (m *StreamModel) updateSpinnerLabel() {
 		label = "waiting for work..."
 	}
 	m.spinner.SetLabel(label)
+}
+
+// updateAgentStatus updates the status entry for an agent (used by channel mode).
+func (m *StreamModel) updateAgentStatus(slug, name, activity string) {
+	for i, s := range m.agentStatus {
+		if s.Slug == slug {
+			m.agentStatus[i].Activity = activity
+			return
+		}
+	}
+	m.agentStatus = append(m.agentStatus, AgentStatusEntry{
+		Slug:     slug,
+		Name:     name,
+		Activity: activity,
+	})
+}
+
+// renderAgentStatusLine renders a compact 1-line agent activity bar.
+// Format: ● CEO talking  ◐ PM thinking  ⚡ FE coding  ○ BE idle
+func (m StreamModel) renderAgentStatusLine(width int) string {
+	var parts []string
+	for _, s := range m.agentStatus {
+		icon := agentActivityIcon(s.Activity)
+		label := agentActivityLabel(s.Activity)
+		shortName := s.Name
+		if len(shortName) > 8 {
+			shortName = shortName[:8]
+		}
+		style := agentActivityStyle(s.Activity)
+		part := style.Render(icon+" "+shortName+" "+label)
+		parts = append(parts, part)
+	}
+	line := strings.Join(parts, "  ")
+
+	barStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(MutedColor)).
+		Width(width)
+	return barStyle.Render(line)
+}
+
+func agentActivityIcon(activity string) string {
+	switch activity {
+	case "text":
+		return "●"
+	case "thinking":
+		return "◐"
+	case "tool_use", "tool_result":
+		return "⚡"
+	default:
+		return "○"
+	}
+}
+
+func agentActivityLabel(activity string) string {
+	switch activity {
+	case "text":
+		return "talking"
+	case "thinking":
+		return "thinking"
+	case "tool_use", "tool_result":
+		return "coding"
+	default:
+		return "idle"
+	}
+}
+
+func agentActivityStyle(activity string) lipgloss.Style {
+	switch activity {
+	case "text":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(Success))
+	case "thinking":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(Warning))
+	case "tool_use", "tool_result":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(NexPurple))
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(MutedColor))
+	}
 }
 
 func (m *StreamModel) appendSystemMessage(content string) {

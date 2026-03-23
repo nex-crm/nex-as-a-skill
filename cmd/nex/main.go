@@ -21,6 +21,7 @@ func main() {
 	format := flag.String("format", "text", "Output format (text, json)")
 	apiKeyFlag := flag.String("api-key", "", "API key for authentication")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	panesMode := flag.Bool("panes", false, "Use embedded multi-pane mode instead of channel view")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Nex CLI v%s\n\n", version)
@@ -56,7 +57,7 @@ func main() {
 	}
 
 	// Interactive mode
-	p := tea.NewProgram(tui.NewModel(), tea.WithAltScreen())
+	p := tea.NewProgram(tui.NewModel(*panesMode), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

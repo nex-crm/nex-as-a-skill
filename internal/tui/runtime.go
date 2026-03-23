@@ -112,6 +112,54 @@ func HasClaude() bool {
 	return err == nil
 }
 
+// BootstrapTmuxChannel creates a TmuxManager, spawns all agents in tmux windows,
+// and wires them to a GossipBus and ChannelAdapter. Returns the components for
+// the model to use.
+func (rt *Runtime) BootstrapTmuxChannel() (*TmuxManager, *GossipBus, *ChannelAdapter, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	tm := NewTmuxManager("nex-agents")
+	if err := tm.CreateSession(); err != nil {
+		return nil, nil, nil, err
+	}
+
+	bus := NewGossipBus(rt.TeamLeadSlug)
+	adapter := NewChannelAdapter()
+
+	pack := agent.GetPack(rt.PackSlug)
+	if pack == nil {
+		return tm, bus, adapter, nil
+	}
+
+	for _, agentCfg := range pack.Agents {
+		adapter.SetAgentName(agentCfg.Slug, agentCfg.Name)
+
+		var sysPrompt string
+		if agentCfg.Slug == pack.LeadSlug {
+			sysPrompt = agent.BuildTeamLeadPrompt(agentCfg, pack.Agents, pack.Name)
+		} else {
+			sysPrompt = agent.BuildSpecialistPrompt(agentCfg)
+		}
+
+		args := []string{
+			"-p", sysPrompt,
+			"--output-format", "stream-json",
+			"--verbose",
+			"--max-turns", "50",
+			"--no-session-persistence",
+		}
+
+		if err := tm.SpawnAgent(agentCfg.Slug, "claude", args, []string{"CWD=" + cwd}); err != nil {
+			continue // non-fatal
+		}
+	}
+
+	return tm, bus, adapter, nil
+}
+
 // BootstrapPanes creates TerminalPanes for each agent in the pack,
 // spawns claude processes, and wires them to the GossipBus.
 // Returns panes in order (leader first), the bus, and cwd used.
