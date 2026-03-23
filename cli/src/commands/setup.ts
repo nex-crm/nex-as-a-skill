@@ -60,6 +60,9 @@ function getClient(): { client: NexClient; format: Format } {
 function hasNexMcpInConfig(platform: Platform): boolean {
   try {
     const raw = readFileSync(platform.configPath, "utf-8");
+    if (platform.configFormat === "codex") {
+      return raw.includes("[mcp_servers.nex]");
+    }
     const config = JSON.parse(raw);
     return !!(config?.mcpServers?.nex || config?.context_servers?.nex);
   } catch {

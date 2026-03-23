@@ -89,6 +89,10 @@ export function installMcpServer(
     return installContinueMcp(platform.configPath, apiKey);
   }
 
+  if (platform.configFormat === "codex") {
+    return installCodexMcp(platform.configPath, apiKey);
+  }
+
   // Standard JSON format (Cursor, Claude Desktop, VS Code, Windsurf, Cline, Kilo Code, OpenCode)
   const config = readJsonFile(platform.configPath);
 
@@ -135,6 +139,66 @@ function installContinueMcp(
 
   writeJsonFile(mcpPath, config);
   return { installed: true, configPath: mcpPath };
+}
+
+function installCodexMcp(
+  configPath: string,
+  apiKey: string,
+): { installed: boolean; configPath: string } {
+  let content = "";
+  try {
+    content = readFileSync(configPath, "utf-8");
+  } catch {
+    // File doesn't exist — will create
+  }
+
+  const nexBlock = [
+    `[mcp_servers.nex]`,
+    `command = "nex-mcp"`,
+    ``,
+    `[mcp_servers.nex.env]`,
+    `NEX_API_KEY = "${apiKey}"`,
+  ].join("\n");
+
+  if (content.includes("[mcp_servers.nex]")) {
+    // Remove existing nex section(s) and re-add
+    const lines = content.split("\n");
+    const filtered: string[] = [];
+    let inNexSection = false;
+
+    for (const line of lines) {
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith("[")) {
+        if (trimmed.startsWith("[mcp_servers.nex]") || trimmed.startsWith("[mcp_servers.nex.")) {
+          inNexSection = true;
+          continue;
+        } else {
+          inNexSection = false;
+        }
+      }
+
+      if (!inNexSection) {
+        filtered.push(line);
+      }
+    }
+
+    // Remove trailing blank lines before appending
+    while (filtered.length > 0 && filtered[filtered.length - 1].trim() === "") {
+      filtered.pop();
+    }
+
+    content = filtered.join("\n") + "\n\n" + nexBlock + "\n";
+  } else {
+    // Append to file
+    const separator = content && !content.endsWith("\n\n")
+      ? (content.endsWith("\n") ? "\n" : "\n\n")
+      : "";
+    content = content + separator + nexBlock + "\n";
+  }
+
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, content, "utf-8");
+  return { installed: true, configPath };
 }
 
 // ── 2. Claude Code Plugin Installer ────────────────────────────────────
@@ -629,13 +693,14 @@ const RULES_TEMPLATE_MAP: Record<string, string> = {
   kilocode: "kilocode-rules.md",
   opencode: "opencode-agents.md",
   aider: "aider-conventions.md",
+  codex: "codex-agents.md",
 };
 
 /**
  * Platforms where rules are APPENDED to an existing file (with markers)
  * rather than written as a standalone file.
  */
-const APPEND_PLATFORMS = new Set(["zed", "opencode", "aider"]);
+const APPEND_PLATFORMS = new Set(["zed", "opencode", "aider", "codex"]);
 
 export function installRulesFile(
   platform: Platform,
