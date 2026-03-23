@@ -13,6 +13,11 @@ var activePhases = map[string]bool{
 	"build_context": true,
 	"stream_llm":    true,
 	"execute_tool":  true,
+	// Gossip-driven activity phases.
+	"talking":   true,
+	"thinking":  true,
+	"coding":    true,
+	"listening": true,
 }
 
 type AgentEntry struct {
@@ -47,6 +52,45 @@ func (r *RosterModel) UpdateAgents(agents []AgentEntry) {
 		}
 	}
 	r.spinner.SetActive(anyActive)
+}
+
+// UpdateFromGossip maps a GossipEvent type to a roster activity phase for the agent.
+func (r *RosterModel) UpdateFromGossip(slug, eventType string) {
+	phase := gossipEventToPhase(eventType)
+	for i, ag := range r.agents {
+		if ag.Slug == slug {
+			r.agents[i].Phase = phase
+			break
+		}
+	}
+	r.UpdateAgents(r.agents)
+}
+
+// SetAgentPhase directly sets an agent's phase (for non-gossip state like "dead").
+func (r *RosterModel) SetAgentPhase(slug, phase string) {
+	for i, ag := range r.agents {
+		if ag.Slug == slug {
+			r.agents[i].Phase = phase
+			break
+		}
+	}
+	r.UpdateAgents(r.agents)
+}
+
+// gossipEventToPhase maps gossip event types to roster display phases.
+func gossipEventToPhase(eventType string) string {
+	switch eventType {
+	case "text":
+		return "talking"
+	case "thinking":
+		return "thinking"
+	case "tool_use":
+		return "coding"
+	case "tool_result":
+		return "coding"
+	default:
+		return "listening"
+	}
 }
 
 func (r RosterModel) Update(msg tea.Msg) (RosterModel, tea.Cmd) {
@@ -100,6 +144,17 @@ func (r RosterModel) agentIcon(phase string) string {
 		return "●"
 	case "error":
 		return "●"
+	case "dead":
+		return "✕"
+	// Gossip-driven activity icons.
+	case "talking":
+		return "●"
+	case "thinking":
+		return "◐"
+	case "coding":
+		return "⚡"
+	case "listening":
+		return "◆"
 	default:
 		if activePhases[phase] {
 			return spinnerFrames[r.spinner.frame]
@@ -122,6 +177,16 @@ func phaseShortLabel(phase string) string {
 		return "done"
 	case "error":
 		return "err"
+	case "dead":
+		return "dead"
+	case "talking":
+		return "talk"
+	case "thinking":
+		return "think"
+	case "coding":
+		return "code"
+	case "listening":
+		return "listen"
 	default:
 		return phase
 	}
@@ -141,6 +206,17 @@ func phaseLabel(phase string) string {
 		return "done"
 	case "error":
 		return "error"
+	case "dead":
+		return "exited"
+	// Gossip-driven labels.
+	case "talking":
+		return "talking"
+	case "thinking":
+		return "thinking"
+	case "coding":
+		return "coding"
+	case "listening":
+		return "listening"
 	default:
 		return phase
 	}
@@ -156,8 +232,17 @@ func phaseColor(phase string) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(NexPurple))
 	case "done":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(Success))
-	case "error":
+	case "error", "dead":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(Error))
+	// Gossip-driven colors.
+	case "talking":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(Success))
+	case "thinking":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(Warning))
+	case "coding":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(NexPurple))
+	case "listening":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(Info))
 	default:
 		return SystemStyle
 	}

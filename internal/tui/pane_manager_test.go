@@ -279,3 +279,59 @@ func TestPaneManagerRemoveFocused(t *testing.T) {
 		t.Errorf("expected focus to fall back to 'b', got '%s'", pm.Focused().Slug())
 	}
 }
+
+func TestPaneManagerCloseAll(t *testing.T) {
+	pm := NewPaneManager()
+
+	p1 := newMockPane("a", "A")
+	p2 := newMockPane("b", "B")
+	p3 := newMockPane("c", "C")
+
+	pm.AddPane(p1)
+	pm.AddPane(p2)
+	pm.AddPane(p3)
+
+	pm.CloseAll()
+
+	if !p1.closed || !p2.closed || !p3.closed {
+		t.Error("CloseAll should close all panes")
+	}
+	if p1.alive || p2.alive || p3.alive {
+		t.Error("all panes should be dead after CloseAll")
+	}
+}
+
+func TestPaneManagerRemoveDeadPanes(t *testing.T) {
+	pm := NewPaneManager()
+
+	p1 := newMockPane("a", "A")
+	p2 := newMockPane("b", "B")
+	p3 := newMockPane("c", "C")
+
+	pm.AddPane(p1)
+	pm.AddPane(p2)
+	pm.AddPane(p3)
+
+	// Kill p2 (simulate process exit).
+	p2.alive = false
+
+	dead := pm.RemoveDeadPanes()
+
+	if len(dead) != 1 || dead[0] != "b" {
+		t.Errorf("expected dead=[b], got %v", dead)
+	}
+	if pm.PaneCount() != 2 {
+		t.Errorf("expected 2 panes after removing dead, got %d", pm.PaneCount())
+	}
+
+	// Kill all remaining.
+	p1.alive = false
+	p3.alive = false
+	dead = pm.RemoveDeadPanes()
+	if len(dead) != 2 {
+		t.Errorf("expected 2 dead panes, got %d", len(dead))
+	}
+	if pm.PaneCount() != 0 {
+		t.Errorf("expected 0 panes after removing all dead, got %d", pm.PaneCount())
+	}
+}

@@ -257,6 +257,42 @@ func (pm *PaneManager) View(width, height int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, leaderView, bottomRow)
 }
 
+// CloseAll gracefully closes all panes (SIGTERM, then SIGKILL after timeout).
+func (pm *PaneManager) CloseAll() {
+	for _, p := range pm.panes {
+		p.Close()
+	}
+}
+
+// RemoveDeadPanes removes panes whose processes have exited.
+// Returns the slugs of removed panes.
+func (pm *PaneManager) RemoveDeadPanes() []string {
+	var dead []string
+	for _, p := range pm.panes {
+		if !p.IsAlive() {
+			dead = append(dead, p.Slug())
+		}
+	}
+	for _, slug := range dead {
+		// Use internal removal without Close (already dead).
+		delete(pm.paneMap, slug)
+		for i, pane := range pm.panes {
+			if pane.Slug() == slug {
+				pm.panes = append(pm.panes[:i], pm.panes[i+1:]...)
+				break
+			}
+		}
+	}
+	// Fix focus.
+	if len(pm.panes) == 0 {
+		pm.focusedIdx = 0
+	} else if pm.focusedIdx >= len(pm.panes) {
+		pm.focusedIdx = len(pm.panes) - 1
+		pm.panes[pm.focusedIdx].SetFocused(true)
+	}
+	return dead
+}
+
 // --- internal helpers ---
 
 func (pm *PaneManager) setFocusIdx(idx int) {

@@ -33,6 +33,7 @@ type Model struct {
 	embedded    bool
 	paneManager *PaneManager
 	gossipBus   *GossipBus
+	roster      RosterModel
 
 	currentView ViewName
 	width       int
@@ -65,10 +66,23 @@ func NewModel() Model {
 		// Embedded terminal mode: each agent gets its own PTY + claude process.
 		pm := NewPaneManager()
 		bus := NewGossipBus(rt.TeamLeadSlug)
+		roster := NewRoster()
+
+		// Pre-populate roster with agent entries from the pack.
+		var entries []AgentEntry
+		for _, a := range rt.AgentService.List() {
+			entries = append(entries, AgentEntry{
+				Slug:  a.Config.Slug,
+				Name:  a.Config.Name,
+				Phase: "idle",
+			})
+		}
+		roster.UpdateAgents(entries)
 
 		m.embedded = true
 		m.paneManager = pm
 		m.gossipBus = bus
+		m.roster = roster
 	} else {
 		// Classic stream mode: fallback when claude binary is unavailable.
 		stream := NewStreamModel(rt, events)
@@ -165,6 +179,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.embedded {
 			// Flush any pending gossip batches.
 			m.gossipBus.FlushPending()
+
+			// Update roster from recent gossip events.
+			for _, ev := range m.gossipBus.EventLog() {
+				m.roster.UpdateFromGossip(ev.FromSlug, ev.Type)
+			}
+
+			// Mark dead panes in roster.
+			for _, p := range m.paneManager.Panes() {
+				if !p.IsAlive() {
+					m.roster.SetAgentPhase(p.Slug(), "dead")
+				}
+			}
+
 			return m, embeddedTick()
 		}
 
@@ -268,9 +295,7 @@ func (m *Model) shutdownPanes() {
 	if m.paneManager == nil {
 		return
 	}
-	for _, p := range m.paneManager.Panes() {
-		p.Close()
-	}
+	m.paneManager.CloseAll()
 }
 
 // embeddedTick returns a command that fires an embeddedTickMsg after 100ms.

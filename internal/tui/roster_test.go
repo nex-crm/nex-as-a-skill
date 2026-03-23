@@ -92,6 +92,11 @@ func TestRosterPhaseLabels(t *testing.T) {
 		{"execute_tool", "tool"},
 		{"done", "done"},
 		{"error", "err"},
+		{"dead", "dead"},
+		{"talking", "talk"},
+		{"thinking", "think"},
+		{"coding", "code"},
+		{"listening", "listen"},
 	}
 	for _, tc := range cases {
 		got := phaseShortLabel(tc.phase)
@@ -112,11 +117,77 @@ func TestPhaseLabels(t *testing.T) {
 		{"idle", "idle"},
 		{"done", "done"},
 		{"error", "error"},
+		{"dead", "exited"},
+		{"talking", "talking"},
+		{"thinking", "thinking"},
+		{"coding", "coding"},
+		{"listening", "listening"},
 	}
 	for _, tt := range tests {
 		got := phaseLabel(tt.phase)
 		if got != tt.expected {
 			t.Errorf("phaseLabel(%q) = %q, want %q", tt.phase, got, tt.expected)
 		}
+	}
+}
+
+func TestRosterGossipActivityIcons(t *testing.T) {
+	r := NewRoster()
+	cases := []struct {
+		phase string
+		icon  string
+	}{
+		{"talking", "●"},
+		{"thinking", "◐"},
+		{"coding", "⚡"},
+		{"listening", "◆"},
+		{"dead", "✕"},
+		{"idle", "○"},
+	}
+	for _, tc := range cases {
+		got := r.agentIcon(tc.phase)
+		if got != tc.icon {
+			t.Errorf("agentIcon(%q) = %q, want %q", tc.phase, got, tc.icon)
+		}
+	}
+}
+
+func TestRosterUpdateFromGossip(t *testing.T) {
+	r := NewRoster()
+	r.UpdateAgents([]AgentEntry{
+		{Slug: "ceo", Name: "CEO", Phase: "idle"},
+		{Slug: "fe", Name: "FE", Phase: "idle"},
+	})
+
+	r.UpdateFromGossip("ceo", "text")
+	if r.agents[0].Phase != "talking" {
+		t.Errorf("expected ceo phase 'talking', got %q", r.agents[0].Phase)
+	}
+
+	r.UpdateFromGossip("fe", "tool_use")
+	if r.agents[1].Phase != "coding" {
+		t.Errorf("expected fe phase 'coding', got %q", r.agents[1].Phase)
+	}
+
+	r.SetAgentPhase("ceo", "dead")
+	if r.agents[0].Phase != "dead" {
+		t.Errorf("expected ceo phase 'dead', got %q", r.agents[0].Phase)
+	}
+}
+
+func TestRosterSpinnerActiveForGossipPhases(t *testing.T) {
+	r := NewRoster()
+	r.UpdateAgents([]AgentEntry{
+		{Slug: "ceo", Name: "CEO", Phase: "talking"},
+	})
+	if !r.spinner.active {
+		t.Error("expected spinner active for 'talking' phase")
+	}
+
+	r.UpdateAgents([]AgentEntry{
+		{Slug: "fe", Name: "FE", Phase: "coding"},
+	})
+	if !r.spinner.active {
+		t.Error("expected spinner active for 'coding' phase")
 	}
 }

@@ -181,7 +181,7 @@ func (p *TerminalPane) IsFocused() bool {
 }
 
 // Close gracefully shuts down the PTY process.
-// Sends SIGTERM first, waits up to 3 seconds, then SIGKILL if needed.
+// Sends SIGTERM first, waits up to 5 seconds, then SIGKILL if needed.
 func (p *TerminalPane) Close() {
 	p.mu.Lock()
 	cmd := p.cmd
@@ -203,7 +203,7 @@ func (p *TerminalPane) Close() {
 
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		cmd.Process.Signal(syscall.SIGKILL)
 		<-done
 	}
