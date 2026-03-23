@@ -1,7 +1,6 @@
 package render
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -26,12 +25,12 @@ var (
 	medBadgeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#4d97ff"))
 	lowBadgeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#838485"))
 
-	dueDateStyle = MutedStyle
+	dueDateStyle   = MutedStyle
 	separatorStyle = MutedStyle
 )
 
-// priorityBadge returns the styled priority indicator for a task.
-func priorityBadge(priority string) string {
+// taskBadge returns the styled priority indicator for a task card.
+func taskBadge(priority string) string {
 	switch priority {
 	case "urgent":
 		return urgentBadgeStyle.Render("!!!")
@@ -95,9 +94,9 @@ func RenderTaskboard(tasks []TaskCard, width int) string {
 
 	// Pad columns to equal length.
 	maxRows := max(len(todoLines), len(inProgressLines), len(doneLines))
-	todoLines = padLines(todoLines, maxRows, colWidth)
-	inProgressLines = padLines(inProgressLines, maxRows, colWidth)
-	doneLines = padLines(doneLines, maxRows, colWidth)
+	todoLines = padColumnLines(todoLines, maxRows, colWidth)
+	inProgressLines = padColumnLines(inProgressLines, maxRows, colWidth)
+	doneLines = padColumnLines(doneLines, maxRows, colWidth)
 
 	// Assemble rows.
 	var sb strings.Builder
@@ -121,49 +120,47 @@ func RenderTaskboard(tasks []TaskCard, width int) string {
 }
 
 // renderColumnCards renders task cards as lines for a single column.
-// Each card produces 1-2 lines: badge + title, and optionally a due date line.
 func renderColumnCards(cards []TaskCard, colWidth int) []string {
 	var lines []string
 	for i, card := range cards {
 		if i > 0 {
-			lines = append(lines, padRight("", colWidth))
+			lines = append(lines, strings.Repeat(" ", colWidth))
 		}
 
-		badge := priorityBadge(card.Priority)
-		// Badge takes ~3 visible chars + space, title gets the rest.
-		badgeWidth := displayWidth(card.Priority)
+		badge := taskBadge(card.Priority)
+		badgeWidth := taskBadgeWidth(card.Priority)
 		titleWidth := colWidth - badgeWidth - 1
 		if titleWidth < 1 {
 			titleWidth = 1
 		}
-		title := truncate(card.Title, titleWidth)
+		title := taskTruncate(card.Title, titleWidth)
 		line := badge + " " + title
-		lines = append(lines, padRight(line, colWidth))
+		lines = append(lines, taskPadRight(line, colWidth))
 
 		if card.Due != "" {
 			dueLine := dueDateStyle.Render("  due: " + card.Due)
-			lines = append(lines, padRight(dueLine, colWidth))
+			lines = append(lines, taskPadRight(dueLine, colWidth))
 		}
 	}
 	return lines
 }
 
-// displayWidth returns the visible character width of the priority badge.
-func displayWidth(priority string) int {
+// taskBadgeWidth returns the visible character width of the task priority badge.
+func taskBadgeWidth(priority string) int {
 	switch priority {
 	case "urgent":
-		return 3 // "!!!"
+		return 3
 	case "high":
-		return 2 // "!!"
+		return 2
 	case "medium":
-		return 1 // "!"
+		return 1
 	default:
-		return 1 // "·"
+		return 1
 	}
 }
 
-// truncate trims a string to maxLen characters, adding "…" if truncated.
-func truncate(s string, maxLen int) string {
+// taskTruncate trims a string to maxLen runes, adding ellipsis if truncated.
+func taskTruncate(s string, maxLen int) string {
 	if maxLen <= 0 {
 		return ""
 	}
@@ -177,9 +174,8 @@ func truncate(s string, maxLen int) string {
 	return string(runes[:maxLen-1]) + "…"
 }
 
-// padRight pads a string with spaces to reach the target width.
-// Uses rune length for padding calculation.
-func padRight(s string, width int) string {
+// taskPadRight pads a string with spaces to reach the target width.
+func taskPadRight(s string, width int) string {
 	runes := []rune(s)
 	if len(runes) >= width {
 		return s
@@ -187,27 +183,10 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", width-len(runes))
 }
 
-// padLines extends a slice of lines to length n with blank padded lines.
-func padLines(lines []string, n int, colWidth int) []string {
+// padColumnLines extends a slice of lines to length n with blank padded lines.
+func padColumnLines(lines []string, n int, colWidth int) []string {
 	for len(lines) < n {
-		lines = append(lines, padRight("", colWidth))
+		lines = append(lines, strings.Repeat(" ", colWidth))
 	}
 	return lines
-}
-
-// max returns the largest of the given integers.
-func max(vals ...int) int {
-	m := vals[0]
-	for _, v := range vals[1:] {
-		if v > m {
-			m = v
-		}
-	}
-	return m
-}
-
-// formatCount returns a summary line like "3 tasks (1 todo, 1 in progress, 1 done)".
-func formatCount(todo, inProgress, done int) string {
-	total := todo + inProgress + done
-	return fmt.Sprintf("%d tasks (%d todo, %d in progress, %d done)", total, todo, inProgress, done)
 }
