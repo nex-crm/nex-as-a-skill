@@ -126,7 +126,31 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 		m.height = msg.Height
 		m.statusBar.Width = msg.Width
 
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.scrollOffset++
+		case tea.MouseButtonWheelDown:
+			if m.scrollOffset > 0 {
+				m.scrollOffset--
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		// Scroll keys work in any mode
+		switch msg.String() {
+		case "pgup", "ctrl+u":
+			m.scrollOffset += 10
+			return m, nil
+		case "pgdown", "ctrl+d":
+			m.scrollOffset -= 10
+			if m.scrollOffset < 0 {
+				m.scrollOffset = 0
+			}
+			return m, nil
+		}
+
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
