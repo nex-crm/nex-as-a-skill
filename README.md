@@ -126,7 +126,68 @@ Or without a global install:
 
 No API key? The server starts in registration mode — call the `register` tool with your email.
 
-**Notification channel**: The MCP server includes a built-in notification channel that pushes daily digests (24h) and proactive alerts (every 15m, configurable via `NEX_NOTIFY_INTERVAL_MINUTES`) into Claude Code sessions via the Channels API. Start with `claude --channels` to enable.
+### Proactive Notifications (Claude Code Channels)
+
+The MCP server includes a built-in notification channel that pushes context updates directly into your Claude Code session — without you having to ask. This uses the [Claude SDK Channels API](https://code.claude.com/docs/en/channels-reference).
+
+**What you get:**
+
+| Notification | What it does | Frequency |
+|---|---|---|
+| **Daily digest** | Summarizes all context collected in the last 24 hours: deal updates, new relationships, upcoming events, actionable items | Once per day (on first session start after 24h) |
+| **Proactive alerts** | Pushes new insights as they're discovered — deal changes, relationship shifts, risks, opportunities | Every 15 minutes (configurable) |
+
+**How to enable:**
+
+1. Install Nex globally (if not already):
+   ```bash
+   npm install -g @nex-ai/nex
+   ```
+
+2. Add the MCP server to your project (`.mcp.json`):
+   ```json
+   {
+     "mcpServers": {
+       "nex": {
+         "command": "nex-mcp",
+         "env": {}
+       }
+     }
+   }
+   ```
+
+3. Start Claude Code with channels enabled:
+   ```bash
+   claude --dangerously-load-development-channels server:nex
+   ```
+
+4. That's it. Notifications arrive as `<channel>` events in your session:
+   ```
+   ← nex: [technical_stack] MCP server utilizes experimental channel capability...
+   ← nex: [deal_update | high] Meridian counter-offer moved to 12% equity split...
+   ```
+
+**Configuration:**
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `NEX_NOTIFY_INTERVAL_MINUTES` | `15` | How often to poll for new insights |
+
+Set it in your `.mcp.json`:
+```json
+{
+  "mcpServers": {
+    "nex": {
+      "command": "nex-mcp",
+      "env": { "NEX_NOTIFY_INTERVAL_MINUTES": "5" }
+    }
+  }
+}
+```
+
+**State persistence:** Digest and notification timestamps are stored in `~/.nex/channel-state.json`. Delete this file to force a fresh digest on next session start.
+
+**Requirements:** Claude Code v2.1.80+, claude.ai login (API keys not supported for Channels), `--dangerously-load-development-channels` flag during research preview.
 
 ### OpenClaw Plugin (auto-recall + auto-capture)
 

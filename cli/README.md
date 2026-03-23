@@ -241,11 +241,49 @@ nex mcp                         # Start the embedded MCP server (stdio)
 MCP_TRANSPORT=http nex mcp      # Start with HTTP transport
 ```
 
-The MCP server includes a built-in notification channel (Claude SDK Channels API) that pushes:
-- **Daily digests**: 24h context summary, pushed once per day
-- **Proactive notifications**: New insights polled every 15 minutes (configurable via `NEX_NOTIFY_INTERVAL_MINUTES`)
+#### Proactive Notifications (Claude Code Channels)
 
-Enable in Claude Code with `claude --channels` or `claude --dangerously-load-development-channels server:nex`.
+The MCP server pushes context updates directly into your Claude Code session using the [Channels API](https://code.claude.com/docs/en/channels-reference). No polling commands needed — insights arrive automatically while you work.
+
+**Two notification types:**
+
+- **Daily digest** — Comprehensive summary of all context collected in the last 24 hours (deal changes, new relationships, upcoming events, actionable items). Fires once per day on session start.
+- **Proactive alerts** — New insights pushed every 15 minutes: relationship changes, deal updates, risks, opportunities. Configurable via `NEX_NOTIFY_INTERVAL_MINUTES`.
+
+**Quick setup:**
+
+```bash
+# 1. Add MCP server to your project
+cat > .mcp.json << 'EOF'
+{
+  "mcpServers": {
+    "nex": { "command": "nex-mcp", "env": {} }
+  }
+}
+EOF
+
+# 2. Start Claude Code with channels
+claude --dangerously-load-development-channels server:nex
+```
+
+Notifications appear as `<channel source="nex">` events in your session. Claude reads them automatically and incorporates the context.
+
+**Customize frequency:**
+
+```json
+{
+  "mcpServers": {
+    "nex": {
+      "command": "nex-mcp",
+      "env": { "NEX_NOTIFY_INTERVAL_MINUTES": "5" }
+    }
+  }
+}
+```
+
+**Force a fresh digest:** `rm ~/.nex/channel-state.json`
+
+**Requirements:** Claude Code v2.1.80+, claude.ai login, `--dangerously-load-development-channels` during research preview.
 
 ### Config & Sessions
 
