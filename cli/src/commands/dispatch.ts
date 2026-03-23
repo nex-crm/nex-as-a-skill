@@ -974,6 +974,82 @@ async function executeIntegrateDisconnect(args: string[], ctx: CommandContext): 
   }
 }
 
+// -- Notification commands --
+
+async function executeNotifyList(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  try {
+    const client = makeClient(ctx);
+    const params = new URLSearchParams();
+    if (typeof opts.limit === "string") params.set("limit", opts.limit);
+    if (typeof opts.since === "string") params.set("since", opts.since);
+    const qs = params.toString();
+    const result = await client.get(`/v1/notifications${qs ? `?${qs}` : ""}`);
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executeNotifyPreferences(_args: string[], ctx: CommandContext): Promise<CommandResult> {
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get("/v1/notifications/preferences");
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executeNotifySetFrequency(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const minutes = parseInt(args[0], 10);
+  if (!args[0] || isNaN(minutes) || minutes < 1) return fail("Usage: notify set-frequency <minutes> (must be >= 1)");
+
+  try {
+    const client = makeClient(ctx);
+    const result = await client.patch("/v1/notifications/preferences", { frequency_minutes: minutes });
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executeNotifyRuleCreate(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const description = args.join(" ");
+  if (!description) return fail('Usage: notify rule-create "<description>"');
+
+  try {
+    const client = makeClient(ctx);
+    const result = await client.post("/v1/notifications/custom", { description });
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executeNotifyRuleList(_args: string[], ctx: CommandContext): Promise<CommandResult> {
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get("/v1/notifications/custom");
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executeNotifyRuleDelete(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const id = args[0];
+  if (!id) return fail("Usage: notify rule-delete <id>");
+
+  try {
+    const client = makeClient(ctx);
+    const result = await client.delete(`/v1/notifications/custom/${encodeURIComponent(id)}`);
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
 // -- Graph command --
 
 async function executeGraph(args: string[], ctx: CommandContext): Promise<CommandResult> {
@@ -1249,6 +1325,14 @@ register("detect", { execute: executeDetectPlatforms, description: "Detect insta
 register("integrate list", { execute: executeIntegrateList, description: "List all integrations and connection status", category: "config" });
 register("integrate connect", { execute: executeIntegrateConnect, description: "Connect an integration", category: "config", usage: "integrate connect <name>" });
 register("integrate disconnect", { execute: executeIntegrateDisconnect, description: "Disconnect an integration", category: "config", usage: "integrate disconnect <connection-id>" });
+
+// -- Notifications --
+register("notify list", { execute: executeNotifyList, description: "List recent notifications", category: "query", usage: "notify list [--limit <n>] [--since <date>]" });
+register("notify preferences", { execute: executeNotifyPreferences, description: "Show notification preferences", category: "query" });
+register("notify set-frequency", { execute: executeNotifySetFrequency, description: "Set notification polling frequency", category: "config", usage: "notify set-frequency <minutes>" });
+register("notify rule-create", { execute: executeNotifyRuleCreate, description: "Create a custom notification rule", category: "write", usage: 'notify rule-create "<description>"' });
+register("notify rule-list", { execute: executeNotifyRuleList, description: "List custom notification rules", category: "query" });
+register("notify rule-delete", { execute: executeNotifyRuleDelete, description: "Delete a custom notification rule", category: "write", usage: "notify rule-delete <id>" });
 
 // -- Graph --
 register("graph", { execute: executeGraph, description: "Fetch workspace entity graph data", category: "graph", usage: "graph [--limit <n>]" });

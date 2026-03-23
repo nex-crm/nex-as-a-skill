@@ -12,6 +12,7 @@ import { registerInsightTools } from "./tools/insights.js";
 import { registerRegistrationTools } from "./tools/register.js";
 import { registerScanTools } from "./tools/scan.js";
 import { registerIntegrationTools } from "./tools/integrations.js";
+import { registerNotificationTools } from "./tools/notifications.js";
 
 export function createServer(apiKey?: string): {
   server: McpServer;
@@ -47,6 +48,7 @@ export function createServer(apiKey?: string): {
   registerInsightTools(server, client);
   registerScanTools(server, client);
   registerIntegrationTools(server, client);
+  registerNotificationTools(server, client);
 
   return { server, client };
 }
