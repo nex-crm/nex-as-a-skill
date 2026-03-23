@@ -64,31 +64,6 @@ func cmdProvider(ctx *SlashContext, args string) error {
 	return nil
 }
 
-// --- Data commands (existing, staying in system until moved to their own group files) ---
-
-func cmdRecords(ctx *SlashContext, args string) error {
-	if args == "" {
-		ctx.AddMessage("system", "Usage: /records <objectType>")
-		return nil
-	}
-	if !requireAuth(ctx) {
-		return nil
-	}
-	ctx.SetLoading(true)
-	result, err := api.Get[[]map[string]any](ctx.APIClient, "/v1/records?object_type="+args, 0)
-	ctx.SetLoading(false)
-	if err != nil {
-		return err
-	}
-	if len(result) == 0 {
-		ctx.AddMessage("system", "No records found.")
-		return nil
-	}
-	b, _ := json.MarshalIndent(result, "", "  ")
-	ctx.AddMessage("system", string(b))
-	return nil
-}
-
 func cmdGraph(ctx *SlashContext, args string) error {
 	ctx.AddMessage("system", "Context graph — coming soon.")
 	return nil
