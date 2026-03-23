@@ -175,7 +175,16 @@ func (l *Launcher) Kill() error {
 	if l.broker != nil {
 		l.broker.Stop()
 	}
-	return exec.Command("tmux", "-L", "nex", "kill-session", "-t", l.sessionName).Run()
+	err := exec.Command("tmux", "-L", "nex", "kill-session", "-t", l.sessionName).Run()
+	if err != nil {
+		// Check if the session simply doesn't exist
+		out, _ := exec.Command("tmux", "-L", "nex", "list-sessions").CombinedOutput()
+		if strings.Contains(string(out), "no server") || strings.Contains(string(out), "error connecting") {
+			return nil // no session running, nothing to kill
+		}
+		return err
+	}
+	return nil
 }
 
 // buildPrompt generates the system prompt for an agent, including
