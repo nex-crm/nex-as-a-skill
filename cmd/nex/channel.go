@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -60,12 +61,21 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
+			killTeamSession()
 			return m, tea.Quit
 		case "enter":
 			if len(m.input) > 0 {
 				text := string(m.input)
 				m.input = nil
 				m.inputPos = 0
+
+				// Handle /quit and /exit commands
+				trimmed := strings.TrimSpace(text)
+				if trimmed == "/quit" || trimmed == "/exit" || trimmed == "/q" {
+					killTeamSession()
+					return m, tea.Quit
+				}
+
 				m.posting = true
 				return m, postToChannel(text)
 			}
@@ -152,7 +162,7 @@ func (m channelModel) View() string {
 
 	// Title bar
 	title := titleStyle.Render(" nex team channel")
-	hint := mutedStyle.Render("  Ctrl+B 1=agents  Ctrl+B w=windows  Ctrl+C=quit")
+	hint := mutedStyle.Render("  /quit=exit all  Ctrl+B arrow=switch pane  Ctrl+B w=windows")
 	titleBar := title + hint
 
 	// Input field
@@ -163,7 +173,7 @@ func (m channelModel) View() string {
 
 	var inputStr string
 	if len(m.input) == 0 {
-		inputStr = mutedStyle.Render("Type a message to the team...")
+		inputStr = mutedStyle.Render("Type a message to the team... (/quit to exit)")
 	} else {
 		before := string(m.input[:m.inputPos])
 		cursorStyle := lipgloss.NewStyle().Reverse(true)
@@ -335,6 +345,14 @@ func tickChannel() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return channelTickMsg(t)
 	})
+}
+
+// killTeamSession kills the entire nex-team tmux session and all agent processes.
+func killTeamSession() {
+	// Kill tmux session (kills all agent processes in all panes/windows)
+	exec.Command("tmux", "-L", "nex", "kill-session", "-t", "nex-team").Run()
+	// Stop the broker
+	http.Get("http://127.0.0.1:7890/health") // just to check; broker stops with the process
 }
 
 func runChannelView() {
