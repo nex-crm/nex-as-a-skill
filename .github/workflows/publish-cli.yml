@@ -99,11 +99,16 @@ jobs:
 
       - name: Commit version bump
         if: steps.bump.outputs.bumped == 'true'
+        env:
+          BUMP_VERSION: ${{ steps.bump.outputs.version }}
         run: |
           cd ..
-          git pull --rebase
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add cli/package.json cli/src/plugin/ cli/plugin-commands/
-          git commit -m "chore(cli): bump to v${{ steps.bump.outputs.version }} [skip ci]"
+          git stash
+          git pull --rebase
+          git stash pop
+          git add cli/package.json cli/src/plugin/ cli/plugin-commands/
+          git commit -m "chore(cli): bump to v${BUMP_VERSION} [skip ci]"
           git push
