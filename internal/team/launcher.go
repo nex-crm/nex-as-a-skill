@@ -72,8 +72,8 @@ func (l *Launcher) Preflight() error {
 }
 
 // Launch creates the tmux session with:
-//   - Window 0 "channel": Go TUI showing the aggregated team conversation
-//   - Window 1 "agents": All agent Claude Code sessions in tiled panes
+//   - Window 0 "team": Channel on left (40%), agent panes tiled on right (60%)
+//   - Windows 1-7: Individual agent full-screen sessions (same processes)
 func (l *Launcher) Launch() error {
 	// Start the shared channel broker
 	l.broker = NewBroker()
@@ -87,11 +87,11 @@ func (l *Launcher) Launch() error {
 	// Resolve nex binary path for the channel view
 	nexBinary, _ := os.Executable()
 
-	// Window 0: Channel view (Go TUI polling the broker)
+	// Window 0 "team": starts with channel view on the left
 	channelCmd := fmt.Sprintf("%s --channel-view", nexBinary)
 	err := exec.Command("tmux", "-L", "nex", "new-session", "-d",
 		"-s", l.sessionName,
-		"-n", "channel",
+		"-n", "team",
 		"-c", l.cwd,
 		channelCmd,
 	).Run()
@@ -99,44 +99,47 @@ func (l *Launcher) Launch() error {
 		return fmt.Errorf("create tmux session: %w", err)
 	}
 
-	// Window 1: First agent (leader) — this becomes the "agents" window
+	// Split right: first agent (leader) gets right 60%
 	leaderPrompt := l.buildPrompt(l.pack.LeadSlug)
 	leaderCmd := l.claudeCommand(leaderPrompt)
 
-	err = exec.Command("tmux", "-L", "nex", "new-window",
-		"-t", l.sessionName,
-		"-n", "agents",
+	exec.Command("tmux", "-L", "nex", "split-window", "-h",
+		"-t", l.sessionName+":team",
+		"-p", "60",
 		"-c", l.cwd,
 		leaderCmd,
 	).Run()
-	if err != nil {
-		return fmt.Errorf("create leader pane: %w", err)
-	}
 
-	// Split the agents window into panes for each specialist
+	// Split the right side into panes for each specialist (up to 3 more)
+	specialists := 0
 	for _, agentCfg := range l.pack.Agents {
 		if agentCfg.Slug == l.pack.LeadSlug {
-			continue // already in the first pane
+			continue
+		}
+		if specialists >= 3 {
+			break // max 4 agent panes visible (leader + 3 specialists)
 		}
 
 		prompt := l.buildPrompt(agentCfg.Slug)
 		agentCmd := l.claudeCommand(prompt)
 
-		// Split horizontally or vertically to create new panes
+		// Split within the right side
 		exec.Command("tmux", "-L", "nex", "split-window",
-			"-t", l.sessionName+":agents",
+			"-t", l.sessionName+":team.1", // target the right side
 			"-c", l.cwd,
 			agentCmd,
 		).Run()
 
-		// Re-tile after each split to keep panes even
+		// Re-tile the right side panes
 		exec.Command("tmux", "-L", "nex", "select-layout",
-			"-t", l.sessionName+":agents",
-			"tiled",
+			"-t", l.sessionName+":team",
+			"main-vertical",
 		).Run()
+
+		specialists++
 	}
 
-	// Also create individual windows per agent for full-screen access
+	// Create individual full-screen windows for ALL agents (including those not in tiled view)
 	for _, agentCfg := range l.pack.Agents {
 		prompt := l.buildPrompt(agentCfg.Slug)
 		agentCmd := l.claudeCommand(prompt)
@@ -149,9 +152,12 @@ func (l *Launcher) Launch() error {
 		).Run()
 	}
 
-	// Select the channel window as the starting view
+	// Focus back on window 0 (team), select the channel pane
 	exec.Command("tmux", "-L", "nex", "select-window",
-		"-t", l.sessionName+":channel",
+		"-t", l.sessionName+":team",
+	).Run()
+	exec.Command("tmux", "-L", "nex", "select-pane",
+		"-t", l.sessionName+":team.0",
 	).Run()
 
 	return nil
