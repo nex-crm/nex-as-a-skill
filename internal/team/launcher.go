@@ -81,13 +81,13 @@ func (l *Launcher) Launch() error {
 	}
 
 	// Kill any existing session
-	exec.Command("tmux", "kill-session", "-t", l.sessionName).Run()
+	exec.Command("tmux", "-L", "nex", "kill-session", "-t", l.sessionName).Run()
 
 	// Create new session with the first agent (leader)
 	leaderPrompt := l.buildPrompt(l.pack.LeadSlug)
 	leaderCmd := l.claudeCommand(leaderPrompt)
 
-	err := exec.Command("tmux", "new-session", "-d",
+	err := exec.Command("tmux", "-L", "nex", "new-session", "-d",
 		"-s", l.sessionName,
 		"-n", l.pack.LeadSlug,
 		"-c", l.cwd,
@@ -106,7 +106,7 @@ func (l *Launcher) Launch() error {
 		prompt := l.buildPrompt(agentCfg.Slug)
 		cmd := l.claudeCommand(prompt)
 
-		err := exec.Command("tmux", "new-window", "-d",
+		err := exec.Command("tmux", "-L", "nex", "new-window", "-d",
 			"-t", l.sessionName,
 			"-n", agentCfg.Slug,
 			"-c", l.cwd,
@@ -121,11 +121,15 @@ func (l *Launcher) Launch() error {
 }
 
 // Attach attaches the user's terminal to the tmux session.
+// Uses a separate tmux server socket to avoid "sessions should be nested" error
+// when running inside an existing tmux (e.g., Claude Code).
 func (l *Launcher) Attach() error {
-	cmd := exec.Command("tmux", "attach-session", "-t", l.sessionName)
+	cmd := exec.Command("tmux", "-L", "nex", "attach-session", "-t", l.sessionName)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	// Unset TMUX env to allow nesting
+	cmd.Env = filterEnv(os.Environ(), "TMUX")
 	return cmd.Run()
 }
 
@@ -134,7 +138,7 @@ func (l *Launcher) Kill() error {
 	if l.broker != nil {
 		l.broker.Stop()
 	}
-	return exec.Command("tmux", "kill-session", "-t", l.sessionName).Run()
+	return exec.Command("tmux", "-L", "nex", "kill-session", "-t", l.sessionName).Run()
 }
 
 // buildPrompt generates the system prompt for an agent, including
@@ -230,6 +234,18 @@ func (l *Launcher) PackName() string {
 // AgentCount returns the number of agents in the pack.
 func (l *Launcher) AgentCount() int {
 	return len(l.pack.Agents)
+}
+
+// filterEnv returns env with the given key removed.
+func filterEnv(env []string, key string) []string {
+	prefix := key + "="
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, prefix) {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // getAgentName returns the display name for an agent slug.
