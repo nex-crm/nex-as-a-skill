@@ -7,9 +7,9 @@ import (
 
 func TestParseSlashInput(t *testing.T) {
 	tests := []struct {
-		input    string
-		wantName string
-		wantArgs string
+		input     string
+		wantName  string
+		wantArgs  string
 		wantSlash bool
 	}{
 		{"/ask hello world", "ask", "hello world", true},
@@ -74,7 +74,7 @@ func TestRegisterAllCommands(t *testing.T) {
 		"note", "notes", "task", "tasks",
 		"list", "rel", "attribute",
 		"config", "detect", "session",
-		"help", "clear", "quit", "q", "init", "login", "provider",
+		"help", "clear", "quit", "q", "init", "login", "provider", "reset", "thinking",
 	}
 	for _, name := range expected {
 		if _, ok := r.Get(name); !ok {
@@ -97,9 +97,9 @@ func TestCmdQuitReturnsErrQuit(t *testing.T) {
 
 	var messages []string
 	ctx := &SlashContext{
-		AddMessage:  func(role, content string) { messages = append(messages, content) },
-		SetLoading:  func(bool) {},
-		SendResult:  func(string, error) {},
+		AddMessage: func(role, content string) { messages = append(messages, content) },
+		SetLoading: func(bool) {},
+		SendResult: func(string, error) {},
 	}
 	err := cmd.Execute(ctx, "")
 	if !errors.Is(err, ErrQuit) {

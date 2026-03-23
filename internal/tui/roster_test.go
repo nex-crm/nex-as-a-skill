@@ -65,8 +65,8 @@ func TestRosterSpinnerFrameAdvancesOnTick(t *testing.T) {
 func TestRosterViewContainsHeader(t *testing.T) {
 	r := NewRoster()
 	view := r.View()
-	if !strings.Contains(view, "AGENTS") {
-		t.Fatal("expected roster view to contain 'AGENTS' header")
+	if !strings.Contains(view, "TEAM") {
+		t.Fatal("expected roster view to contain 'TEAM' header")
 	}
 }
 

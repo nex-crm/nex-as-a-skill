@@ -182,14 +182,9 @@ func TestSteerInjectsSystemMessage(t *testing.T) {
 
 	loop.Start()
 
-	// Tick 1: idle → build_context (creates session, but steer not drained yet since session didn't exist at top of tick)
+	// Tick 1: idle → build_context (creates session and drains steer immediately)
 	if err := loop.Tick(); err != nil {
 		t.Fatalf("tick 1: %v", err)
-	}
-
-	// Tick 2: build_context → stream_llm (steer is drained at top of tick since session now exists)
-	if err := loop.Tick(); err != nil {
-		t.Fatalf("tick 2: %v", err)
 	}
 
 	state := loop.GetState()
@@ -210,6 +205,33 @@ func TestSteerInjectsSystemMessage(t *testing.T) {
 		for _, e := range entries {
 			t.Logf("  entry: type=%s content=%q", e.Type, e.Content)
 		}
+	}
+}
+
+func TestSteerOnlyMessageSurvivesFirstTick(t *testing.T) {
+	loop, _ := newTestLoop(t, mockStreamFn("ack"))
+	loop.queues.Steer("test-agent", "do the urgent thing")
+	loop.Start()
+
+	if err := loop.Tick(); err != nil {
+		t.Fatalf("tick 1: %v", err)
+	}
+
+	state := loop.GetState()
+	entries, err := loop.sessions.GetHistory(state.SessionID, 0, "")
+	if err != nil {
+		t.Fatalf("get history: %v", err)
+	}
+
+	found := false
+	for _, e := range entries {
+		if e.Type == "system" && e.Content == "[STEER] do the urgent thing" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected steer-only message to survive first tick")
 	}
 }
 

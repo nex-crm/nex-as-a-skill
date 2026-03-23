@@ -296,6 +296,79 @@ func TestEnsureRunningTickLoop(t *testing.T) {
 	svc.EnsureRunning("tick-test")
 }
 
+func TestEnsureRunningDoesNotHoldServiceMutexDuringTick(t *testing.T) {
+	dir := t.TempDir()
+	sessions := NewSessionStoreAt(dir)
+	queues := NewMessageQueues()
+	tools := NewToolRegistry()
+
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	mockStream := func(msgs []Message, tls []AgentTool) <-chan StreamChunk {
+		ch := make(chan StreamChunk)
+		go func() {
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			<-release
+			ch <- StreamChunk{Type: "text", Content: "done"}
+			close(ch)
+		}()
+		return ch
+	}
+
+	svc := NewAgentService(
+		WithToolRegistry(tools),
+		WithSessionStore(sessions),
+		WithQueues(queues),
+	)
+
+	ma, err := svc.Create(AgentConfig{Slug: "blocking", Name: "Blocking Agent"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	ma.Loop.streamFn = mockStream
+
+	queues.FollowUp("blocking", "do something")
+	if err := svc.Start("blocking"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	svc.EnsureRunning("blocking")
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for blocking tick to start")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_ = svc.List()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("List blocked while agent tick was in progress")
+	}
+
+	done = make(chan struct{})
+	go func() {
+		_, _ = svc.GetState("blocking")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("GetState blocked while agent tick was in progress")
+	}
+
+	close(release)
+}
+
 func TestListAgents(t *testing.T) {
 	svc := newTestService(t, nil)
 

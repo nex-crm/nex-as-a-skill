@@ -18,8 +18,17 @@ func TestBuildTeamLeadPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "@be") {
 		t.Error("expected prompt to contain @be")
 	}
-	if !strings.Contains(prompt, "delegate") || !strings.Contains(prompt, "narrate") {
+	if !strings.Contains(prompt, "delegate") || !strings.Contains(prompt, "MUST delegate") {
 		t.Error("expected delegation instructions in prompt")
+	}
+	if !strings.Contains(prompt, "Never invent external teammates") {
+		t.Error("expected prompt to forbid invented teammates")
+	}
+	if !strings.Contains(prompt, "Never claim specialist work is already complete") {
+		t.Error("expected prompt to forbid fake completion")
+	}
+	if !strings.Contains(prompt, "Do not use headings, bullets, markdown, JSON, YAML, metadata") {
+		t.Error("expected prompt to forbid verbose metadata-heavy output")
 	}
 }
 

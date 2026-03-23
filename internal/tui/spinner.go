@@ -49,3 +49,7 @@ func (s *SpinnerModel) SetActive(active bool) {
 func (s *SpinnerModel) SetLabel(label string) {
 	s.label = label
 }
+
+func (s SpinnerModel) IsActive() bool {
+	return s.active
+}

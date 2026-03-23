@@ -9,13 +9,14 @@ func TestMessageRouter_ExtractSkills(t *testing.T) {
 	mr := NewMessageRouter()
 
 	tests := []struct {
-		msg      string
-		wantAny  []string
+		msg     string
+		wantAny []string
 	}{
 		{"Can you research our competitors?", []string{"market-research", "competitive-analysis"}},
 		{"Find me new leads and outreach targets", []string{"prospecting", "outreach"}},
 		{"Fix the bug in the code", []string{"general", "planning"}},
 		{"Help with SEO and keyword ranking", []string{"seo", "content-analysis"}},
+		{"Build a landing page and backend API with a positioning brief", []string{"frontend", "backend", "positioning"}},
 		{"Hello", nil},
 	}
 
@@ -60,6 +61,33 @@ func TestNewDirectiveGoesToTeamLead(t *testing.T) {
 	}
 	if !result.TeamLeadAware {
 		t.Error("team-lead should be aware")
+	}
+}
+
+func TestRouteSuggestsCollaboratorsForProductLaunchWork(t *testing.T) {
+	mr := NewMessageRouter()
+	mr.SetTeamLeadSlug("ceo")
+	agents := []AgentInfo{
+		{Slug: "ceo", Expertise: []string{"strategy", "delegation"}},
+		{Slug: "fe", Expertise: []string{"frontend", "React", "CSS", "UI-UX", "components"}},
+		{Slug: "be", Expertise: []string{"backend", "APIs", "databases"}},
+		{Slug: "cmo", Expertise: []string{"positioning", "messaging", "go-to-market"}},
+	}
+
+	result := mr.Route("Build a landing page, backend API, and positioning brief for Nex.", agents)
+	if result.Primary != "ceo" {
+		t.Fatalf("expected primary='ceo', got %q", result.Primary)
+	}
+	want := map[string]bool{"fe": false, "be": false, "cmo": false}
+	for _, slug := range result.Collaborators {
+		if _, ok := want[slug]; ok {
+			want[slug] = true
+		}
+	}
+	for slug, found := range want {
+		if !found {
+			t.Fatalf("expected collaborator %q in %v", slug, result.Collaborators)
+		}
 	}
 }
 

@@ -156,16 +156,33 @@ func (s *AgentService) Create(cfg AgentConfig) (*ManagedAgent, error) {
 
 	loop := NewAgentLoop(cfg, s.toolRegistry, s.sessionStore, s.queues, streamFn, s.gossipLayer, s.credTracker)
 
-	// Wire phase_change events to notify listeners.
-	loop.On(EventPhaseChange, func(args ...any) {
-		s.notify()
-	})
-
 	ma := &ManagedAgent{
 		Config: cfg,
 		State:  loop.GetState(),
 		Loop:   loop,
 	}
+
+	// Keep the cached state responsive without requiring callers to lock the loop.
+	loop.On(EventPhaseChange, func(args ...any) {
+		if len(args) >= 2 {
+			if phase, ok := args[1].(AgentPhase); ok {
+				ma.State.Phase = phase
+			}
+		}
+	})
+	loop.On(EventError, func(args ...any) {
+		ma.State.Phase = PhaseError
+		if len(args) > 0 {
+			if errText, ok := args[0].(string); ok {
+				ma.State.Error = errText
+			}
+		}
+	})
+	loop.On(EventDone, func(args ...any) {
+		ma.State.Phase = PhaseDone
+		ma.State.CurrentTask = ""
+		ma.State.Error = ""
+	})
 	s.agents[cfg.Slug] = ma
 	s.notify()
 	return ma, nil
@@ -248,20 +265,20 @@ func (s *AgentService) FollowUp(slug, message string) error {
 // The goroutine checks queues.HasMessages before ticking and stops when the loop is no longer running.
 func (s *AgentService) EnsureRunning(slug string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Already running.
 	if _, ok := s.tickTimers[slug]; ok {
+		s.mu.Unlock()
 		return
 	}
 
 	ma, err := s.requireAgent(slug)
 	if err != nil {
+		s.mu.Unlock()
 		return
 	}
 
 	stopCh := make(chan struct{})
 	s.tickTimers[slug] = stopCh
+	s.mu.Unlock()
 
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
@@ -273,17 +290,40 @@ func (s *AgentService) EnsureRunning(slug string) {
 				return
 			case <-ticker.C:
 				s.mu.Lock()
-				state := ma.Loop.GetState()
-				if state.Phase == PhaseDone || state.Phase == PhaseError {
-					// Only tick if there are new messages to process.
-					if !s.queues.HasMessages(slug) {
-						s.mu.Unlock()
-						continue
-					}
+				current, ok := s.agents[slug]
+				if !ok || current != ma {
+					delete(s.tickTimers, slug)
+					s.mu.Unlock()
+					return
 				}
+				state := ma.Loop.GetState()
+				hasMessages := s.queues.HasMessages(slug)
+				shouldStop := !hasMessages && (state.Phase == PhaseIdle || state.Phase == PhaseDone || state.Phase == PhaseError)
+				shouldTick := !shouldStop
+				s.mu.Unlock()
+
+				if shouldStop {
+					s.mu.Lock()
+					delete(s.tickTimers, slug)
+					s.mu.Unlock()
+					return
+				}
+				if !shouldTick {
+					continue
+				}
+
 				_ = ma.Loop.Tick()
-				ma.State = ma.Loop.GetState()
-				running := (ma.State.Phase != PhaseDone && ma.State.Phase != PhaseIdle) || s.queues.HasMessages(slug)
+				nextState := ma.Loop.GetState()
+
+				s.mu.Lock()
+				current, ok = s.agents[slug]
+				if !ok || current != ma {
+					delete(s.tickTimers, slug)
+					s.mu.Unlock()
+					return
+				}
+				ma.State = nextState
+				running := (nextState.Phase != PhaseDone && nextState.Phase != PhaseIdle) || s.queues.HasMessages(slug)
 				s.mu.Unlock()
 
 				if !running {
@@ -327,7 +367,6 @@ func (s *AgentService) GetState(slug string) (AgentState, bool) {
 	if !ok {
 		return AgentState{}, false
 	}
-	ma.State = ma.Loop.GetState()
 	return ma.State, true
 }
 

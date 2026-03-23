@@ -64,12 +64,11 @@ func NewModel() Model {
 
 // Init starts the spinner, agent event listener, and sends the contextual welcome message.
 func (m Model) Init() tea.Cmd {
-	welcomeText := "Welcome! Run /init to get started."
-	if m.hasAPIKey {
-		welcomeText = "Welcome to Nex CLI. Type a message or /help"
-	}
-	welcomeCmd := func() tea.Msg {
-		return SlashResultMsg{Output: welcomeText}
+	var welcomeCmd tea.Cmd
+	if !m.hasAPIKey {
+		welcomeCmd = func() tea.Msg {
+			return SlashResultMsg{Output: "Welcome! Run /init to get started."}
+		}
 	}
 	return tea.Batch(
 		m.stream.Init(),
@@ -198,7 +197,11 @@ func (m Model) renderAgentsView() string {
 	var lines []string
 	lines = append(lines, title, "")
 	for _, a := range agents {
-		line := fmt.Sprintf("  %-24s  %s", a.Config.Name, a.State.Phase)
+		role := "specialist"
+		if a.Config.Slug == m.runtime.TeamLeadSlug {
+			role = "lead"
+		}
+		line := fmt.Sprintf("  @%-12s %-18s %-10s %s", a.Config.Slug, a.Config.Name, role, a.State.Phase)
 		lines = append(lines, line)
 	}
 	lines = append(lines, "")

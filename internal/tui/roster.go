@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-const rosterWidth = 22
+const rosterWidth = 28
 
 var activePhases = map[string]bool{
 	"build_context": true,
@@ -59,7 +59,7 @@ func (r RosterModel) View() string {
 	header := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color(NexPurple)).
-		Render("AGENTS")
+		Render("TEAM")
 
 	var rows []string
 	rows = append(rows, header)
@@ -67,8 +67,8 @@ func (r RosterModel) View() string {
 	for _, ag := range r.agents {
 		icon := r.agentIcon(ag.Phase)
 		nameStr := ag.Name
-		if len(nameStr) > rosterWidth-6 {
-			nameStr = nameStr[:rosterWidth-6]
+		if len(nameStr) > rosterWidth-11 {
+			nameStr = nameStr[:rosterWidth-11]
 		}
 
 		label := phaseLabel(ag.Phase)

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/nex-ai/nex-cli/internal/commands"
 	"github.com/nex-ai/nex-cli/internal/config"
 	"github.com/nex-ai/nex-cli/internal/orchestration"
+	"github.com/nex-ai/nex-cli/internal/provider"
 )
 
 // StreamMessage represents a message in the chat stream.
@@ -48,6 +50,8 @@ var defaultSlashCommands = []SlashCommand{
 	{Name: "detect", Description: "Detect installed AI platforms"},
 	{Name: "init", Description: "Run setup"},
 	{Name: "provider", Description: "Switch LLM provider"},
+	{Name: "reset", Description: "Reset Claude session persistence"},
+	{Name: "thinking", Description: "Toggle agent thinking visibility"},
 	{Name: "graph", Description: "View context graph"},
 	{Name: "insights", Description: "View insights"},
 	{Name: "calendar", Description: "View agent calendar (add/remove/list)"},
@@ -79,33 +83,47 @@ type StreamModel struct {
 	loading       bool
 	mode          string // "normal" or "insert"
 
-	streaming          map[string]string              // partial text per agent slug
-	wiredAgents        map[string]bool                // agents with event handlers registered
-	queuedDelegations  []orchestration.Delegation     // delegations waiting for a concurrency slot
+	streaming         map[string]string          // partial text per agent slug
+	wiredAgents       map[string]bool            // agents with event handlers registered
+	queuedDelegations []orchestration.Delegation // delegations waiting for a concurrency slot
+	pendingLeadTask   string
+	pendingLeadHints  []string
+	lastAgentEvent    map[string]time.Time
+	lastAgentPulse    map[string]time.Time
+	showThinking      bool
+	spinnerTicking    bool
 
 	initFlow InitFlowModel
 }
 
+var (
+	debugMetadataPattern = regexp.MustCompile(`(?m)^(session_id|entity_references|tools_used|metadata|status)\s*:`)
+	blankLinePattern     = regexp.MustCompile(`\n{3,}`)
+)
+
 // NewStreamModel creates a new StreamModel wired to the runtime.
 func NewStreamModel(rt *Runtime, events chan tea.Msg) StreamModel {
 	m := StreamModel{
-		autocomplete: NewAutocomplete(defaultSlashCommands),
-		mention:      NewMention(nil),
-		roster:       NewRoster(),
-		spinner:      NewSpinner(""),
-		statusBar:    NewStatusBar(),
-		runtime:      rt,
-		agentEvents:  events,
-		mode:         "insert",
-		streaming:    make(map[string]string),
-		wiredAgents:  make(map[string]bool),
-		initFlow:     NewInitFlow(),
+		autocomplete:   NewAutocomplete(defaultSlashCommands),
+		mention:        NewMention(nil),
+		roster:         NewRoster(),
+		spinner:        NewSpinner(""),
+		statusBar:      NewStatusBar(),
+		runtime:        rt,
+		agentEvents:    events,
+		mode:           "insert",
+		streaming:      make(map[string]string),
+		wiredAgents:    make(map[string]bool),
+		lastAgentEvent: make(map[string]time.Time),
+		lastAgentPulse: make(map[string]time.Time),
+		spinnerTicking: true,
+		initFlow:       NewInitFlow(),
 	}
 	m.statusBar.Mode = "INSERT"
 	m.statusBar.Breadcrumbs = []string{"stream"}
 	m.messages = append(m.messages, StreamMessage{
 		Role:      "system",
-		Content:   "Welcome to nex. Type a message or /help for commands.",
+		Content:   m.initialWelcome(),
 		Timestamp: time.Now(),
 	})
 	return m
@@ -176,6 +194,7 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 
 	case AgentTextMsg:
 		m.streaming[msg.AgentSlug] = m.streaming[msg.AgentSlug] + msg.Text
+		m.noteAgentActivity(msg.AgentSlug, time.Now())
 
 	case AgentThinkingMsg:
 		// Show thinking as a dimmed system message
@@ -195,6 +214,7 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			Content:   thinking,
 			Timestamp: time.Now(),
 		})
+		m.noteAgentActivity(msg.AgentSlug, time.Now())
 
 	case AgentToolUseMsg:
 		agentName := msg.AgentSlug
@@ -218,6 +238,7 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			Timestamp: time.Now(),
 		})
 		m.spinner.SetLabel(agentName + " → " + msg.ToolName)
+		m.noteAgentActivity(msg.AgentSlug, time.Now())
 
 	case AgentToolResultMsg:
 		agentName := msg.AgentSlug
@@ -235,20 +256,21 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			Content:   content,
 			Timestamp: time.Now(),
 		})
+		m.noteAgentActivity(msg.AgentSlug, time.Now())
 
 	case AgentDoneMsg:
 		if text, ok := m.streaming[msg.AgentSlug]; ok && text != "" {
-			agentName := msg.AgentSlug
-			if ma, ok := m.runtime.AgentService.Get(msg.AgentSlug); ok {
-				agentName = ma.Config.Name
+			agentName := m.agentDisplayName(msg.AgentSlug)
+			displayText := m.displayAgentText(msg.AgentSlug, text)
+			if displayText != "" {
+				m.messages = append(m.messages, StreamMessage{
+					Role:      "agent",
+					AgentSlug: msg.AgentSlug,
+					AgentName: agentName,
+					Content:   displayText,
+					Timestamp: time.Now(),
+				})
 			}
-			m.messages = append(m.messages, StreamMessage{
-				Role:      "agent",
-				AgentSlug: msg.AgentSlug,
-				AgentName: agentName,
-				Content:   text,
-				Timestamp: time.Now(),
-			})
 			delete(m.streaming, msg.AgentSlug)
 
 			// If the team-lead just finished, parse for delegations to specialists
@@ -260,9 +282,20 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 					}
 				}
 				delegations := m.runtime.Delegator.ExtractDelegations(text, knownSlugs)
+				if len(delegations) == 0 && len(m.pendingLeadHints) > 0 && m.pendingLeadTask != "" {
+					for _, slug := range m.pendingLeadHints {
+						delegations = append(delegations, orchestration.Delegation{
+							AgentSlug: slug,
+							Task:      m.pendingLeadTask,
+						})
+					}
+					m.appendSystemMessage("CEO delegation fallback: dispatching suggested specialists.")
+				}
 				immediate, queued := m.runtime.Delegator.ApplyLimit(delegations)
 				m.queuedDelegations = append(m.queuedDelegations, queued...)
 				m.startDelegations(immediate)
+				m.pendingLeadTask = ""
+				m.pendingLeadHints = nil
 				if len(delegations) > 0 {
 					m.loading = true
 					m.spinner.SetActive(true)
@@ -277,19 +310,17 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 				m.startDelegations([]orchestration.Delegation{next})
 			}
 		}
+		m.noteAgentActivity(msg.AgentSlug, time.Now())
 		m.loading = m.hasActiveAgents()
 		if !m.loading {
 			m.spinner.SetActive(false)
 		}
+		m.updateSpinnerLabel()
 		m.updateRoster()
 
 	case AgentErrorMsg:
 		delete(m.streaming, msg.AgentSlug)
-		m.messages = append(m.messages, StreamMessage{
-			Role:      "system",
-			Content:   fmt.Sprintf("Error from %s: %v", msg.AgentSlug, msg.Err),
-			Timestamp: time.Now(),
-		})
+		m.appendSystemMessage(fmt.Sprintf("Error from %s: %v", msg.AgentSlug, msg.Err))
 
 		// Advance queued delegations on specialist failure (free the slot)
 		if msg.AgentSlug != m.runtime.TeamLeadSlug && len(m.queuedDelegations) > 0 {
@@ -302,18 +333,30 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 		if !m.loading {
 			m.spinner.SetActive(false)
 		}
+		m.noteAgentActivity(msg.AgentSlug, time.Now())
+		m.updateSpinnerLabel()
 		m.updateRoster()
 
 	case PhaseChangeMsg:
+		m.noteAgentActivity(msg.AgentSlug, time.Now())
+		m.handlePhaseChange(msg)
+		m.updateSpinnerLabel()
 		m.updateRoster()
 
 	case SpinnerTickMsg:
 		var sCmd tea.Cmd
 		m.spinner, sCmd = m.spinner.Update(msg)
-		cmds = append(cmds, sCmd)
+		if sCmd != nil {
+			m.spinnerTicking = true
+			cmds = append(cmds, sCmd)
+		} else {
+			m.spinnerTicking = false
+		}
 		var rCmd tea.Cmd
 		m.roster, rCmd = m.roster.Update(msg)
 		cmds = append(cmds, rCmd)
+		m.emitProgressPulses(msg.Time)
+		m.updateSpinnerLabel()
 
 	case PickerSelectMsg:
 		m.picker.SetActive(false)
@@ -329,11 +372,8 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			m.runtime.Reconfigure()
 			m.resetDelegationState()
 			m.rewireAllAgents()
-			m.messages = append(m.messages, StreamMessage{
-				Role:      "system",
-				Content:   fmt.Sprintf("Provider switched to %s. Agents reconfigured.", msg.Value),
-				Timestamp: time.Now(),
-			})
+			m.appendSystemMessage(fmt.Sprintf("Provider switched to %s. %s", msg.Value, m.runtimeSummary()))
+			m.updateSpinnerLabel()
 		}
 
 	case ConfirmMsg:
@@ -353,26 +393,16 @@ func (m StreamModel) Update(msg tea.Msg) (StreamModel, tea.Cmd) {
 			m.resetDelegationState()
 			m.rewireAllAgents()
 			heading, instructions := m.initFlow.phaseText()
-			m.messages = append(m.messages, StreamMessage{
-				Role:      "system",
-				Content:   heading + " — " + instructions,
-				Timestamp: time.Now(),
-			})
+			m.appendSystemMessage(heading + " — " + instructions)
+			m.appendSystemMessage(m.runtimeSummary())
+			m.updateSpinnerLabel()
 		}
 
 	case SlashResultMsg:
 		if msg.Err != nil {
-			m.messages = append(m.messages, StreamMessage{
-				Role:      "system",
-				Content:   "Error: " + msg.Err.Error(),
-				Timestamp: time.Now(),
-			})
+			m.appendSystemMessage("Error: " + msg.Err.Error())
 		} else if msg.Output != "" {
-			m.messages = append(m.messages, StreamMessage{
-				Role:      "system",
-				Content:   msg.Output,
-				Timestamp: time.Now(),
-			})
+			m.appendSystemMessage(msg.Output)
 		}
 	}
 
@@ -491,19 +521,50 @@ func (m StreamModel) updateInsertMode(msg tea.KeyMsg) (StreamModel, tea.Cmd) {
 	case "tab", "shift+tab":
 		return m, nil
 	default:
-		// Insert printable character
-		runes := []rune(key)
-		if len(runes) == 1 && runes[0] >= 32 {
+		if msg.Type == tea.KeySpace {
+			runes := []rune{' '}
 			newInput := make([]rune, len(m.inputValue)+1)
 			copy(newInput, m.inputValue[:m.inputPos])
-			newInput[m.inputPos] = runes[0]
+			copy(newInput[m.inputPos:], runes)
 			copy(newInput[m.inputPos+1:], m.inputValue[m.inputPos:])
 			m.inputValue = newInput
 			m.inputPos++
 			m.updateInputOverlays()
+			return m, nil
+		}
+		if msg.Type != tea.KeyRunes || len(msg.Runes) == 0 {
+			return m, nil
+		}
+		runes := sanitizeInputRunes(msg.Runes)
+		if len(runes) > 0 {
+			newInput := make([]rune, len(m.inputValue)+len(runes))
+			copy(newInput, m.inputValue[:m.inputPos])
+			copy(newInput[m.inputPos:], runes)
+			copy(newInput[m.inputPos+len(runes):], m.inputValue[m.inputPos:])
+			m.inputValue = newInput
+			m.inputPos += len(runes)
+			m.updateInputOverlays()
 		}
 		return m, nil
 	}
+}
+
+func sanitizeInputRunes(in []rune) []rune {
+	out := make([]rune, 0, len(in))
+	lastWasSpace := false
+	for _, r := range in {
+		switch {
+		case r == '\r' || r == '\n' || r == '\t':
+			if len(out) > 0 && !lastWasSpace {
+				out = append(out, ' ')
+				lastWasSpace = true
+			}
+		case r >= 32:
+			out = append(out, r)
+			lastWasSpace = r == ' '
+		}
+	}
+	return out
 }
 
 // updateNormalMode handles key events when in normal mode.
@@ -563,12 +624,47 @@ func (m StreamModel) handleSubmit() (StreamModel, tea.Cmd) {
 		}
 	}
 
-	// Wire events + steer
+	// Wire events + queue the user's message as a real follow-up turn.
 	m.wireAgent(primarySlug)
 	if ma, ok := m.runtime.AgentService.Get(primarySlug); ok {
 		m.runtime.MessageRouter.RegisterAgent(primarySlug, ma.Config.Expertise)
 	}
-	_ = m.runtime.AgentService.Steer(primarySlug, input)
+	if primarySlug == m.runtime.TeamLeadSlug {
+		m.pendingLeadTask = input
+		m.pendingLeadHints = append([]string(nil), result.Collaborators...)
+		if len(result.Collaborators) > 0 {
+			hint := "Delegate using only these specialist slugs when relevant: @" + strings.Join(result.Collaborators, ", @")
+			_ = m.runtime.AgentService.Steer(primarySlug, hint)
+			m.appendSystemMessage(fmt.Sprintf("%s coordinating with %s.", m.agentDisplayName(primarySlug), m.formatAgentNames(result.Collaborators)))
+			var proactive []orchestration.Delegation
+			for _, slug := range result.Collaborators {
+				proactive = append(proactive, orchestration.Delegation{
+					AgentSlug: slug,
+					Task:      input,
+				})
+			}
+			immediate, queued := m.runtime.Delegator.ApplyLimit(proactive)
+			m.queuedDelegations = append(m.queuedDelegations, queued...)
+			if len(queued) > 0 {
+				m.appendSystemMessage(fmt.Sprintf("%d more delegation(s) queued.", len(queued)))
+			}
+			m.startDelegations(immediate)
+			m.pendingLeadTask = ""
+			m.pendingLeadHints = nil
+			m.loading = true
+			m.spinner.SetActive(true)
+			m.updateSpinnerLabel()
+		}
+	} else {
+		m.pendingLeadTask = ""
+		m.pendingLeadHints = nil
+		if result.IsFollowUp {
+			m.appendSystemMessage(fmt.Sprintf("Continuing with %s.", m.agentDisplayName(primarySlug)))
+		} else {
+			m.appendSystemMessage(fmt.Sprintf("Directing this to %s.", m.agentDisplayName(primarySlug)))
+		}
+	}
+	_ = m.runtime.AgentService.FollowUp(primarySlug, input)
 	m.runtime.AgentService.EnsureRunning(primarySlug)
 
 	// Collaborators are populated for informational purposes only.
@@ -579,10 +675,10 @@ func (m StreamModel) handleSubmit() (StreamModel, tea.Cmd) {
 
 	m.loading = true
 	m.spinner.SetActive(true)
-	m.spinner.SetLabel("thinking...")
+	m.updateSpinnerLabel()
 	m.updateRoster()
 
-	return m, m.spinner.Tick()
+	return m, tea.Batch(m.ensureSpinnerTick())
 }
 
 // handleSlashCommand processes slash commands. TUI-specific commands are handled
@@ -613,6 +709,26 @@ func (m StreamModel) handleSlashCommand(input string) (StreamModel, tea.Cmd) {
 	case "provider":
 		m.picker = NewPicker("Switch LLM Provider", ProviderOptions())
 		m.picker.SetActive(true)
+		return m, nil
+	case "thinking":
+		m.showThinking = !m.showThinking
+		if m.showThinking {
+			m.appendSystemMessage("Agent thinking expanded.")
+		} else {
+			m.appendSystemMessage("Agent thinking collapsed.")
+		}
+		return m, nil
+	case "reset":
+		if err := provider.ResetClaudeSessions(); err != nil {
+			m.appendSystemMessage("Failed to reset Claude session persistence: " + err.Error())
+			return m, nil
+		}
+		m.runtime.Reconfigure()
+		m.resetDelegationState()
+		m.appendSystemMessage("Claude session persistence reset. The next Claude task will start fresh.")
+		return m, nil
+	case "agents":
+		m.appendSystemMessage(m.renderAgentsSnapshot())
 		return m, nil
 	case "generative":
 		g := NewGenerativeModel()
@@ -760,8 +876,16 @@ func (m StreamModel) renderMessages(width, height int) string {
 	}
 
 	var lines []string
+	hiddenThinking := 0
 	for _, msg := range m.messages {
-		lines = append(lines, m.renderMessage(msg, width))
+		if msg.Role == "thinking" && !m.showThinking {
+			hiddenThinking++
+			continue
+		}
+		lines = append(lines, wrapForViewport(m.renderMessage(msg, width), width)...)
+	}
+	if hiddenThinking > 0 {
+		lines = append(lines, wrapForViewport(SystemStyle.Render(fmt.Sprintf("  %d thinking update(s) hidden. Use /thinking to expand.", hiddenThinking)), width)...)
 	}
 
 	// Append streaming partial texts with cursor
@@ -771,7 +895,11 @@ func (m StreamModel) renderMessages(width, height int) string {
 			agentName = ma.Config.Name
 		}
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(MutedColor))
-		lines = append(lines, m.agentPrefix(slug, agentName)+dimStyle.Render(partial+"_"))
+		live := sanitizeAgentOutput(partial)
+		if live == "" {
+			continue
+		}
+		lines = append(lines, wrapForViewport(m.agentPrefix(slug, agentName)+dimStyle.Render(live+"_"), width)...)
 	}
 
 	total := len(lines)
@@ -837,8 +965,9 @@ func (m StreamModel) agentPrefix(slug, name string) string {
 	}
 	// Specialist agents: dim with "│ " prefix
 	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(MutedColor))
-	return style.Render("│ " + name + ": ")
+		Foreground(lipgloss.Color("#22C55E")).
+		Bold(true)
+	return style.Render("↳ " + name + ": ")
 }
 
 // renderInput renders the bordered text input area.
@@ -847,7 +976,7 @@ func (m StreamModel) renderInput(width int) string {
 
 	if len(m.inputValue) == 0 {
 		if m.mode == "insert" {
-			inputStr = SystemStyle.Render("Type a message... (/help, /quit)")
+			inputStr = SystemStyle.Render(fmt.Sprintf("Message %s or use @agent... (/help, /thinking, /quit)", m.agentDisplayName(m.runtime.TeamLeadSlug)))
 		}
 	} else if m.mode == "insert" {
 		// Render with cursor
@@ -1028,21 +1157,30 @@ func (m StreamModel) hasActiveAgents() bool {
 // startDelegations steers and starts a set of delegations.
 func (m *StreamModel) startDelegations(delegations []orchestration.Delegation) {
 	for _, d := range delegations {
+		m.appendSystemMessage(fmt.Sprintf("Dispatch → %s: %s", m.agentDisplayName(d.AgentSlug), summarizeTask(d.Task)))
 		steerMsg := orchestration.FormatSteerMessage(d)
 		_ = m.runtime.AgentService.Steer(d.AgentSlug, steerMsg)
+		_ = m.runtime.AgentService.FollowUp(d.AgentSlug, d.Task)
 		m.runtime.AgentService.EnsureRunning(d.AgentSlug)
 		if !m.wiredAgents[d.AgentSlug] {
 			m.wireAgent(d.AgentSlug)
 		}
+		m.noteAgentActivity(d.AgentSlug, time.Now())
 	}
+	m.updateSpinnerLabel()
 }
 
 // resetDelegationState clears queued delegations and streaming state after a reconfigure.
 func (m *StreamModel) resetDelegationState() {
 	m.queuedDelegations = nil
 	m.streaming = make(map[string]string)
+	m.pendingLeadTask = ""
+	m.pendingLeadHints = nil
+	m.lastAgentEvent = make(map[string]time.Time)
+	m.lastAgentPulse = make(map[string]time.Time)
 	m.loading = false
 	m.spinner.SetActive(false)
+	m.spinnerTicking = false
 }
 
 // rewireAllAgents resets event wiring and re-wires all agents after a reconfigure.
@@ -1063,4 +1201,258 @@ func waitForAgentEvent(ch <-chan tea.Msg) tea.Cmd {
 		}
 		return msg
 	}
+}
+
+func (m *StreamModel) noteAgentActivity(slug string, at time.Time) {
+	m.lastAgentEvent[slug] = at
+	m.lastAgentPulse[slug] = at
+}
+
+func (m *StreamModel) handlePhaseChange(msg PhaseChangeMsg) {
+	switch msg.To {
+	case string(agent.PhaseBuildContext):
+		m.appendSystemMessage(fmt.Sprintf("%s is preparing context.", m.agentDisplayName(msg.AgentSlug)))
+	case string(agent.PhaseStreamLLM):
+		if msg.AgentSlug == m.runtime.TeamLeadSlug {
+			m.appendSystemMessage(fmt.Sprintf("%s is coordinating the response.", m.agentDisplayName(msg.AgentSlug)))
+		} else {
+			m.appendSystemMessage(fmt.Sprintf("%s is actively working.", m.agentDisplayName(msg.AgentSlug)))
+		}
+	case string(agent.PhaseExecuteTool):
+		m.appendSystemMessage(fmt.Sprintf("%s is running tools.", m.agentDisplayName(msg.AgentSlug)))
+	}
+}
+
+func (m *StreamModel) emitProgressPulses(now time.Time) {
+	if !m.loading {
+		return
+	}
+	for _, a := range m.runtime.AgentService.List() {
+		state, ok := m.runtime.AgentService.GetState(a.Config.Slug)
+		if !ok || !isActivePhase(state.Phase) {
+			continue
+		}
+		last := m.lastAgentPulse[a.Config.Slug]
+		if !last.IsZero() && now.Sub(last) < 3*time.Second {
+			continue
+		}
+		m.lastAgentPulse[a.Config.Slug] = now
+		m.appendSystemMessage(progressPulseText(a.Config.Name, a.Config.Slug == m.runtime.TeamLeadSlug, state.Phase, state.CurrentTask))
+	}
+}
+
+func (m *StreamModel) updateSpinnerLabel() {
+	label := activeWorkSummary(m.runtime.AgentService.List(), m.runtime)
+	if label == "" && len(m.queuedDelegations) > 0 {
+		label = fmt.Sprintf("%d task(s) queued", len(m.queuedDelegations))
+	}
+	if label == "" {
+		label = "waiting for work..."
+	}
+	m.spinner.SetLabel(label)
+}
+
+func (m *StreamModel) appendSystemMessage(content string) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return
+	}
+	m.messages = append(m.messages, StreamMessage{
+		Role:      "system",
+		Content:   content,
+		Timestamp: time.Now(),
+	})
+}
+
+func (m *StreamModel) ensureSpinnerTick() tea.Cmd {
+	if !m.spinner.IsActive() || m.spinnerTicking {
+		return nil
+	}
+	m.spinnerTicking = true
+	return m.spinner.Tick()
+}
+
+func (m StreamModel) initialWelcome() string {
+	return m.runtimeSummary()
+}
+
+func (m StreamModel) runtimeSummary() string {
+	packName := m.runtime.PackSlug
+	if pack := agent.GetPack(m.runtime.PackSlug); pack != nil {
+		packName = pack.Name
+	}
+	agents := m.runtime.AgentService.List()
+	if len(agents) == 0 {
+		return fmt.Sprintf("No active agents in %s.", packName)
+	}
+	return fmt.Sprintf("%s ready with %d agents: %s. Use @slug for direct work.", packName, len(agents), m.formatAgentNames(agentSlugs(agents)))
+}
+
+func (m StreamModel) renderAgentsSnapshot() string {
+	packName := m.runtime.PackSlug
+	if pack := agent.GetPack(m.runtime.PackSlug); pack != nil {
+		packName = pack.Name
+	}
+	var lines []string
+	lines = append(lines, fmt.Sprintf("%s roster:", packName))
+	for _, a := range m.runtime.AgentService.List() {
+		role := "specialist"
+		if a.Config.Slug == m.runtime.TeamLeadSlug {
+			role = "lead"
+		}
+		lines = append(lines, fmt.Sprintf("- @%s %s [%s] — %s", a.Config.Slug, a.Config.Name, role, phaseLabel(string(a.State.Phase))))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m StreamModel) agentDisplayName(slug string) string {
+	if ma, ok := m.runtime.AgentService.Get(slug); ok {
+		return ma.Config.Name
+	}
+	return slug
+}
+
+func (m StreamModel) formatAgentNames(slugs []string) string {
+	names := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		names = append(names, m.agentDisplayName(slug))
+	}
+	return strings.Join(names, ", ")
+}
+
+func (m StreamModel) displayAgentText(slug, text string) string {
+	clean := sanitizeAgentOutput(text)
+	if clean == "" {
+		return ""
+	}
+	return clean
+}
+
+func sanitizeAgentOutput(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	if idx := debugMetadataPattern.FindStringIndex(text); idx != nil {
+		text = text[:idx[0]]
+	}
+	text = strings.TrimSpace(text)
+	text = blankLinePattern.ReplaceAllString(text, "\n\n")
+	return strings.TrimSpace(text)
+}
+
+func condenseLeadOutput(text string) string {
+	lines := nonEmptyLines(text)
+	if len(lines) == 0 {
+		return ""
+	}
+	var kept []string
+	kept = append(kept, clipSentence(lines[0], 180))
+	for _, line := range lines[1:] {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "@") {
+			kept = append(kept, clipSentence(trimmed, 140))
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+func nonEmptyLines(text string) []string {
+	raw := strings.Split(text, "\n")
+	lines := make([]string, 0, len(raw))
+	for _, line := range raw {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func clipSentence(text string, limit int) string {
+	text = strings.TrimSpace(text)
+	if len(text) <= limit {
+		return text
+	}
+	cut := text[:limit]
+	if idx := strings.LastIndex(cut, " "); idx > limit/2 {
+		cut = cut[:idx]
+	}
+	return strings.TrimSpace(cut) + "..."
+}
+
+func summarizeTask(task string) string {
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return "new task"
+	}
+	return clipSentence(task, 90)
+}
+
+func agentSlugs(agents []*agent.ManagedAgent) []string {
+	out := make([]string, 0, len(agents))
+	for _, a := range agents {
+		out = append(out, a.Config.Slug)
+	}
+	return out
+}
+
+func wrapForViewport(text string, width int) []string {
+	if width <= 0 {
+		return []string{text}
+	}
+	wrapped := lipgloss.NewStyle().MaxWidth(width).Render(text)
+	return strings.Split(wrapped, "\n")
+}
+
+func isActivePhase(phase agent.AgentPhase) bool {
+	switch phase {
+	case agent.PhaseBuildContext, agent.PhaseStreamLLM, agent.PhaseExecuteTool:
+		return true
+	default:
+		return false
+	}
+}
+
+func progressPulseText(name string, isLead bool, phase agent.AgentPhase, task string) string {
+	shortTask := summarizeTask(task)
+	switch phase {
+	case agent.PhaseBuildContext:
+		if shortTask != "" {
+			return fmt.Sprintf("%s is still preparing: %s", name, shortTask)
+		}
+		return fmt.Sprintf("%s is still preparing context.", name)
+	case agent.PhaseExecuteTool:
+		return fmt.Sprintf("%s is still running tools.", name)
+	case agent.PhaseStreamLLM:
+		if isLead {
+			return fmt.Sprintf("%s is still coordinating the team response.", name)
+		}
+		if shortTask != "" {
+			return fmt.Sprintf("%s is still working on: %s", name, shortTask)
+		}
+		return fmt.Sprintf("%s is still working.", name)
+	default:
+		return fmt.Sprintf("%s is still active.", name)
+	}
+}
+
+func activeWorkSummary(agents []*agent.ManagedAgent, rt *Runtime) string {
+	parts := make([]string, 0, len(agents))
+	for _, a := range agents {
+		switch a.State.Phase {
+		case agent.PhaseBuildContext:
+			parts = append(parts, fmt.Sprintf("%s preparing", a.Config.Name))
+		case agent.PhaseStreamLLM:
+			if a.Config.Slug == rt.TeamLeadSlug {
+				parts = append(parts, fmt.Sprintf("%s coordinating", a.Config.Name))
+			} else {
+				parts = append(parts, fmt.Sprintf("%s working", a.Config.Name))
+			}
+		case agent.PhaseExecuteTool:
+			parts = append(parts, fmt.Sprintf("%s using tools", a.Config.Name))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	summary := strings.Join(parts, " • ")
+	return clipSentence(summary, 110)
 }

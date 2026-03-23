@@ -12,14 +12,14 @@ import (
 type EventName string
 
 const (
-	EventPhaseChange  EventName = "phase_change"
-	EventToolCall     EventName = "tool_call"
-	EventMessage      EventName = "message"
-	EventError        EventName = "error"
-	EventDone         EventName = "done"
-	EventThinking     EventName = "thinking"
-	EventToolUse      EventName = "tool_use"
-	EventToolResult   EventName = "tool_result"
+	EventPhaseChange EventName = "phase_change"
+	EventToolCall    EventName = "tool_call"
+	EventMessage     EventName = "message"
+	EventError       EventName = "error"
+	EventDone        EventName = "done"
+	EventThinking    EventName = "thinking"
+	EventToolUse     EventName = "tool_use"
+	EventToolResult  EventName = "tool_result"
 )
 
 // EventHandler is a callback for agent loop events.
@@ -149,17 +149,6 @@ func (l *AgentLoop) Tick() error {
 		return nil
 	}
 
-	// Drain steer message and inject as system entry (only if session exists).
-	slug := l.state.Config.Slug
-	if l.state.SessionID != "" {
-		if msg, ok := l.queues.DrainSteer(slug); ok {
-			l.sessions.Append(l.state.SessionID, SessionEntry{
-				Type:    "system",
-				Content: "[STEER] " + msg,
-			})
-		}
-	}
-
 	switch l.state.Phase {
 	case PhaseIdle:
 		return l.buildContext()
@@ -233,8 +222,17 @@ func (l *AgentLoop) buildContext() error {
 		})
 	}
 
+	// Drain steer messages after the session exists so the first user task is not lost.
+	if msg, ok := l.queues.DrainSteer(slug); ok {
+		l.sessions.Append(l.state.SessionID, SessionEntry{
+			Type:    "system",
+			Content: "[STEER] " + msg,
+		})
+	}
+
 	// Drain follow-up message and append as user entry.
 	if msg, ok := l.queues.DrainFollowUp(slug); ok {
+		l.state.CurrentTask = msg
 		l.sessions.Append(l.state.SessionID, SessionEntry{
 			Type:    "user",
 			Content: msg,
@@ -245,6 +243,8 @@ func (l *AgentLoop) buildContext() error {
 	if l.gossipLayer != nil {
 		l.injectGossipInsights()
 	}
+
+	l.emit(EventThinking, l.progressNote(PhaseBuildContext))
 
 	return nil
 }
@@ -290,6 +290,7 @@ func (l *AgentLoop) injectGossipInsights() {
 // streamLLM streams output from the LLM and processes chunks.
 func (l *AgentLoop) streamLLM() error {
 	l.setPhase(PhaseStreamLLM)
+	l.emit(EventThinking, l.progressNote(PhaseStreamLLM))
 
 	// Get session history and convert to messages.
 	entries, err := l.sessions.GetHistory(l.state.SessionID, 0, "")
@@ -383,6 +384,7 @@ func (l *AgentLoop) executeTool() error {
 	}
 
 	l.setPhase(PhaseExecuteTool)
+	l.emit(EventThinking, l.progressNote(PhaseExecuteTool))
 	tc := l.pendingToolCall
 
 	l.emit(EventToolCall, tc.ToolName, tc.Params)
@@ -496,9 +498,54 @@ func (l *AgentLoop) handleDone() error {
 		l.credibilityTracker.RecordOutcome(slug, !l.taskHadError)
 	}
 
+	l.state.CurrentTask = ""
 	l.setPhase(PhaseDone)
 	l.emit(EventDone)
 	return nil
+}
+
+func (l *AgentLoop) progressNote(phase AgentPhase) string {
+	name := l.state.Config.Name
+	task := strings.TrimSpace(l.state.CurrentTask)
+	task = summarizeProgressTask(task)
+
+	switch phase {
+	case PhaseBuildContext:
+		if task != "" {
+			return fmt.Sprintf("%s is reviewing the task: %s", name, task)
+		}
+		return fmt.Sprintf("%s is reviewing the latest task.", name)
+	case PhaseStreamLLM:
+		if l.state.Config.Slug == "ceo" || strings.Contains(strings.ToLower(strings.Join(l.state.Config.Expertise, " ")), "delegation") {
+			return fmt.Sprintf("%s is coordinating the next move.", name)
+		}
+		if task != "" {
+			return fmt.Sprintf("%s is working on: %s", name, task)
+		}
+		return fmt.Sprintf("%s is drafting a response.", name)
+	case PhaseExecuteTool:
+		if l.pendingToolCall != nil && l.pendingToolCall.ToolName != "" {
+			return fmt.Sprintf("%s is using %s.", name, l.pendingToolCall.ToolName)
+		}
+		return fmt.Sprintf("%s is using tools.", name)
+	default:
+		return ""
+	}
+}
+
+func summarizeProgressTask(task string) string {
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return ""
+	}
+	if len(task) <= 72 {
+		return task
+	}
+	cut := task[:72]
+	if idx := strings.LastIndex(cut, " "); idx > 36 {
+		cut = cut[:idx]
+	}
+	return strings.TrimSpace(cut) + "..."
 }
 
 // entriesToMessages converts session entries into LLM messages.

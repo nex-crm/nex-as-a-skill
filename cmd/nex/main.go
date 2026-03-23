@@ -56,7 +56,7 @@ func main() {
 	}
 
 	// Interactive mode
-	p := tea.NewProgram(tui.NewModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(tui.NewModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

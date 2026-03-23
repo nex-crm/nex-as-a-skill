@@ -62,4 +62,6 @@ func RegisterAllCommands(r *Registry) {
 	r.Register(SlashCommand{Name: "init", Description: "Run setup", Execute: cmdInit})
 	r.Register(SlashCommand{Name: "login", Description: "Login with email"})
 	r.Register(SlashCommand{Name: "provider", Description: "Switch LLM provider", Execute: cmdProvider})
+	r.Register(SlashCommand{Name: "reset", Description: "Reset Claude session persistence"})
+	r.Register(SlashCommand{Name: "thinking", Description: "Toggle agent thinking visibility"})
 }

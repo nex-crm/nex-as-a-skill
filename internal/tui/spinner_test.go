@@ -29,10 +29,13 @@ func TestSpinnerNoTickWhenInactive(t *testing.T) {
 
 	initial := s.frame
 	msg := SpinnerTickMsg{Time: time.Now()}
-	s2, _ := s.Update(msg)
+	s2, cmd := s.Update(msg)
 
 	if s2.frame != initial {
 		t.Fatal("expected frame NOT to advance when spinner is inactive")
+	}
+	if cmd != nil {
+		t.Fatal("expected inactive spinner not to schedule ticks")
 	}
 }
 

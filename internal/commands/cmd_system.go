@@ -44,7 +44,9 @@ func cmdHelp(ctx *SlashContext, args string) error {
 		"    /clear                     Clear messages\n" +
 		"    /quit                      Exit nex\n" +
 		"    /init                      Run setup\n" +
-		"    /provider                  Switch LLM provider"
+		"    /provider                  Switch LLM provider\n" +
+		"    /reset                     Reset Claude session persistence\n" +
+		"    /thinking                  Toggle agent thinking visibility"
 	ctx.AddMessage("system", help)
 	return nil
 }

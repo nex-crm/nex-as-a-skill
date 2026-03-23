@@ -18,7 +18,7 @@ type AgentInfo struct {
 
 // MessageRoutingResult is the output of a Route call.
 type MessageRoutingResult struct {
-	Primary       string   // agent slug
+	Primary       string // agent slug
 	Collaborators []string
 	IsFollowUp    bool
 	TeamLeadAware bool
@@ -41,8 +41,8 @@ type MessageRouter struct {
 // NewMessageRouter returns a MessageRouter with a 30s follow-up window.
 func NewMessageRouter() *MessageRouter {
 	return &MessageRouter{
-		router:        NewTaskRouter(),
-		recentThreads: make(map[string]*threadContext),
+		router:         NewTaskRouter(),
+		recentThreads:  make(map[string]*threadContext),
 		followUpWindow: 30 * time.Second,
 	}
 }
@@ -140,7 +140,7 @@ func (m *MessageRouter) Route(message string, availableAgents []AgentInfo) Messa
 		}
 		capable := m.router.FindCapableAgents(task)
 		for _, rr := range capable {
-			if rr.AgentSlug != teamLead && rr.Score > 0.5 {
+			if rr.AgentSlug != teamLead && rr.Score >= 0.25 {
 				result.Collaborators = append(result.Collaborators, rr.AgentSlug)
 			}
 		}
@@ -178,6 +178,10 @@ var skillKeywords = []struct {
 	pattern *regexp.Regexp
 	skills  []string
 }{
+	{regexp.MustCompile(`(?i)landing page|frontend|front-end|ui|ux|hero|cta|design`), []string{"frontend", "UI-UX", "components"}},
+	{regexp.MustCompile(`(?i)backend|back-end|api|endpoint|server|database`), []string{"backend", "APIs", "databases"}},
+	{regexp.MustCompile(`(?i)positioning|messaging|brand|marketing|copy|launch`), []string{"positioning", "messaging", "go-to-market"}},
+	{regexp.MustCompile(`(?i)brief|spec|requirements|roadmap|plan`), []string{"requirements", "roadmap", "planning"}},
 	{regexp.MustCompile(`(?i)research|investigate|analyze`), []string{"market-research", "competitive-analysis"}},
 	{regexp.MustCompile(`(?i)leads|prospect|outreach`), []string{"prospecting", "outreach"}},
 	{regexp.MustCompile(`(?i)enrich|validate|data quality`), []string{"data-enrichment", "validation"}},
