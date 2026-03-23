@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/nex-ai/nex-cli/internal/api"
+	"github.com/nex-ai/nex-cli/internal/tui/render"
 )
 
 func cmdTask(ctx *SlashContext, args string) error {
@@ -97,7 +98,7 @@ func taskList(ctx *SlashContext, flags map[string]string) error {
 		}
 		rows = append(rows, []string{id, title, priority, due, completed})
 	}
-	ctx.AddMessage("system", formatTable(headers, rows))
+	ctx.AddMessage("system", render.RenderTable(headers, rows, 100))
 	return nil
 }
 

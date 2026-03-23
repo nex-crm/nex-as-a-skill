@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"github.com/nex-ai/nex-cli/internal/api"
+	"github.com/nex-ai/nex-cli/internal/tui/render"
 )
 
 func cmdNote(ctx *SlashContext, args string) error {
@@ -75,7 +76,7 @@ func noteList(ctx *SlashContext, flags map[string]string) error {
 		entity, _ := n["entity_id"].(string)
 		rows = append(rows, []string{id, title, entity})
 	}
-	ctx.AddMessage("system", formatTable(headers, rows))
+	ctx.AddMessage("system", render.RenderTable(headers, rows, 100))
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/nex-ai/nex-cli/internal/api"
+	"github.com/nex-ai/nex-cli/internal/tui/render"
 )
 
 func cmdObject(ctx *SlashContext, args string) error {
@@ -70,7 +71,7 @@ func objectList(ctx *SlashContext, flags map[string]string) error {
 		objType, _ := obj["type"].(string)
 		rows = append(rows, []string{name, slug, objType})
 	}
-	output := formatTable(headers, rows)
+	output := render.RenderTable(headers, rows, 100)
 
 	if includeAttrs {
 		var sb strings.Builder
