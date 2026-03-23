@@ -117,25 +117,3 @@ func (t *TmuxManager) sessionExists() bool {
 	return cmd.Run() == nil
 }
 
-// filterClaudeEnv removes CLAUDECODE and CLAUDE_CODE_* vars from the environment
-// so child claude processes don't detect recursive invocation.
-func filterClaudeEnv(environ []string) []string {
-	out := make([]string, 0, len(environ))
-	for _, kv := range environ {
-		key := kv
-		if idx := strings.IndexByte(kv, '='); idx >= 0 {
-			key = kv[:idx]
-		}
-		skip := false
-		for _, prefix := range claudeEnvPrefixes {
-			if strings.HasPrefix(key, prefix) {
-				skip = true
-				break
-			}
-		}
-		if !skip {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
