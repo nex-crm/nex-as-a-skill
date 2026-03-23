@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
 
 import { workspace } from "./commands/workspace.js";
+import { invite } from "./commands/invite.js";
 
 export const program = new Command();
 
@@ -23,3 +24,4 @@ program
   .option("--debug", "Debug output on stderr");
 
 program.addCommand(workspace);
+program.addCommand(invite);
