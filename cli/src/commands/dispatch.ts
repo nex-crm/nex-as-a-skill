@@ -984,7 +984,7 @@ async function executeNotifyList(args: string[], ctx: CommandContext): Promise<C
     if (typeof opts.limit === "string") params.set("limit", opts.limit);
     if (typeof opts.since === "string") params.set("since", opts.since);
     const qs = params.toString();
-    const result = await client.get(`/v1/notifications${qs ? `?${qs}` : ""}`);
+    const result = await client.get(`/v1/notifications/feed${qs ? `?${qs}` : ""}`);
     return ok(result, ctx);
   } catch (err) {
     return wrapError(err);
