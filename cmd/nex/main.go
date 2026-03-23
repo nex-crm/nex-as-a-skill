@@ -24,6 +24,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
 	panesMode := flag.Bool("panes", false, "Use embedded multi-pane mode instead of channel view")
 	packFlag := flag.String("pack", "", "Agent pack (founding-team, coding-team, lead-gen-agency)")
+	channelView := flag.Bool("channel-view", false, "Run as channel view (used internally by nex team)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Nex CLI v%s\n\n", version)
@@ -41,6 +42,12 @@ func main() {
 	if *showVersion {
 		fmt.Printf("nex v%s\n", version)
 		os.Exit(0)
+	}
+
+	// Channel view mode (launched by nex team as tmux window 0)
+	if *channelView {
+		runChannelView()
+		return
 	}
 
 	// Handle "nex team" subcommand
@@ -113,8 +120,19 @@ func runTeam(args []string, packSlug string) {
 	}
 
 	fmt.Println("Team launched. Attaching to tmux session...")
-	fmt.Println("  Switch agents: Ctrl+B then window number (0-6)")
-	fmt.Println("  Kill team:     nex team kill")
+	fmt.Println()
+	fmt.Println("  Windows:")
+	fmt.Println("    0: channel    — team conversation feed (starts here)")
+	fmt.Println("    1: agents     — all agents in tiled panes")
+	fmt.Printf("    2-%d: individual agent full-screen sessions\n", l.AgentCount()+1)
+	fmt.Println()
+	fmt.Println("  Navigation:")
+	fmt.Println("    Ctrl+B w      — window list")
+	fmt.Println("    Ctrl+B 0      — channel view")
+	fmt.Println("    Ctrl+B 1      — all agent panes")
+	fmt.Println("    Ctrl+B 2-8    — individual agent")
+	fmt.Println("    Ctrl+B d      — detach (agents keep running)")
+	fmt.Println("    nex team kill — stop everything")
 	fmt.Println()
 
 	if err := l.Attach(); err != nil {
