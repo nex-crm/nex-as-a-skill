@@ -55,6 +55,7 @@ export class NexApiClient {
     const url = `${getBaseUrl()}${path}`;
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.apiKey}`,
+      "X-Nex-Source": "mcp",
     };
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
