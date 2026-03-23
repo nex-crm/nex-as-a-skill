@@ -21,10 +21,18 @@ const (
 	ViewChat   ViewName = "chat"
 )
 
+// embeddedTickMsg triggers periodic re-renders for async VT emulator updates.
+type embeddedTickMsg struct{}
+
 // Model is the root bubbletea model that owns the stream view and agent infrastructure.
 type Model struct {
 	stream  StreamModel
 	runtime *Runtime
+
+	// Embedded terminal mode (when claude binary is available).
+	embedded    bool
+	paneManager *PaneManager
+	gossipBus   *GossipBus
 
 	currentView ViewName
 	width       int
@@ -38,32 +46,55 @@ type Model struct {
 }
 
 // NewModel creates the root model with an agent service, message router, and stream view.
+// If the claude binary is available, it uses embedded terminal mode with PaneManager + GossipBus.
 func NewModel() Model {
 	events := make(chan tea.Msg, 256)
 	rt := NewRuntime(events)
 
 	hasAPIKey := config.ResolveAPIKey("") != ""
 
-	stream := NewStreamModel(rt, events)
-
-	// Wire all agents for event forwarding
-	for _, a := range rt.AgentService.List() {
-		stream.wireAgent(a.Config.Slug)
-	}
-	stream.updateRoster()
-
-	return Model{
-		stream:      stream,
+	m := Model{
 		runtime:     rt,
 		currentView: ViewStream,
 		doublePress: NewDoublePress(time.Second),
 		inputMode:   ModeInsert,
 		hasAPIKey:   hasAPIKey,
 	}
+
+	if HasClaude() {
+		// Embedded terminal mode: each agent gets its own PTY + claude process.
+		pm := NewPaneManager()
+		bus := NewGossipBus(rt.TeamLeadSlug)
+
+		m.embedded = true
+		m.paneManager = pm
+		m.gossipBus = bus
+	} else {
+		// Classic stream mode: fallback when claude binary is unavailable.
+		stream := NewStreamModel(rt, events)
+		for _, a := range rt.AgentService.List() {
+			stream.wireAgent(a.Config.Slug)
+		}
+		stream.updateRoster()
+		m.stream = stream
+	}
+
+	return m
 }
 
-// Init starts the spinner, agent event listener, and sends the contextual welcome message.
+// Init starts the appropriate mode.
 func (m Model) Init() tea.Cmd {
+	if m.embedded {
+		// Bootstrap panes in Init (needs terminal size, but we start with defaults).
+		w, h := 120, 40 // will be resized on first WindowSizeMsg
+		if err := m.runtime.BootstrapPanes(m.paneManager, m.gossipBus, w, h); err != nil {
+			// Fall through — panes will show as empty.
+		}
+		return tea.Batch(
+			embeddedTick(),
+		)
+	}
+
 	var welcomeCmd tea.Cmd
 	if !m.hasAPIKey {
 		welcomeCmd = func() tea.Msg {
@@ -79,18 +110,23 @@ func (m Model) Init() tea.Cmd {
 
 // Update handles all messages, routing to sub-models as appropriate.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	resubscribe := false
-
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.embedded && m.paneManager != nil {
+			m.paneManager.ResizeAll(msg.Width, msg.Height)
+		}
 
 	case tea.KeyMsg:
-		// Ctrl+C always uses double-press — intercept before stream sees it.
+		// Ctrl+C always uses double-press.
 		if msg.String() == "ctrl+c" {
 			if m.doublePress.Press() {
+				m.shutdownPanes()
 				return m, tea.Quit
+			}
+			if m.embedded {
+				return m, nil
 			}
 			hint := func() tea.Msg {
 				return SlashResultMsg{Output: "Press Ctrl+C again to exit"}
@@ -98,7 +134,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, hint
 		}
 
-		// Non-stream views: only handle navigation back to stream.
+		if m.embedded {
+			return m.updateEmbedded(msg)
+		}
+
+		// Classic mode key handling below.
 		if m.currentView != ViewStream {
 			switch msg.String() {
 			case "q", "esc", "c":
@@ -107,7 +147,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Stream view: check for top-level navigation actions.
 		action := MapKey(m.inputMode, msg)
 		switch action {
 		case ActionInsertMode:
@@ -122,28 +161,148 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case embeddedTickMsg:
+		if m.embedded {
+			// Flush any pending gossip batches.
+			m.gossipBus.FlushPending()
+			return m, embeddedTick()
+		}
+
 	case ViewSwitchMsg:
 		m.currentView = msg.Target
 		return m, nil
 
 	case AgentTextMsg, AgentDoneMsg, AgentErrorMsg, PhaseChangeMsg,
 		AgentThinkingMsg, AgentToolUseMsg, AgentToolResultMsg:
-		resubscribe = true
+		if !m.embedded {
+			var cmd tea.Cmd
+			m.stream, cmd = m.stream.Update(msg)
+			return m, tea.Batch(cmd, waitForAgentEvent(m.runtime.Events))
+		}
 	}
 
-	// Forward message to stream (covers WindowSizeMsg, regular keys, agent events,
-	// spinner ticks, slash results, and all other messages).
-	var cmd tea.Cmd
-	m.stream, cmd = m.stream.Update(msg)
-
-	if resubscribe {
-		return m, tea.Batch(cmd, waitForAgentEvent(m.runtime.Events))
+	if !m.embedded {
+		var cmd tea.Cmd
+		m.stream, cmd = m.stream.Update(msg)
+		return m, cmd
 	}
-	return m, cmd
+
+	return m, nil
+}
+
+// updateEmbedded handles key routing in embedded terminal mode.
+func (m Model) updateEmbedded(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	switch key {
+	case "ctrl+b":
+		// Toggle broadcast mode.
+		m.paneManager.SetBroadcastMode(!m.paneManager.IsBroadcastMode())
+		return m, nil
+
+	case "ctrl+n":
+		m.paneManager.FocusNext()
+		return m, nil
+
+	case "ctrl+p":
+		m.paneManager.FocusPrev()
+		return m, nil
+	}
+
+	// Ctrl+1..7: jump to pane by index.
+	if len(key) == 6 && key[:5] == "ctrl+" && key[5] >= '1' && key[5] <= '7' {
+		idx := int(key[5]-'0') - 1
+		panes := m.paneManager.Panes()
+		if idx < len(panes) {
+			m.paneManager.FocusPane(panes[idx].Slug())
+		}
+		return m, nil
+	}
+
+	// Forward to focused pane (or all in broadcast mode).
+	data := keyToBytes(msg)
+	if m.paneManager.IsBroadcastMode() {
+		for _, p := range m.paneManager.Panes() {
+			p.SendKey(data)
+		}
+		// Also broadcast via gossip bus for context.
+		m.gossipBus.BroadcastUserMessage(string(data))
+	} else if f := m.paneManager.Focused(); f != nil {
+		f.SendKey(data)
+	}
+
+	return m, nil
+}
+
+// keyToBytes converts a tea.KeyMsg to raw bytes for PTY input.
+func keyToBytes(msg tea.KeyMsg) []byte {
+	switch msg.String() {
+	case "enter":
+		return []byte("\r")
+	case "tab":
+		return []byte("\t")
+	case "backspace":
+		return []byte{0x7f}
+	case "esc":
+		return []byte{0x1b}
+	case "up":
+		return []byte("\x1b[A")
+	case "down":
+		return []byte("\x1b[B")
+	case "right":
+		return []byte("\x1b[C")
+	case "left":
+		return []byte("\x1b[D")
+	default:
+		// For regular characters and unknown sequences.
+		runes := msg.Runes
+		if len(runes) > 0 {
+			return []byte(string(runes))
+		}
+		return []byte(msg.String())
+	}
+}
+
+// shutdownPanes gracefully closes all terminal panes.
+func (m *Model) shutdownPanes() {
+	if m.paneManager == nil {
+		return
+	}
+	for _, p := range m.paneManager.Panes() {
+		p.Close()
+	}
+}
+
+// embeddedTick returns a command that fires an embeddedTickMsg after 100ms.
+func embeddedTick() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		return embeddedTickMsg{}
+	})
 }
 
 // View renders based on the current top-level view.
 func (m Model) View() string {
+	if m.embedded {
+		switch m.currentView {
+		case ViewHelp:
+			return m.renderHelpView()
+		case ViewAgents:
+			return m.renderAgentsView()
+		default:
+			if m.paneManager != nil {
+				w, h := m.width, m.height
+				if w == 0 {
+					w = 120
+				}
+				if h == 0 {
+					h = 40
+				}
+				return m.paneManager.View(w, h)
+			}
+			return "No panes available"
+		}
+	}
+
 	switch m.currentView {
 	case ViewHelp:
 		return m.renderHelpView()

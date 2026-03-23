@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"io"
+	"os"
+	"os/exec"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/nex-ai/nex-cli/internal/agent"
@@ -100,4 +104,74 @@ func (rt *Runtime) Reconfigure() {
 		}
 	}
 	rt.BootstrapFromConfig()
+}
+
+// HasClaude reports whether the claude binary is available in PATH.
+func HasClaude() bool {
+	_, err := exec.LookPath("claude")
+	return err == nil
+}
+
+// BootstrapPanes creates TerminalPanes for each agent in the pack,
+// spawns claude processes, and wires them to the GossipBus.
+// Returns panes in order (leader first), the bus, and cwd used.
+func (rt *Runtime) BootstrapPanes(pm *PaneManager, bus *GossipBus, w, h int) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	pack := agent.GetPack(rt.PackSlug)
+	if pack == nil {
+		return nil
+	}
+
+	// Leader pane first, then specialists.
+	ordered := make([]agent.AgentConfig, 0, len(pack.Agents))
+	for _, a := range pack.Agents {
+		if a.Slug == pack.LeadSlug {
+			ordered = append([]agent.AgentConfig{a}, ordered...)
+		} else {
+			ordered = append(ordered, a)
+		}
+	}
+
+	for _, agentCfg := range ordered {
+		// Build system prompt.
+		var sysPrompt string
+		if agentCfg.Slug == pack.LeadSlug {
+			sysPrompt = agent.BuildTeamLeadPrompt(agentCfg, pack.Agents, pack.Name)
+		} else {
+			sysPrompt = agent.BuildSpecialistPrompt(agentCfg)
+		}
+
+		pane := NewTerminalPane(agentCfg.Slug, agentCfg.Name, w, h)
+
+		// Set up observer pipe: PTY output -> pipe writer -> observer reader -> GossipBus.
+		pr, pw := io.Pipe()
+		pane.SetObserverWriter(pw)
+		obs := NewOutputObserver(agentCfg.Slug, bus, pr)
+		obs.Start()
+
+		// Register pane with bus and manager.
+		bus.RegisterTarget(pane)
+		pm.AddPane(pane)
+
+		// Spawn claude process.
+		args := []string{
+			"-p", sysPrompt,
+			"--output-format", "stream-json",
+			"--verbose",
+			"--max-turns", "50",
+		}
+		if err := pane.Spawn("claude", args, nil, cwd); err != nil {
+			// Non-fatal: pane will show as dead.
+			continue
+		}
+	}
+
+	// Focus leader pane.
+	pm.FocusPane(rt.TeamLeadSlug)
+
+	return nil
 }

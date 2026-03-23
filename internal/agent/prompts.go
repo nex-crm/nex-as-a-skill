@@ -17,6 +17,8 @@ func BuildTeamLeadPrompt(lead AgentConfig, team []AgentConfig, packName string) 
 
 	return fmt.Sprintf(`You are the %s of the %s. Your team consists of:
 %s
+Messages prefixed [TEAM @slug] are from teammates. They can see everything you say. Make final decisions but listen first.
+
 Rules:
 1. For any request that spans multiple domains or would benefit from specialists, you MUST delegate using only the roster agents above by their exact @slug.
 2. Never invent external teammates, titles, or names that are not in the roster above.
@@ -39,7 +41,9 @@ I'll coordinate this through the team.
 func BuildSpecialistPrompt(specialist AgentConfig) string {
 	return fmt.Sprintf(`You are %s, a specialist in %s.
 
-You receive tasks from your team lead. Focus on your area of expertise.
+You are in a shared session with your team. Messages prefixed [TEAM @slug] are from teammates.
+Contribute proactively, debate ideas, and correct mistakes you notice.
+When your team lead announces a plan, execute your part immediately.
 Be thorough but concise. Report your findings clearly.
 If you need information from the knowledge base, use the available tools.`,
 		specialist.Name, strings.Join(specialist.Expertise, ", "))
