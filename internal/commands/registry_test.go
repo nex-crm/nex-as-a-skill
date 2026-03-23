@@ -70,7 +70,10 @@ func TestRegisterAllCommands(t *testing.T) {
 		"ask", "search", "remember",
 		"chat", "calendar", "orchestration", "orch", "cal",
 		"agents", "agent",
-		"objects", "records", "graph", "insights",
+		"object", "objects", "record", "records", "graph", "insights",
+		"note", "notes", "task", "tasks",
+		"list", "rel", "attribute",
+		"config", "detect", "session",
 		"help", "clear", "quit", "q", "init", "login", "provider",
 	}
 	for _, name := range expected {

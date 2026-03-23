@@ -5,26 +5,45 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/nex-ai/nex-cli/internal/api"
 )
 
 // ErrQuit is returned by quit commands so the caller can signal clean exit.
 var ErrQuit = errors.New("quit")
 
 func cmdHelp(ctx *SlashContext, args string) error {
-	help := "Available commands:\n" +
-		"  /ask <q>         Ask the AI a question\n" +
-		"  /search <q>      Search knowledge base\n" +
-		"  /remember <txt>  Store information\n" +
-		"  /agents          List agents\n" +
-		"  /agent <slug>    Agent details\n" +
-		"  /objects         List object types\n" +
-		"  /records <type>  List records\n" +
-		"  /graph           View context graph\n" +
-		"  /insights        View insights\n" +
-		"  /provider        Switch LLM provider\n" +
-		"  /init            Run setup\n" +
-		"  /clear           Clear messages\n" +
-		"  /quit            Exit nex"
+	help := "Available commands:\n\n" +
+		"  AI:\n" +
+		"    /ask <q>                   Ask the AI a question\n" +
+		"    /search <q>                Search knowledge base\n" +
+		"    /remember <txt>            Store information\n\n" +
+		"  Objects:\n" +
+		"    /object list|get|create|update|delete\n\n" +
+		"  Records:\n" +
+		"    /record list|get|create|upsert|update|delete|timeline\n\n" +
+		"  Notes:\n" +
+		"    /note list|get|create|update|delete\n\n" +
+		"  Tasks:\n" +
+		"    /task list|get|create|update|delete\n\n" +
+		"  Relationships:\n" +
+		"    /rel list-defs|create-def|delete-def|create|delete\n\n" +
+		"  Attributes:\n" +
+		"    /attribute create|update|delete\n\n" +
+		"  Lists:\n" +
+		"    /list list|get|create|delete|records|add-member|upsert-member|remove-record\n\n" +
+		"  Agents:\n" +
+		"    /agents                    List agents\n" +
+		"    /agent <slug>              Agent details\n\n" +
+		"  Config:\n" +
+		"    /config show|set|path      Manage configuration\n" +
+		"    /detect                    Detect installed AI platforms\n\n" +
+		"  System:\n" +
+		"    /help                      Show this help\n" +
+		"    /clear                     Clear messages\n" +
+		"    /quit                      Exit nex\n" +
+		"    /init                      Run setup\n" +
+		"    /provider                  Switch LLM provider"
 	ctx.AddMessage("system", help)
 	return nil
 }
@@ -63,12 +82,40 @@ func cmdProvider(ctx *SlashContext, args string) error {
 }
 
 func cmdGraph(ctx *SlashContext, args string) error {
-	ctx.AddMessage("system", "Context graph — coming soon.")
+	if !requireAuth(ctx) {
+		return nil
+	}
+	ctx.SetLoading(true)
+	result, err := api.Get[[]map[string]any](ctx.APIClient, "/v1/graph?limit=50", 0)
+	ctx.SetLoading(false)
+	if err != nil {
+		return err
+	}
+	if len(result) == 0 {
+		ctx.AddMessage("system", "No graph data found.")
+		return nil
+	}
+	b, _ := json.MarshalIndent(result, "", "  ")
+	ctx.AddMessage("system", string(b))
 	return nil
 }
 
 func cmdInsights(ctx *SlashContext, args string) error {
-	ctx.AddMessage("system", "Insights — coming soon.")
+	if !requireAuth(ctx) {
+		return nil
+	}
+	ctx.SetLoading(true)
+	result, err := api.Get[[]map[string]any](ctx.APIClient, "/v1/insights?limit=10", 0)
+	ctx.SetLoading(false)
+	if err != nil {
+		return err
+	}
+	if len(result) == 0 {
+		ctx.AddMessage("system", "No insights found.")
+		return nil
+	}
+	b, _ := json.MarshalIndent(result, "", "  ")
+	ctx.AddMessage("system", string(b))
 	return nil
 }
 
