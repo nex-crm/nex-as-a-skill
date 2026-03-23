@@ -3,8 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 // A2UIComponent is a generative UI component emitted by agents as JSON schemas.
@@ -25,14 +23,18 @@ type A2UIDataUpdate struct {
 
 // GenerativeModel holds a schema and its data, rendering inline TUI components.
 type GenerativeModel struct {
-	schema *A2UIComponent
-	data   map[string]any
-	width  int
+	schema   *A2UIComponent
+	data     map[string]any
+	width    int
+	registry *ComponentRegistry
 }
 
-// NewGenerativeModel creates an empty GenerativeModel.
+// NewGenerativeModel creates an empty GenerativeModel with the default component registry.
 func NewGenerativeModel() GenerativeModel {
-	return GenerativeModel{data: make(map[string]any)}
+	return GenerativeModel{
+		data:     make(map[string]any),
+		registry: NewComponentRegistry(),
+	}
 }
 
 // SetSchema replaces the current component schema.
@@ -43,6 +45,21 @@ func (g *GenerativeModel) SetSchema(schema A2UIComponent) {
 // SetData replaces the current data store.
 func (g *GenerativeModel) SetData(data map[string]any) {
 	g.data = data
+}
+
+// SetValue sets a single value at the given JSON Pointer path (RFC 6901).
+func (g *GenerativeModel) SetValue(pointer string, value any) {
+	setPointer(g.data, pointer, value)
+}
+
+// MergeValue merges a map into the node at the given JSON Pointer path.
+func (g *GenerativeModel) MergeValue(pointer string, value map[string]any) {
+	mergePointer(g.data, pointer, value)
+}
+
+// DeleteValue removes the key at the given JSON Pointer path.
+func (g *GenerativeModel) DeleteValue(pointer string) {
+	deletePointer(g.data, pointer)
 }
 
 // ApplyUpdates applies a batch of JSON Pointer patch operations to the data store.
@@ -63,16 +80,28 @@ func (g *GenerativeModel) ApplyUpdates(updates []A2UIDataUpdate) {
 	}
 }
 
-// View renders the current schema with resolved data.
+// Validate checks the current schema against the component registry.
+func (g *GenerativeModel) Validate() error {
+	if g.schema == nil {
+		return fmt.Errorf("no schema set")
+	}
+	return g.registry.Validate(*g.schema)
+}
+
+// View renders the current schema with resolved data via the component registry.
 func (g GenerativeModel) View() string {
 	if g.schema == nil {
 		return ""
 	}
-	return renderComponent(*g.schema, g.data, g.width)
+	width := g.width
+	if width <= 0 {
+		width = 80
+	}
+	return g.registry.Render(*g.schema, g.data, width)
 }
 
 // resolvePointer implements RFC 6901 JSON Pointer resolution.
-// "/foo/bar/0" → data["foo"]["bar"][0]
+// "/foo/bar/0" -> data["foo"]["bar"][0]
 func resolvePointer(data any, pointer string) any {
 	if pointer == "" || pointer == "/" {
 		return data
@@ -179,135 +208,7 @@ func deletePointer(data map[string]any, pointer string) {
 	}
 }
 
-// renderComponent dispatches to a type-specific renderer.
-func renderComponent(comp A2UIComponent, data map[string]any, width int) string {
-	if width <= 0 {
-		width = 80
-	}
-	switch comp.Type {
-	case "row":
-		if len(comp.Children) == 0 {
-			return ""
-		}
-		childWidth := width / len(comp.Children)
-		if childWidth < 1 {
-			childWidth = 1
-		}
-		parts := make([]string, len(comp.Children))
-		for i, child := range comp.Children {
-			parts[i] = renderComponent(child, data, childWidth)
-		}
-		return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
-
-	case "column":
-		parts := make([]string, len(comp.Children))
-		for i, child := range comp.Children {
-			parts[i] = renderComponent(child, data, width)
-		}
-		return lipgloss.JoinVertical(lipgloss.Left, parts...)
-
-	case "card":
-		title := ""
-		if t, ok := comp.Props["title"].(string); ok {
-			title = t
-		}
-		inner := make([]string, len(comp.Children))
-		for i, child := range comp.Children {
-			inner[i] = renderComponent(child, data, max(1, width-4))
-		}
-		body := strings.Join(inner, "\n")
-		cardStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#374151")).
-			Padding(0, 1).
-			Width(max(4, width-2))
-		if title != "" {
-			titleLine := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(NexPurple)).Render(title)
-			return titleLine + "\n" + cardStyle.Render(body)
-		}
-		return cardStyle.Render(body)
-
-	case "text":
-		val := ""
-		if comp.DataRef != "" {
-			resolved := resolvePointer(data, comp.DataRef)
-			if resolved != nil {
-				val = fmt.Sprintf("%v", resolved)
-			}
-		} else if s, ok := comp.Props["content"].(string); ok {
-			val = s
-		}
-		style := lipgloss.NewStyle()
-		if b, ok := comp.Props["bold"].(bool); ok && b {
-			style = style.Bold(true)
-		}
-		if c, ok := comp.Props["color"].(string); ok && c != "" {
-			style = style.Foreground(lipgloss.Color(c))
-		}
-		if d, ok := comp.Props["dimmed"].(bool); ok && d {
-			style = style.Foreground(lipgloss.Color(MutedColor))
-		}
-		return style.Render(val)
-
-	case "textfield":
-		label := "input"
-		if l, ok := comp.Props["label"].(string); ok && l != "" {
-			label = l
-		}
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(MutedColor)).Render("[input: " + label + "]")
-
-	case "list":
-		var items []any
-		if comp.DataRef != "" {
-			if resolved, ok := resolvePointer(data, comp.DataRef).([]any); ok {
-				items = resolved
-			}
-		}
-		lines := make([]string, len(items))
-		for i, item := range items {
-			lines[i] = "• " + fmt.Sprintf("%v", item)
-		}
-		return strings.Join(lines, "\n")
-
-	case "table":
-		var rows [][]string
-		if comp.DataRef != "" {
-			if resolved, ok := resolvePointer(data, comp.DataRef).([]any); ok {
-				for _, row := range resolved {
-					if r, ok := row.([]any); ok {
-						cells := make([]string, len(r))
-						for j, cell := range r {
-							cells[j] = fmt.Sprintf("%v", cell)
-						}
-						rows = append(rows, cells)
-					}
-				}
-			}
-		}
-		return renderTable(rows)
-
-	case "progress":
-		var val float64
-		if comp.DataRef != "" {
-			switch v := resolvePointer(data, comp.DataRef).(type) {
-			case float64:
-				val = v
-			case int:
-				val = float64(v)
-			}
-		}
-		return renderProgress(val, width)
-
-	case "spacer":
-		n := 1
-		if v, ok := comp.Props["lines"].(float64); ok && v > 0 {
-			n = int(v)
-		}
-		return strings.Repeat("\n", n)
-	}
-	return ""
-}
-
+// renderTable renders a simple text table from row data.
 func renderTable(rows [][]string) string {
 	if len(rows) == 0 {
 		return ""
@@ -344,6 +245,7 @@ func renderTable(rows [][]string) string {
 	return sb.String()
 }
 
+// renderProgress renders a progress bar with percentage.
 func renderProgress(val float64, width int) string {
 	if val < 0 {
 		val = 0

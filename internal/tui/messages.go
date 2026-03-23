@@ -88,3 +88,9 @@ type InitFlowMsg struct {
 type ProviderChoiceMsg struct {
 	Provider string
 }
+
+// View switching
+
+type ViewSwitchMsg struct {
+	Target ViewName
+}

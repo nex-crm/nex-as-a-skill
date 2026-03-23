@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/nex-ai/nex-cli/internal/chat"
 	"github.com/nex-ai/nex-cli/internal/config"
 )
 
@@ -17,6 +18,7 @@ const (
 	ViewStream ViewName = "stream"
 	ViewHelp   ViewName = "help"
 	ViewAgents ViewName = "agents"
+	ViewChat   ViewName = "chat"
 )
 
 // Model is the root bubbletea model that owns the stream view and agent infrastructure.
@@ -121,6 +123,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case ViewSwitchMsg:
+		m.currentView = msg.Target
+		return m, nil
+
 	case AgentTextMsg, AgentDoneMsg, AgentErrorMsg, PhaseChangeMsg,
 		AgentThinkingMsg, AgentToolUseMsg, AgentToolResultMsg:
 		resubscribe = true
@@ -144,6 +150,8 @@ func (m Model) View() string {
 		return m.renderHelpView()
 	case ViewAgents:
 		return m.renderAgentsView()
+	case ViewChat:
+		return m.renderChatView()
 	default:
 		return m.stream.View()
 	}
@@ -194,6 +202,49 @@ func (m Model) renderAgentsView() string {
 		lines = append(lines, line)
 	}
 	lines = append(lines, "")
+	lines = append(lines, SystemStyle.Render("  Press 'c', 'esc', or 'q' to return."))
+	return strings.Join(lines, "\n")
+}
+
+// renderChatView renders the chat channels and recent messages.
+func (m Model) renderChatView() string {
+	title := TitleStyle.Render("Chat Channels")
+
+	cm, err := chat.NewChannelManager()
+	if err != nil {
+		return title + "\n\n" + SystemStyle.Render("  Error loading channels: "+err.Error()) +
+			"\n\n" + SystemStyle.Render("  Press 'c', 'esc', or 'q' to return.")
+	}
+
+	channels := cm.List()
+	if len(channels) == 0 {
+		return title + "\n\n" + SystemStyle.Render("  No chat channels yet. Agent messages will create channels automatically.") +
+			"\n\n" + SystemStyle.Render("  Press 'c', 'esc', or 'q' to return.")
+	}
+
+	var lines []string
+	lines = append(lines, title, "")
+
+	ms, msErr := chat.NewMessageStore()
+
+	for _, ch := range channels {
+		icon := "#"
+		if ch.Type == chat.ChannelDirect {
+			icon = "@"
+		}
+		header := fmt.Sprintf("  %s%-20s  (%s)  %d members", icon, ch.Name, ch.Type, len(ch.Members))
+		lines = append(lines, header)
+
+		if msErr == nil {
+			msgs, _ := ms.List(ch.ID, 3)
+			for _, msg := range msgs {
+				ts := msg.Timestamp.Format("15:04")
+				lines = append(lines, fmt.Sprintf("    [%s] %s: %s", ts, msg.SenderName, msg.Content))
+			}
+		}
+		lines = append(lines, "")
+	}
+
 	lines = append(lines, SystemStyle.Render("  Press 'c', 'esc', or 'q' to return."))
 	return strings.Join(lines, "\n")
 }
