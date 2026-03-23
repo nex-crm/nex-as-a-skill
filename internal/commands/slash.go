@@ -49,6 +49,11 @@ func RegisterAllCommands(r *Registry) {
 	r.Register(SlashCommand{Name: "rel", Description: "Manage relationships", Execute: cmdRel})
 	r.Register(SlashCommand{Name: "attribute", Description: "Manage object attributes", Execute: cmdAttribute})
 
+	// Config
+	r.Register(SlashCommand{Name: "config", Description: "Manage configuration", Execute: cmdConfig})
+	r.Register(SlashCommand{Name: "detect", Description: "Detect installed AI platforms", Execute: cmdDetect})
+	r.Register(SlashCommand{Name: "session", Description: "Session management", Execute: cmdSession})
+
 	// System
 	r.Register(SlashCommand{Name: "help", Description: "Show help", Execute: cmdHelp})
 	r.Register(SlashCommand{Name: "clear", Description: "Clear messages", Execute: cmdClear})
