@@ -1,5 +1,5 @@
 ---
-name: nex-search
+name: nex:search
 description: Search for CRM records (people, companies, deals) by name
 ---
 

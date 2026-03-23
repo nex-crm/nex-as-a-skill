@@ -1,5 +1,5 @@
 ---
-name: nex-remember
+name: nex:remember
 description: Store information in Nex knowledge base for future recall
 ---
 

@@ -103,7 +103,7 @@ export function loadConfig(): NexConfig {
 
   if (!apiKey) {
     throw new ConfigError(
-      "No API key found. Set NEX_API_KEY or run /register to create an account."
+      "No API key found. Set NEX_API_KEY or run /nex:register to create an account."
     );
   }
 
