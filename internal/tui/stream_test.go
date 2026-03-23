@@ -72,7 +72,7 @@ func TestSlashHelp(t *testing.T) {
 
 	found := false
 	for _, msg := range m2.messages {
-		if msg.Role == "system" && strings.Contains(msg.Content, "Available commands") {
+		if msg.Role == "system" && (strings.Contains(msg.Content, "Commands:") || strings.Contains(msg.Content, "Available commands")) {
 			found = true
 			break
 		}

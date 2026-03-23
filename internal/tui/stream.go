@@ -26,39 +26,28 @@ type StreamMessage struct {
 }
 
 // defaultSlashCommands are the built-in slash commands for autocomplete.
+// One canonical command per action. No aliases.
 var defaultSlashCommands = []SlashCommand{
-	// AI
 	{Name: "ask", Description: "Ask the AI a question"},
 	{Name: "search", Description: "Search knowledge base"},
 	{Name: "remember", Description: "Store information"},
-	// Objects & Records
 	{Name: "object", Description: "Object commands (list/get/create/update/delete)"},
-	{Name: "record", Description: "Record commands (list/get/create/update/delete/timeline)"},
-	// Notes & Tasks
+	{Name: "record", Description: "Record commands (list/get/create/upsert/update/delete/timeline)"},
 	{Name: "note", Description: "Note commands (list/get/create/update/delete)"},
 	{Name: "task", Description: "Task commands (list/get/create/update/delete)"},
-	// Relationships & Attributes
+	{Name: "list", Description: "List commands (list/get/create/delete/records/add-member)"},
 	{Name: "rel", Description: "Relationship commands (list-defs/create-def/create/delete)"},
 	{Name: "attribute", Description: "Attribute commands (create/update/delete)"},
-	// Lists
-	{Name: "list", Description: "List commands (list/get/create/records/add-member)"},
-	// Agents
-	{Name: "agents", Description: "List agents"},
-	{Name: "agent", Description: "Agent details"},
-	// Config & System
+	{Name: "agent", Description: "Agent commands (list/<slug>)"},
+	{Name: "graph", Description: "View context graph"},
+	{Name: "insights", Description: "View insights"},
+	{Name: "calendar", Description: "View calendar"},
 	{Name: "config", Description: "Config commands (show/set/path)"},
 	{Name: "detect", Description: "Detect installed AI platforms"},
 	{Name: "init", Description: "Run setup"},
 	{Name: "provider", Description: "Switch LLM provider"},
-	{Name: "reset", Description: "Reset Claude session persistence"},
-	{Name: "thinking", Description: "Toggle agent thinking visibility"},
-	{Name: "graph", Description: "View context graph"},
-	{Name: "insights", Description: "View insights"},
-	{Name: "calendar", Description: "View agent calendar (add/remove/list)"},
-	{Name: "cal", Description: "View calendar (alias)"},
 	{Name: "help", Description: "Show all commands"},
-	{Name: "generative", Description: "Test generative UI rendering"},
-	{Name: "clear", Description: "Clear chat history"},
+	{Name: "clear", Description: "Clear messages"},
 	{Name: "quit", Description: "Exit nex"},
 }
 

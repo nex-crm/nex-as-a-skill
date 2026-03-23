@@ -68,13 +68,10 @@ func TestRegisterAllCommands(t *testing.T) {
 
 	expected := []string{
 		"ask", "search", "remember",
-		"chat", "calendar", "orchestration", "orch", "cal",
-		"agents", "agent",
-		"object", "objects", "record", "records", "graph", "insights",
-		"note", "notes", "task", "tasks",
-		"list", "rel", "attribute",
-		"config", "detect", "session",
-		"help", "clear", "quit", "q", "init", "login", "provider", "reset", "thinking",
+		"object", "record", "note", "task", "list", "rel", "attribute",
+		"agent", "graph", "insights", "calendar", "chat",
+		"config", "detect", "init", "provider",
+		"help", "clear", "quit",
 	}
 	for _, name := range expected {
 		if _, ok := r.Get(name); !ok {
@@ -130,7 +127,7 @@ func TestCmdAgentsNoService(t *testing.T) {
 	r := NewRegistry()
 	RegisterAllCommands(r)
 
-	cmd, _ := r.Get("agents")
+	cmd, _ := r.Get("agent")
 	var output string
 	ctx := &SlashContext{
 		AgentService: nil,

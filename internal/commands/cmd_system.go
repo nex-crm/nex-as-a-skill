@@ -14,39 +14,28 @@ import (
 var ErrQuit = errors.New("quit")
 
 func cmdHelp(ctx *SlashContext, args string) error {
-	help := "Available commands:\n\n" +
-		"  AI:\n" +
-		"    /ask <q>                   Ask the AI a question\n" +
-		"    /search <q>                Search knowledge base\n" +
-		"    /remember <txt>            Store information\n\n" +
-		"  Objects:\n" +
-		"    /object list|get|create|update|delete\n\n" +
-		"  Records:\n" +
-		"    /record list|get|create|upsert|update|delete|timeline\n\n" +
-		"  Notes:\n" +
-		"    /note list|get|create|update|delete\n\n" +
-		"  Tasks:\n" +
-		"    /task list|get|create|update|delete\n\n" +
-		"  Relationships:\n" +
-		"    /rel list-defs|create-def|delete-def|create|delete\n\n" +
-		"  Attributes:\n" +
-		"    /attribute create|update|delete\n\n" +
-		"  Lists:\n" +
-		"    /list list|get|create|delete|records|add-member|upsert-member|remove-record\n\n" +
-		"  Agents:\n" +
-		"    /agents                    List agents\n" +
-		"    /agent <slug>              Agent details\n\n" +
-		"  Config:\n" +
-		"    /config show|set|path      Manage configuration\n" +
-		"    /detect                    Detect installed AI platforms\n\n" +
-		"  System:\n" +
-		"    /help                      Show this help\n" +
-		"    /clear                     Clear messages\n" +
-		"    /quit                      Exit nex\n" +
-		"    /init                      Run setup\n" +
-		"    /provider                  Switch LLM provider\n" +
-		"    /reset                     Reset Claude session persistence\n" +
-		"    /thinking                  Toggle agent thinking visibility"
+	help := "Commands:\n\n" +
+		"  /ask <question>        Ask the AI\n" +
+		"  /search <query>        Search knowledge base\n" +
+		"  /remember <text>       Store information\n\n" +
+		"  /object <sub>          list | get | create | update | delete\n" +
+		"  /record <sub>          list | get | create | upsert | update | delete | timeline\n" +
+		"  /note <sub>            list | get | create | update | delete\n" +
+		"  /task <sub>            list | get | create | update | delete\n" +
+		"  /list <sub>            list | get | create | delete | records | add-member\n" +
+		"  /rel <sub>             list-defs | create-def | create | delete\n" +
+		"  /attribute <sub>       create | update | delete\n\n" +
+		"  /agent                 list | <slug>\n" +
+		"  /graph                 View context graph\n" +
+		"  /insights              View insights\n" +
+		"  /calendar              View calendar\n\n" +
+		"  /config <sub>          show | set | path\n" +
+		"  /detect                Detect AI platforms\n" +
+		"  /init                  Run setup\n" +
+		"  /provider              Switch LLM provider\n\n" +
+		"  /help                  This help\n" +
+		"  /clear                 Clear messages\n" +
+		"  /quit                  Exit"
 	ctx.AddMessage("system", help)
 	return nil
 }
