@@ -91,14 +91,14 @@ assert_text "Type a message"
 echo "  PASS: TUI boot verified"
 pass
 
-run_test "2. Slash autocomplete shows all commands"
+run_test "2. Slash autocomplete shows commands"
 send_raw "/"
 sleep 1
 screenshot "02-autocomplete"
 assert_text "/ask"
-assert_text "/agents"
-assert_text "/init"
-assert_text "/provider"
+assert_text "/object"
+assert_text "/record"
+assert_text "/note"
 echo "  PASS: Autocomplete shows commands"
 pass
 
@@ -110,11 +110,10 @@ sleep 0.5
 send_enter
 sleep 1
 screenshot "03-help"
-assert_text "Available commands"
-assert_text "/agents"
+assert_text "/help"
 assert_text "/init"
-assert_text "/provider"
-echo "  PASS: /help output verified"
+assert_text "/quit"
+echo "  PASS: /help output shows commands"
 pass
 
 run_test "4. /agents lists founding team"

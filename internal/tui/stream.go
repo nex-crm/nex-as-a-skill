@@ -25,21 +25,34 @@ type StreamMessage struct {
 
 // defaultSlashCommands are the built-in slash commands for autocomplete.
 var defaultSlashCommands = []SlashCommand{
+	// AI
 	{Name: "ask", Description: "Ask the AI a question"},
 	{Name: "search", Description: "Search knowledge base"},
 	{Name: "remember", Description: "Store information"},
+	// Objects & Records
+	{Name: "object", Description: "Object commands (list/get/create/update/delete)"},
+	{Name: "record", Description: "Record commands (list/get/create/update/delete/timeline)"},
+	// Notes & Tasks
+	{Name: "note", Description: "Note commands (list/get/create/update/delete)"},
+	{Name: "task", Description: "Task commands (list/get/create/update/delete)"},
+	// Relationships & Attributes
+	{Name: "rel", Description: "Relationship commands (list-defs/create-def/create/delete)"},
+	{Name: "attribute", Description: "Attribute commands (create/update/delete)"},
+	// Lists
+	{Name: "list", Description: "List commands (list/get/create/records/add-member)"},
+	// Agents
 	{Name: "agents", Description: "List agents"},
 	{Name: "agent", Description: "Agent details"},
+	// Config & System
+	{Name: "config", Description: "Config commands (show/set/path)"},
+	{Name: "detect", Description: "Detect installed AI platforms"},
 	{Name: "init", Description: "Run setup"},
 	{Name: "provider", Description: "Switch LLM provider"},
-	{Name: "objects", Description: "List object types"},
-	{Name: "records", Description: "List records"},
 	{Name: "graph", Description: "View context graph"},
 	{Name: "insights", Description: "View insights"},
-	{Name: "help", Description: "Show available commands"},
+	{Name: "help", Description: "Show all commands"},
 	{Name: "clear", Description: "Clear chat history"},
 	{Name: "quit", Description: "Exit nex"},
-	{Name: "q", Description: "Exit nex (shorthand)"},
 }
 
 // StreamModel is the main chat stream view with agent roster sidebar.
