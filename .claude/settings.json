@@ -1,0 +1,19 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | grep -qE '(^|\\s|&&|\\|\\||;|\\|)\\s*(npm|npx|pnpm|yarn)\\b' && echo '{\"decision\":\"block\",\"reason\":\"Use bun/bunx instead of npm/npx/pnpm/yarn. This project uses bun as its package manager.\"}' || true"
+          }
+        ]
+      }
+    ]
+  }
+}
