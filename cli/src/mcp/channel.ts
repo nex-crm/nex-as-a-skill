@@ -57,6 +57,11 @@ const DIGEST_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 /** Default notification polling interval if API doesn't specify one (15 minutes). */
 const DEFAULT_NOTIFY_INTERVAL_MS = 15 * 60 * 1000;
 
+/** Override: set via NEX_NOTIFY_INTERVAL_MINUTES env var (e.g. "1" for 1m). */
+const NOTIFY_INTERVAL_OVERRIDE_MS = process.env.NEX_NOTIFY_INTERVAL_MINUTES
+  ? Math.max(1, parseInt(process.env.NEX_NOTIFY_INTERVAL_MINUTES, 10)) * 60 * 1000
+  : 0;
+
 /** Delay before the first checks after startup (10 seconds). */
 const INITIAL_DELAY_MS = 10_000;
 
@@ -153,31 +158,76 @@ async function checkDigest(
 }
 
 // ---------------------------------------------------------------------------
-// Proactive notification logic (API-backed)
+// Proactive notification logic (polls /v1/notifications/feed)
 // ---------------------------------------------------------------------------
+
+/** Track the last seen sent_at so we only fetch new items. */
+let lastFeedCheckAt: string | undefined;
+
+interface FeedContentItem {
+  title?: string;
+  context?: string;
+  estimated_time?: string;
+}
+
+interface FeedItemContent {
+  important_items?: FeedContentItem[];
+  entity_changes?: FeedContentItem[];
+}
+
+interface FeedItem {
+  id?: string;
+  type?: string;
+  status?: string;
+  alert_time?: string;
+  sent_at?: string;
+  content?: FeedItemContent;
+}
 
 async function checkNotifications(
   server: NotificationSender,
   client: NexApiClient,
 ): Promise<void> {
   try {
-    const result = (await client.get("/v1/notifications?limit=10")) as {
-      notifications?: Notification[];
+    const params = new URLSearchParams({ limit: "10" });
+    if (lastFeedCheckAt) params.set("since", lastFeedCheckAt);
+
+    const result = (await client.get(
+      `/v1/notifications/feed?${params.toString()}`,
+    )) as {
+      items?: FeedItem[];
     };
 
-    const notifications = result.notifications ?? [];
-    if (notifications.length === 0) return;
+    const items = result.items ?? [];
+    if (items.length === 0) return;
 
-    const summary = notifications
-      .map(
-        (n) =>
-          `- [${n.type || "update"}${n.importance ? ` | ${n.importance}` : ""}] ${n.content || JSON.stringify(n)}`,
-      )
-      .join("\n");
+    // Update cursor to the most recent sent_at
+    for (const item of items) {
+      if (item.sent_at && (!lastFeedCheckAt || item.sent_at > lastFeedCheckAt)) {
+        lastFeedCheckAt = item.sent_at;
+      }
+    }
 
-    await pushChannelEvent(server, summary, {
+    // Format feed items into a readable summary
+    const lines: string[] = [];
+    for (const item of items) {
+      if (item.content?.important_items) {
+        for (const ci of item.content.important_items) {
+          lines.push(`- [important] ${ci.title}${ci.context ? ` — ${ci.context}` : ""}`);
+        }
+      }
+      if (item.content?.entity_changes) {
+        for (const ci of item.content.entity_changes) {
+          lines.push(`- [change] ${ci.title}${ci.context ? ` — ${ci.context}` : ""}`);
+        }
+      }
+    }
+
+    if (lines.length === 0) return;
+
+    await pushChannelEvent(server, lines.join("\n"), {
       type: "proactive_notification",
-      count: String(notifications.length),
+      count: String(items.length),
     });
   } catch (err) {
     console.error("[nex-channel] notification check failed:", err);
@@ -209,7 +259,8 @@ function scheduleNotificationLoop(
     await checkNotifications(server, client);
     // Re-fetch preferences each cycle to pick up frequency changes
     const prefs = await fetchPreferences(client);
-    const nextInterval = (prefs.frequency_minutes ?? intervalMs / 60_000) * 60_000;
+    const nextInterval = NOTIFY_INTERVAL_OVERRIDE_MS ||
+      (prefs.frequency_minutes ?? intervalMs / 60_000) * 60_000;
     setTimeout(run, nextInterval);
   };
   setTimeout(run, INITIAL_DELAY_MS + 5_000); // stagger slightly after digest
@@ -234,7 +285,8 @@ export async function startChannel(
 
   // Fetch initial preferences
   const prefs = await fetchPreferences(client);
-  const intervalMs = (prefs.frequency_minutes ?? DEFAULT_NOTIFY_INTERVAL_MS / 60_000) * 60_000;
+  const intervalMs = NOTIFY_INTERVAL_OVERRIDE_MS ||
+    (prefs.frequency_minutes ?? DEFAULT_NOTIFY_INTERVAL_MS / 60_000) * 60_000;
 
   // Digest uses local state (client-initiated)
   const digestState = loadDigestState();
