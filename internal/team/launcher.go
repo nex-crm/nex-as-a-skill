@@ -88,11 +88,11 @@ func (l *Launcher) Launch() error {
 	// Resolve nex binary path for the channel view
 	nexBinary, _ := os.Executable()
 
-	// Window 0 "team": starts with channel view on the left
+	// Window 0 "channel": full-screen channel view (the conversation feed)
 	channelCmd := fmt.Sprintf("%s --channel-view", nexBinary)
 	err := exec.Command("tmux", "-L", "nex", "new-session", "-d",
 		"-s", l.sessionName,
-		"-n", "team",
+		"-n", "channel",
 		"-c", l.cwd,
 		channelCmd,
 	).Run()
@@ -100,104 +100,59 @@ func (l *Launcher) Launch() error {
 		return fmt.Errorf("create tmux session: %w", err)
 	}
 
-	// Split right: first agent (leader) gets right 60%
+	// Window 1 "agents": all agents in tiled panes
+	// First agent creates the window
 	leaderPrompt := l.buildPrompt(l.pack.LeadSlug)
 	leaderCmd := l.claudeCommand(l.pack.LeadSlug, leaderPrompt)
 
-	exec.Command("tmux", "-L", "nex", "split-window", "-h",
-		"-t", l.sessionName+":team",
-		"-p", "60",
+	exec.Command("tmux", "-L", "nex", "new-window",
+		"-t", l.sessionName,
+		"-n", "agents",
 		"-c", l.cwd,
 		leaderCmd,
 	).Run()
 
-	// Split the right side into panes for each specialist (up to 3 more)
-	specialists := 0
+	// Remaining agents split into panes
 	for _, agentCfg := range l.pack.Agents {
 		if agentCfg.Slug == l.pack.LeadSlug {
 			continue
 		}
-		if specialists >= 3 {
-			break // max 4 agent panes visible (leader + 3 specialists)
-		}
 
 		prompt := l.buildPrompt(agentCfg.Slug)
 		agentCmd := l.claudeCommand(agentCfg.Slug, prompt)
 
-		// Split within the right side
 		exec.Command("tmux", "-L", "nex", "split-window",
-			"-t", l.sessionName+":team.1", // target the right side
+			"-t", l.sessionName+":agents",
 			"-c", l.cwd,
 			agentCmd,
 		).Run()
 
-		// Re-tile the right side panes
+		// Re-tile after each split
 		exec.Command("tmux", "-L", "nex", "select-layout",
-			"-t", l.sessionName+":team",
-			"main-vertical",
-		).Run()
-
-		specialists++
-	}
-
-	// Create individual full-screen windows for ALL agents (including those not in tiled view)
-	for _, agentCfg := range l.pack.Agents {
-		prompt := l.buildPrompt(agentCfg.Slug)
-		agentCmd := l.claudeCommand(agentCfg.Slug, prompt)
-
-		exec.Command("tmux", "-L", "nex", "new-window", "-d",
-			"-t", l.sessionName,
-			"-n", agentCfg.Slug,
-			"-c", l.cwd,
-			agentCmd,
+			"-t", l.sessionName+":agents",
+			"tiled",
 		).Run()
 	}
 
-	// Enable pane titles and set border format to show agent names
+	// Enable pane borders with agent names
 	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
 		"pane-border-status", "top",
 	).Run()
 	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
 		"pane-border-format", " #{pane_title} ",
 	).Run()
-	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
-		"pane-border-style", "fg=colour240",
-	).Run()
-	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
-		"pane-active-border-style", "fg=colour45",
-	).Run()
 
-	// Set pane titles: pane 0 = channel, pane 1+ = agents
-	exec.Command("tmux", "-L", "nex", "select-pane",
-		"-t", l.sessionName+":team.0", "-T", "📢 channel",
-	).Run()
-
-	// Set titles for agent panes (pane 1 = leader, panes 2+ = specialists)
-	paneIdx := 1
-	orderedSlugs := []string{l.pack.LeadSlug}
-	for _, a := range l.pack.Agents {
-		if a.Slug != l.pack.LeadSlug {
-			orderedSlugs = append(orderedSlugs, a.Slug)
-		}
-	}
-	for i, slug := range orderedSlugs {
-		if i >= 4 { // only 4 agent panes visible (leader + 3)
-			break
-		}
-		name := l.getAgentName(slug)
+	// Set pane titles
+	for i, agentCfg := range l.pack.Agents {
 		exec.Command("tmux", "-L", "nex", "select-pane",
-			"-t", fmt.Sprintf("%s:team.%d", l.sessionName, paneIdx),
-			"-T", fmt.Sprintf("🤖 %s (@%s)", name, slug),
+			"-t", fmt.Sprintf("%s:agents.%d", l.sessionName, i),
+			"-T", fmt.Sprintf("🤖 %s (@%s)", agentCfg.Name, agentCfg.Slug),
 		).Run()
-		paneIdx++
 	}
 
-	// Focus back on window 0 (team), select the channel pane
+	// Focus on channel window (user starts here)
 	exec.Command("tmux", "-L", "nex", "select-window",
-		"-t", l.sessionName+":team",
-	).Run()
-	exec.Command("tmux", "-L", "nex", "select-pane",
-		"-t", l.sessionName+":team.0",
+		"-t", l.sessionName+":channel",
 	).Run()
 
 	// Start the notification loop that pushes new messages to agent panes
@@ -223,21 +178,18 @@ func (l *Launcher) notifyAgentsLoop() {
 		lastCount = len(msgs)
 
 		for _, msg := range newMsgs {
-			// Don't notify the sender about their own message
 			// Notify all agent panes about new channel activity
-			for i, slug := range l.agentPaneSlugs() {
-				if slug == msg.From {
+			for i, agentCfg := range l.pack.Agents {
+				if agentCfg.Slug == msg.From {
 					continue
 				}
 
-				// Build a concise notification to inject into the agent's Claude session
 				notification := fmt.Sprintf(
 					"[Channel update from @%s]: %s\n\nPlease call team_poll with my_slug \"%s\" to see the full channel, then respond with team_broadcast if relevant.",
-					msg.From, truncate(msg.Content, 200), slug,
+					msg.From, truncate(msg.Content, 200), agentCfg.Slug,
 				)
 
-				// Use tmux send-keys to type the notification into the agent's pane
-				paneTarget := fmt.Sprintf("%s:team.%d", l.sessionName, i+1) // +1 because pane 0 is channel
+				paneTarget := fmt.Sprintf("%s:agents.%d", l.sessionName, i)
 				exec.Command("tmux", "-L", "nex", "send-keys",
 					"-t", paneTarget,
 					notification, "Enter",
@@ -245,24 +197,6 @@ func (l *Launcher) notifyAgentsLoop() {
 			}
 		}
 	}
-}
-
-// agentPaneSlugs returns the ordered slugs of agents in the team window panes.
-func (l *Launcher) agentPaneSlugs() []string {
-	var slugs []string
-	slugs = append(slugs, l.pack.LeadSlug)
-	count := 1
-	for _, a := range l.pack.Agents {
-		if a.Slug == l.pack.LeadSlug {
-			continue
-		}
-		if count >= 4 {
-			break
-		}
-		slugs = append(slugs, a.Slug)
-		count++
-	}
-	return slugs
 }
 
 func truncate(s string, max int) string {

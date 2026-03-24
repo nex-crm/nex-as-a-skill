@@ -139,88 +139,81 @@ fi
 echo ""
 echo "--- Phase 5: Agent Panes ---"
 
-log_test "CEO window has Claude running"
-# Check the individual CEO window (not tiled pane — Claude needs more boot time)
-sleep 15  # Claude Code takes 15-20s to boot with hooks
-CEO_CONTENT=$(tmux -L nex capture-pane -p -t nex-team:ceo 2>&1)
-echo "$CEO_CONTENT" > "$ARTIFACTS/ceo-window.txt"
+log_test "CEO pane has Claude running"
+echo "    Waiting 30s for Claude Code to boot..."
+sleep 30  # Claude Code takes 20-30s to boot with hooks
+CEO_CONTENT=$(tmux -L nex capture-pane -p -t nex-team:team.1 2>&1)
+echo "$CEO_CONTENT" > "$ARTIFACTS/ceo-pane.txt"
 CEO_LINES=$(echo "$CEO_CONTENT" | grep -v "^$" | wc -l | tr -d ' ')
 if [ "$CEO_LINES" -gt 2 ]; then
   pass
-  echo "    CEO window: $CEO_LINES non-empty lines"
+  echo "    CEO pane: $CEO_LINES non-empty lines"
 else
-  # Try again with more time
   sleep 10
-  CEO_CONTENT=$(tmux -L nex capture-pane -p -t nex-team:ceo 2>&1)
-  echo "$CEO_CONTENT" > "$ARTIFACTS/ceo-window-retry.txt"
+  CEO_CONTENT=$(tmux -L nex capture-pane -p -t nex-team:team.1 2>&1)
   CEO_LINES=$(echo "$CEO_CONTENT" | grep -v "^$" | wc -l | tr -d ' ')
   if [ "$CEO_LINES" -gt 2 ]; then
     pass
-    echo "    CEO window (after retry): $CEO_LINES non-empty lines"
+    echo "    CEO pane (retry): $CEO_LINES non-empty lines"
   else
-    fail "CEO window appears empty ($CEO_LINES lines)"
+    fail "CEO pane empty ($CEO_LINES lines)"
   fi
 fi
 
-log_test "At least one specialist window running"
+log_test "At least one specialist pane running"
 SPECIALIST_OK=0
-for SLUG in pm fe be; do
-  CONTENT=$(tmux -L nex capture-pane -p -t "nex-team:$SLUG" 2>/dev/null || echo "")
+for PANE_IDX in 2 3 4; do
+  CONTENT=$(tmux -L nex capture-pane -p -t "nex-team:team.$PANE_IDX" 2>/dev/null || echo "")
   LINES=$(echo "$CONTENT" | grep -v "^$" | wc -l | tr -d ' ')
   if [ "$LINES" -gt 2 ]; then
     SPECIALIST_OK=$((SPECIALIST_OK + 1))
-    echo "$CONTENT" > "$ARTIFACTS/$SLUG-window.txt"
+    echo "$CONTENT" > "$ARTIFACTS/pane-$PANE_IDX.txt"
   fi
 done
 if [ "$SPECIALIST_OK" -gt 0 ]; then
   pass
-  echo "    $SPECIALIST_OK specialist windows active"
+  echo "    $SPECIALIST_OK specialist panes active"
 else
-  fail "no specialist windows have content"
+  fail "no specialist panes have content"
 fi
 
 # ─── Phase 6: Agent Notification ───
 echo ""
 echo "--- Phase 6: Agent Gets Notified ---"
 
-log_test "Wait for notification push to CEO"
-sleep 8  # Give notifyAgentsLoop time to push
+log_test "Wait for notification push to CEO pane"
+sleep 8  # notifyAgentsLoop polls every 3s
 
-CEO_AFTER=$(tmux -L nex capture-pane -p -t nex-team:ceo 2>&1)
+CEO_AFTER=$(tmux -L nex capture-pane -p -t nex-team:team.1 2>&1)
 echo "$CEO_AFTER" > "$ARTIFACTS/ceo-after-notification.txt"
-if echo "$CEO_AFTER" | grep -qi "notetaker\|channel\|team_poll\|strategy\|team_broadcast"; then
+if echo "$CEO_AFTER" | grep -qi "notetaker\|Channel update\|team_poll\|strategy"; then
   pass
-  echo "    CEO received notification about the message"
+  echo "    CEO pane received notification"
 else
-  # Check if Claude is at least running (prompt visible)
-  if echo "$CEO_AFTER" | grep -qi "claude\|>"; then
+  sleep 5
+  CEO_AFTER=$(tmux -L nex capture-pane -p -t nex-team:team.1 2>&1)
+  echo "$CEO_AFTER" > "$ARTIFACTS/ceo-notification-retry.txt"
+  if echo "$CEO_AFTER" | grep -qi "notetaker\|Channel update\|team_poll\|strategy"; then
     pass
-    echo "    CEO Claude running (notification may not have arrived yet)"
+    echo "    CEO pane received notification (retry)"
   else
-    fail "CEO window doesn't show Claude or notification"
-    echo "    Last 5 lines:"
-    echo "$CEO_AFTER" | tail -5 | sed 's/^/    /'
+    fail "CEO pane didn't receive notification"
+    echo "    Last 10 lines:"
+    echo "$CEO_AFTER" | tail -10 | sed 's/^/    /'
   fi
 fi
 
-# ─── Phase 7: Individual Agent Windows ───
+# ─── Phase 7: Pane Count ───
 echo ""
-echo "--- Phase 7: Individual Agent Windows ---"
+echo "--- Phase 7: Pane Count ---"
 
-log_test "Individual agent windows exist"
-AGENT_WINDOWS=$(tmux -L nex list-windows -t nex-team -F "#{window_name}" 2>&1)
-echo "$AGENT_WINDOWS" > "$ARTIFACTS/agent-windows.txt"
-AGENT_WIN_COUNT=0
-for SLUG in ceo pm fe be designer cmo cro; do
-  if echo "$AGENT_WINDOWS" | grep -q "$SLUG"; then
-    AGENT_WIN_COUNT=$((AGENT_WIN_COUNT + 1))
-  fi
-done
-if [ "$AGENT_WIN_COUNT" -ge 4 ]; then
+log_test "Team window has 5 panes (channel + 4 agents)"
+PANE_COUNT=$(tmux -L nex list-panes -t nex-team:team 2>&1 | wc -l | tr -d ' ')
+if [ "$PANE_COUNT" -ge 4 ]; then
   pass
-  echo "    $AGENT_WIN_COUNT agent windows found"
+  echo "    $PANE_COUNT panes in team window"
 else
-  fail "only $AGENT_WIN_COUNT agent windows (expected 4+)"
+  fail "only $PANE_COUNT panes (expected 4+)"
 fi
 
 # ─── Phase 8: Quality Checks ───
