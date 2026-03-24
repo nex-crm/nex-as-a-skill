@@ -75,6 +75,7 @@ export class NexClient {
     try {
       const headers: Record<string, string> = {
         Authorization: `Bearer ${this.apiKey}`,
+        "X-Nex-Source": "skill",
       };
       if (body !== undefined) {
         headers["Content-Type"] = "application/json";
