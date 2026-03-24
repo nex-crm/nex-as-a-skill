@@ -121,6 +121,7 @@ var channelSlashCommands = []tui.SlashCommand{
 	{Name: "init", Description: "Run setup"},
 	{Name: "integrate", Description: "Connect an integration"},
 	{Name: "reply", Description: "Reply in thread by message ID"},
+	{Name: "threads", Description: "Browse and manage threads"},
 	{Name: "expand", Description: "Expand a collapsed thread"},
 	{Name: "collapse", Description: "Collapse a thread"},
 	{Name: "cancel", Description: "Exit reply/setup mode"},
@@ -135,6 +136,8 @@ const (
 	channelPickerInitProvider channelPickerMode = "init_provider"
 	channelPickerInitPack     channelPickerMode = "init_pack"
 	channelPickerIntegrations channelPickerMode = "integrations"
+	channelPickerThreads      channelPickerMode = "threads"
+	channelPickerThreadAction channelPickerMode = "thread_action"
 )
 
 type channelIntegrationSpec struct {
@@ -183,6 +186,7 @@ type channelModel struct {
 	posting          bool
 	selectedOption   int
 	notice           string
+	snoozedInterview string
 	initFlow         tui.InitFlowModel
 	picker           tui.PickerModel
 	pickerMode       channelPickerMode
@@ -293,6 +297,11 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.autocomplete, cmd = m.autocomplete.Update(msg)
 				_ = cmd
 				m.mention, _ = m.mention.Update(msg)
+				return m, nil
+			}
+			if m.pending != nil && m.pending.ID != "" {
+				m.snoozedInterview = m.pending.ID
+				m.notice = "Interview snoozed. Team remains paused until it is answered."
 				return m, nil
 			}
 			// Close thread panel
@@ -520,6 +529,7 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.threadScroll = 0
 			m.focus = focusMain
 			m.pickerMode = channelPickerNone
+			m.snoozedInterview = ""
 		} else {
 			m.notice = "Reset failed: " + msg.err.Error()
 		}
@@ -579,6 +589,49 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.posting = true
 			m.notice = fmt.Sprintf("Opening %s OAuth flow in your browser...", spec.Label)
 			return m, connectIntegration(spec)
+		case channelPickerThreads:
+			// User selected a thread — show action sub-picker
+			m.picker.SetActive(false)
+			m.pickerMode = channelPickerNone
+			selectedMsgID := msg.Value
+			actions := []tui.PickerOption{
+				{Label: "Reply in thread", Value: "reply:" + selectedMsgID, Description: "Start typing a reply"},
+				{Label: "Open thread panel", Value: "open:" + selectedMsgID, Description: "View full thread in side panel"},
+			}
+			if m.expandedThreads[selectedMsgID] {
+				actions = append(actions, tui.PickerOption{Label: "Collapse thread", Value: "collapse:" + selectedMsgID, Description: "Hide replies"})
+			} else {
+				actions = append(actions, tui.PickerOption{Label: "Expand thread", Value: "expand:" + selectedMsgID, Description: "Show replies inline"})
+			}
+			m.picker = tui.NewPicker("Thread: "+truncateText(msg.Label, 40), actions)
+			m.picker.SetActive(true)
+			m.pickerMode = channelPickerThreadAction
+			return m, nil
+		case channelPickerThreadAction:
+			m.picker.SetActive(false)
+			m.pickerMode = channelPickerNone
+			parts := strings.SplitN(msg.Value, ":", 2)
+			if len(parts) != 2 {
+				return m, nil
+			}
+			action, msgID := parts[0], parts[1]
+			switch action {
+			case "reply":
+				m.replyToID = msgID
+				m.threadPanelOpen = true
+				m.threadPanelID = msgID
+				m.focus = focusThread
+				m.notice = fmt.Sprintf("Replying in thread %s", msgID)
+			case "open":
+				m.threadPanelOpen = true
+				m.threadPanelID = msgID
+				m.focus = focusThread
+			case "expand":
+				m.expandedThreads[msgID] = true
+			case "collapse":
+				delete(m.expandedThreads, msgID)
+			}
+			return m, nil
 		default:
 			m.picker.SetActive(false)
 			var cmd tea.Cmd
@@ -610,10 +663,14 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			prevID = m.pending.ID
 		}
 		m.pending = msg.pending
+		if m.pending == nil {
+			m.snoozedInterview = ""
+		}
 		if m.pending != nil && m.pending.ID != prevID {
 			m.selectedOption = m.recommendedOptionIndex()
 			m.input = nil
 			m.inputPos = 0
+			m.snoozedInterview = ""
 		}
 
 	case channelTickMsg:
@@ -692,7 +749,7 @@ func (m channelModel) View() string {
 
 	// Interview card (above composer)
 	interviewCard := ""
-	if m.pending != nil {
+	if m.pending != nil && m.pending.ID != m.snoozedInterview {
 		interviewCard = renderInterviewCard(*m.pending, m.selectedOption, mainW-4)
 	}
 
@@ -900,10 +957,12 @@ func (m channelModel) View() string {
 		"\u25CF", onlineCount, len(m.messages), agentCount, scrollHint, focusLabel,
 	))
 	if m.pending != nil {
+		statusText := " Interview pending │ ↑/↓ choose │ Enter submit"
+		if m.pending.ID == m.snoozedInterview {
+			statusText = " Interview paused │ Esc snoozed it │ team remains blocked until answered"
+		}
 		statusBar = statusBarStyle(m.width).Render(
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Render(
-				" Interview pending │ ↑/↓ choose │ Enter submit",
-			),
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Render(statusText),
 		)
 	} else if m.usage.Total.TotalTokens > 0 || m.usage.Total.CostUsd > 0 {
 		statusBar = statusBarStyle(m.width).Render(fmt.Sprintf(
@@ -1240,6 +1299,45 @@ func findMessageByID(messages []brokerMessage, id string) (brokerMessage, bool) 
 		}
 	}
 	return brokerMessage{}, false
+}
+
+// buildThreadPickerOptions returns picker options for all root messages that have replies.
+func (m channelModel) buildThreadPickerOptions() []tui.PickerOption {
+	// Find root messages with replies
+	replyCount := make(map[string]int)
+	for _, msg := range m.messages {
+		if msg.ReplyTo != "" {
+			replyCount[msg.ReplyTo]++
+		}
+	}
+
+	var options []tui.PickerOption
+	for _, msg := range m.messages {
+		count, hasReplies := replyCount[msg.ID]
+		if !hasReplies || msg.ReplyTo != "" {
+			continue // skip non-root or messages without replies
+		}
+
+		preview := truncateText(msg.Content, 50)
+		status := "collapsed"
+		if m.expandedThreads[msg.ID] {
+			status = "expanded"
+		}
+
+		options = append(options, tui.PickerOption{
+			Label:       fmt.Sprintf("@%s: %s", msg.From, preview),
+			Value:       msg.ID,
+			Description: fmt.Sprintf("%d replies · %s", count, status),
+		})
+	}
+	return options
+}
+
+func truncateText(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 func hasThreadReplies(messages []brokerMessage, id string) bool {
@@ -1783,6 +1881,17 @@ func (m channelModel) runCommand(trimmed, threadTarget string) (tea.Model, tea.C
 		}
 		delete(m.expandedThreads, target)
 		m.notice = fmt.Sprintf("Collapsed thread %s.", target)
+		return m, nil
+	case trimmed == "/threads":
+		clearCurrent()
+		options := m.buildThreadPickerOptions()
+		if len(options) == 0 {
+			m.notice = "No threads yet."
+			return m, nil
+		}
+		m.picker = tui.NewPicker("Threads", options)
+		m.picker.SetActive(true)
+		m.pickerMode = channelPickerThreads
 		return m, nil
 	default:
 		return m, nil
