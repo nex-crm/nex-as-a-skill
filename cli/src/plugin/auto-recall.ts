@@ -13,7 +13,7 @@ import { loadConfig, isHookEnabled } from "./config.js";
 import { NexClient } from "./nex-client.js";
 import { formatNexContext } from "./context-format.js";
 import { SessionStore } from "./session-store.js";
-import { shouldRecall, recordRecall } from "./recall-filter.js";
+import { shouldRecall } from "./recall-filter.js";
 
 const sessions = new SessionStore();
 
@@ -104,9 +104,6 @@ async function main(): Promise<void> {
     if (result.session_id && sessionKey) {
       sessions.set(sessionKey, result.session_id);
     }
-
-    // Record successful recall for debounce
-    recordRecall(result.session_id);
 
     const entityCount = result.entity_references?.length ?? 0;
     const context = formatNexContext({

@@ -8,7 +8,7 @@ import { resolveApiKey, resolveFormat, resolveTimeout } from "../lib/config.js";
 import { printOutput } from "../lib/output.js";
 import type { Format } from "../lib/output.js";
 import { box, keyValue, style, sym, isTTY } from "../lib/tui.js";
-import { shouldRecall, recordRecall } from "../lib/recall-filter.js";
+import { shouldRecall } from "../lib/recall-filter.js";
 import { formatNexContext } from "../lib/context-format.js";
 import type { NexRecallResult } from "../lib/context-format.js";
 import { captureFilter } from "../lib/capture-filter.js";
@@ -160,7 +160,6 @@ program
     }
 
     const result = await client.post<NexRecallResult>("/v1/context/ask", body);
-    recordRecall();
 
     const formatted = formatNexContext({
       answer: result.answer ?? "",
