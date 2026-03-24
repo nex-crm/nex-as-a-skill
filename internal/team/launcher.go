@@ -94,6 +94,9 @@ func (l *Launcher) Launch() error {
 	}
 	l.mcpConfig = mcpConfig
 
+	// Kill any stale broker from a previous run
+	killStaleBroker()
+
 	// Start the shared channel broker
 	l.broker = NewBroker()
 	if err := l.broker.Start(); err != nil {
@@ -224,6 +227,18 @@ func (l *Launcher) agentPaneSlugs() []string {
 		slugs = append(slugs, a.Slug)
 	}
 	return slugs
+}
+
+// killStaleBroker kills any process holding port 7890 from a previous run.
+func killStaleBroker() {
+	out, err := exec.Command("lsof", "-i", fmt.Sprintf(":%d", BrokerPort), "-t").Output()
+	if err != nil || len(out) == 0 {
+		return
+	}
+	for _, pid := range strings.Fields(strings.TrimSpace(string(out))) {
+		exec.Command("kill", "-9", pid).Run()
+	}
+	time.Sleep(500 * time.Millisecond)
 }
 
 func truncate(s string, max int) string {
@@ -594,6 +609,8 @@ func teamVoiceForSlug(slug string) string {
 		return "Craft-obsessed, opinionated about UX, animated when a flow feels elegant, mildly allergic to ugly edge cases."
 	case "be":
 		return "Systems-minded, practical, a little grumpy about complexity in a useful way, enjoys killing fragile ideas early."
+	case "ai":
+		return "Curious, pragmatic, and slightly mischievous about model behavior. Loves clever AI product ideas, but will immediately ask about evals, latency, and whether the thing will actually work."
 	case "designer":
 		return "Taste-driven, emotionally attuned to the product, expressive, occasionally dramatic about bad UX in a charming way."
 	case "cmo":
