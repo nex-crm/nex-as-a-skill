@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -16,6 +18,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/nex-ai/nex-cli/internal/api"
+	"github.com/nex-ai/nex-cli/internal/config"
 	"github.com/nex-ai/nex-cli/internal/team"
 	"github.com/nex-ai/nex-cli/internal/tui"
 )
@@ -68,8 +72,79 @@ type channelPostDoneMsg struct{ err error }
 type channelInterviewAnswerDoneMsg struct{ err error }
 type channelResetDoneMsg struct{ err error }
 type channelInitDoneMsg struct{ err error }
+type channelIntegrationDoneMsg struct {
+	label string
+	url   string
+	err   error
+}
 
 var mentionPattern = regexp.MustCompile(`@([A-Za-z0-9_-]+)`)
+
+// brokerAuthToken reads the shared secret from the environment.
+var brokerAuthToken = os.Getenv("NEX_BROKER_TOKEN")
+
+// newBrokerRequest creates an HTTP request with the broker auth header.
+func newBrokerRequest(method, url string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+	if brokerAuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+brokerAuthToken)
+	}
+	if method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req, nil
+}
+
+var channelSlashCommands = []tui.SlashCommand{
+	{Name: "init", Description: "Run setup"},
+	{Name: "integrate", Description: "Connect an integration"},
+	{Name: "reply", Description: "Reply in thread by message ID"},
+	{Name: "expand", Description: "Expand a collapsed thread"},
+	{Name: "collapse", Description: "Collapse a thread"},
+	{Name: "cancel", Description: "Exit reply/setup mode"},
+	{Name: "reset", Description: "Reset office state and agents"},
+	{Name: "quit", Description: "Exit the office"},
+}
+
+type channelPickerMode string
+
+const (
+	channelPickerNone         channelPickerMode = ""
+	channelPickerInitProvider channelPickerMode = "init_provider"
+	channelPickerInitPack     channelPickerMode = "init_pack"
+	channelPickerIntegrations channelPickerMode = "integrations"
+)
+
+type channelIntegrationSpec struct {
+	Label       string
+	Value       string
+	Type        string
+	Provider    string
+	Description string
+}
+
+var channelIntegrationSpecs = []channelIntegrationSpec{
+	{Label: "Gmail", Value: "gmail", Type: "email", Provider: "google", Description: "Connect Google email"},
+	{Label: "Google Calendar", Value: "google-calendar", Type: "calendar", Provider: "google", Description: "Connect Google Calendar and the Nex Meeting Bot"},
+	{Label: "Outlook", Value: "outlook", Type: "email", Provider: "microsoft", Description: "Connect Microsoft email"},
+	{Label: "Outlook Calendar", Value: "outlook-calendar", Type: "calendar", Provider: "microsoft", Description: "Connect Outlook Calendar and the Nex Meeting Bot"},
+	{Label: "Slack", Value: "slack", Type: "messaging", Provider: "slack", Description: "Connect Slack workspace messaging"},
+	{Label: "Salesforce", Value: "salesforce", Type: "crm", Provider: "salesforce", Description: "Connect Salesforce CRM"},
+	{Label: "HubSpot", Value: "hubspot", Type: "crm", Provider: "hubspot", Description: "Connect HubSpot CRM"},
+	{Label: "Attio", Value: "attio", Type: "crm", Provider: "attio", Description: "Connect Attio CRM"},
+}
+
+// focusArea identifies which panel currently owns keyboard input.
+type focusArea int
+
+const (
+	focusMain    focusArea = 0
+	focusSidebar focusArea = 1
+	focusThread  focusArea = 2
+)
 
 type channelModel struct {
 	messages        []brokerMessage
@@ -78,6 +153,8 @@ type channelModel struct {
 	lastID          string
 	replyToID       string
 	expandedThreads map[string]bool
+	autocomplete    tui.AutocompleteModel
+	mention         tui.MentionModel
 	input           []rune
 	inputPos        int
 	width           int
@@ -88,13 +165,30 @@ type channelModel struct {
 	notice          string
 	initFlow        tui.InitFlowModel
 	picker          tui.PickerModel
+	pickerMode      channelPickerMode
+
+	// 3-column layout state
+	focus            focusArea
+	sidebarCollapsed bool
+	threadPanelOpen  bool
+	threadPanelID    string
+	threadInput      []rune
+	threadInputPos   int
+	threadScroll     int
 }
 
 func newChannelModel() channelModel {
-	return channelModel{
+	m := channelModel{
 		expandedThreads: make(map[string]bool),
+		autocomplete:    tui.NewAutocomplete(channelSlashCommands),
+		mention:         tui.NewMention(channelMentionAgents(nil)),
 		initFlow:        tui.NewInitFlow(),
 	}
+	if config.ResolveAPIKey("") == "" {
+		m.notice = "No Nex API key configured. Starting setup..."
+		m.initFlow, _ = m.initFlow.Start()
+	}
+	return m
 }
 
 func (m channelModel) Init() tea.Cmd {
@@ -113,13 +207,68 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
-		if m.picker.IsActive() {
-			if msg.String() == "esc" {
+		// ── Global keys (always active) ───────────────────────────────
+		switch msg.String() {
+		case "ctrl+c":
+			killTeamSession()
+			return m, tea.Quit
+		case "ctrl+b":
+			m.sidebarCollapsed = !m.sidebarCollapsed
+			return m, nil
+		}
+
+		// ── Esc: close overlays/thread, then cycle ────────────────────
+		if msg.String() == "esc" {
+			// Close overlays first
+			if m.picker.IsActive() {
 				m.picker.SetActive(false)
-				m.initFlow = tui.NewInitFlow()
-				m.notice = "Setup canceled."
+				if m.pickerMode == channelPickerIntegrations {
+					m.notice = "Integration canceled."
+				} else {
+					m.initFlow = tui.NewInitFlow()
+					m.notice = "Setup canceled."
+				}
+				m.pickerMode = channelPickerNone
 				return m, nil
 			}
+			if m.autocomplete.IsVisible() || m.mention.IsVisible() {
+				var cmd tea.Cmd
+				m.autocomplete, cmd = m.autocomplete.Update(msg)
+				_ = cmd
+				m.mention, _ = m.mention.Update(msg)
+				return m, nil
+			}
+			// Close thread panel
+			if m.threadPanelOpen {
+				m.threadPanelOpen = false
+				m.threadPanelID = ""
+				m.threadInput = nil
+				m.threadInputPos = 0
+				m.threadScroll = 0
+				if m.focus == focusThread {
+					m.focus = focusMain
+				}
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// ── Tab: cycle focus 0→1→2→0 (only visible panels) ───────────
+		if msg.String() == "tab" && !m.autocomplete.IsVisible() && !m.mention.IsVisible() && !m.picker.IsActive() {
+			m.focus = m.nextFocus()
+			return m, nil
+		}
+
+		// ── Route by focus area ───────────────────────────────────────
+		if m.focus == focusThread && m.threadPanelOpen {
+			return m.updateThread(msg)
+		}
+		if m.focus == focusSidebar && !m.sidebarCollapsed {
+			return m.updateSidebar(msg)
+		}
+
+		// ── focusMain: existing behavior ──────────────────────────────
+		if m.picker.IsActive() {
 			var cmd tea.Cmd
 			m.picker, cmd = m.picker.Update(msg)
 			return m, cmd
@@ -129,10 +278,58 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.initFlow, cmd = m.initFlow.Update(msg)
 			return m, cmd
 		}
+		if m.autocomplete.IsVisible() {
+			switch msg.String() {
+			case "tab":
+				if name := m.autocomplete.Accept(); name != "" {
+					m.input = []rune("/" + name + " ")
+					m.inputPos = len(m.input)
+					m.updateInputOverlays()
+				}
+				return m, nil
+			case "enter":
+				if name := m.autocomplete.Accept(); name != "" {
+					m.input = []rune("/" + name)
+					m.inputPos = len(m.input)
+					m.updateInputOverlays()
+					return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+				}
+			case "up", "down", "shift+tab":
+				var cmd tea.Cmd
+				m.autocomplete, cmd = m.autocomplete.Update(msg)
+				_ = cmd
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.autocomplete, cmd = m.autocomplete.Update(msg)
+				_ = cmd
+			}
+		}
+		if m.mention.IsVisible() {
+			switch msg.String() {
+			case "tab", "enter":
+				if mention := m.mention.Accept(); mention != "" {
+					input := string(m.input)
+					atIdx := strings.LastIndex(input[:m.inputPos], "@")
+					if atIdx >= 0 {
+						m.input = []rune(input[:atIdx] + mention + " " + input[m.inputPos:])
+						m.inputPos = atIdx + len([]rune(mention)) + 1
+						m.updateInputOverlays()
+					}
+				}
+				return m, nil
+			case "up", "down", "shift+tab":
+				var cmd tea.Cmd
+				m.mention, cmd = m.mention.Update(msg)
+				_ = cmd
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.mention, cmd = m.mention.Update(msg)
+				_ = cmd
+			}
+		}
 		switch msg.String() {
-		case "ctrl+c":
-			killTeamSession()
-			return m, tea.Quit
 		case "enter":
 			if len(m.input) > 0 {
 				text := string(m.input)
@@ -148,6 +345,20 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.posting = true
 					return m, resetTeamSession()
 				}
+				if trimmed == "/integrate" {
+					m.input = nil
+					m.inputPos = 0
+					if config.ResolveAPIKey("") == "" {
+						m.notice = "Run setup first. No Nex API key is configured."
+						m.initFlow, _ = m.initFlow.Start()
+						return m, nil
+					}
+					m.picker = tui.NewPicker("Choose Integration", channelIntegrationOptions())
+					m.picker.SetActive(true)
+					m.pickerMode = channelPickerIntegrations
+					m.notice = "Choose an integration to connect."
+					return m, nil
+				}
 				if trimmed == "/init" {
 					m.input = nil
 					m.inputPos = 0
@@ -161,6 +372,14 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.inputPos = 0
 					if m.replyToID != "" {
 						m.replyToID = ""
+						m.threadPanelOpen = false
+						m.threadPanelID = ""
+						m.threadInput = nil
+						m.threadInputPos = 0
+						m.threadScroll = 0
+						if m.focus == focusThread {
+							m.focus = focusMain
+						}
 						m.notice = "Reply mode cleared."
 					} else if m.initFlow.IsActive() || m.initFlow.Phase() == tui.InitDone || m.picker.IsActive() {
 						m.initFlow = tui.NewInitFlow()
@@ -184,6 +403,11 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 					m.replyToID = target
+					m.threadPanelOpen = true
+					m.threadPanelID = target
+					m.threadInput = nil
+					m.threadInputPos = 0
+					m.threadScroll = 0
 					m.notice = fmt.Sprintf("Replying in thread %s.", target)
 					return m, nil
 				}
@@ -254,10 +478,12 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.inputPos > 0 {
 				m.input = append(m.input[:m.inputPos-1], m.input[m.inputPos:]...)
 				m.inputPos--
+				m.updateInputOverlays()
 			}
 		case "ctrl+u":
 			m.input = nil
 			m.inputPos = 0
+			m.updateInputOverlays()
 		case "ctrl+a":
 			m.inputPos = 0
 		case "ctrl+e":
@@ -279,7 +505,7 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "k":
 			m.scroll++
 		case "down":
-			if m.pending != nil && m.selectedOption < len(m.pending.Options)-1 {
+			if m.pending != nil && m.selectedOption < m.interviewOptionCount()-1 {
 				m.selectedOption++
 			} else {
 				m.scroll--
@@ -305,26 +531,38 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		default:
 			// Type character
-			if len(msg.String()) == 1 || msg.Type == tea.KeyRunes {
+			if msg.Type == tea.KeySpace {
+				ch := []rune{' '}
+				tail := make([]rune, len(m.input[m.inputPos:]))
+				copy(tail, m.input[m.inputPos:])
+				m.input = append(m.input[:m.inputPos], append(ch, tail...)...)
+				m.inputPos++
+				m.updateInputOverlays()
+			} else if len(msg.String()) == 1 || msg.Type == tea.KeyRunes {
 				ch := msg.Runes
 				if len(ch) > 0 {
 					tail := make([]rune, len(m.input[m.inputPos:]))
 					copy(tail, m.input[m.inputPos:])
 					m.input = append(m.input[:m.inputPos], append(ch, tail...)...)
 					m.inputPos += len(ch)
+					m.updateInputOverlays()
 				}
 			}
 		}
 
 	case channelPostDoneMsg:
 		m.posting = false
-		if msg.err == nil && m.replyToID != "" {
+		if msg.err != nil {
+			m.notice = "Send failed: " + msg.err.Error()
+		} else if m.replyToID != "" {
 			m.notice = fmt.Sprintf("Reply sent to %s. Use /cancel to leave the thread.", m.replyToID)
 		}
 
 	case channelInterviewAnswerDoneMsg:
 		m.posting = false
-		if msg.err == nil {
+		if msg.err != nil {
+			m.notice = "Interview answer failed: " + msg.err.Error()
+		} else {
 			m.pending = nil
 			m.input = nil
 			m.inputPos = 0
@@ -345,6 +583,15 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.notice = ""
 			m.initFlow = tui.NewInitFlow()
 			m.picker.SetActive(false)
+			m.threadPanelOpen = false
+			m.threadPanelID = ""
+			m.threadInput = nil
+			m.threadInputPos = 0
+			m.threadScroll = 0
+			m.focus = focusMain
+			m.pickerMode = channelPickerNone
+		} else {
+			m.notice = "Reset failed: " + msg.err.Error()
 		}
 
 	case channelInitDoneMsg:
@@ -356,21 +603,52 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.initFlow = tui.NewInitFlow()
 		m.picker.SetActive(false)
+		m.pickerMode = channelPickerNone
+
+	case channelIntegrationDoneMsg:
+		m.posting = false
+		m.picker.SetActive(false)
+		m.pickerMode = channelPickerNone
+		if msg.err != nil {
+			m.notice = "Integration failed: " + msg.err.Error()
+		} else if msg.url != "" {
+			m.notice = fmt.Sprintf("%s connected. Browser opened at %s", msg.label, msg.url)
+		} else {
+			m.notice = fmt.Sprintf("%s connected.", msg.label)
+		}
 
 	case channelMsg:
 		if len(msg.messages) > 0 {
+			if m.scroll > 0 {
+				m.scroll += len(msg.messages)
+			}
 			m.messages = append(m.messages, msg.messages...)
 			m.lastID = msg.messages[len(msg.messages)-1].ID
 		}
 
 	case channelMembersMsg:
 		m.members = msg.members
+		m.updateInputOverlays()
 
 	case tui.PickerSelectMsg:
-		m.picker.SetActive(false)
-		var cmd tea.Cmd
-		m.initFlow, cmd = m.initFlow.Update(msg)
-		return m, cmd
+		switch m.pickerMode {
+		case channelPickerIntegrations:
+			spec, ok := findChannelIntegration(msg.Value)
+			m.picker.SetActive(false)
+			m.pickerMode = channelPickerNone
+			if !ok {
+				m.notice = "Unknown integration selection."
+				return m, nil
+			}
+			m.posting = true
+			m.notice = fmt.Sprintf("Opening %s OAuth flow in your browser...", spec.Label)
+			return m, connectIntegration(spec)
+		default:
+			m.picker.SetActive(false)
+			var cmd tea.Cmd
+			m.initFlow, cmd = m.initFlow.Update(msg)
+			return m, cmd
+		}
 
 	case tui.InitFlowMsg:
 		var cmd tea.Cmd
@@ -379,9 +657,11 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tui.InitProviderChoice:
 			m.picker = tui.NewPicker("Choose LLM Provider", tui.ProviderOptions())
 			m.picker.SetActive(true)
+			m.pickerMode = channelPickerInitProvider
 		case tui.InitPackChoice:
 			m.picker = tui.NewPicker("Choose Agent Pack", tui.PackOptions())
 			m.picker.SetActive(true)
+			m.pickerMode = channelPickerInitPack
 		case tui.InitDone:
 			m.posting = true
 			return m, tea.Batch(cmd, reconfigureTeamAgents())
@@ -488,6 +768,9 @@ func (m channelModel) View() string {
 	if len(m.input) == 0 {
 		cursorStyle := lipgloss.NewStyle().Reverse(true)
 		placeholder := " Type a message to the team... (/init, /reply, /expand, /collapse, /reset, /quit)"
+		if config.ResolveAPIKey("") != "" {
+			placeholder = " Type a message to the team... (/integrate, /reply, /expand, /collapse, /reset, /quit)"
+		}
 		if m.pending != nil {
 			placeholder = " Type a custom answer, or press Enter to accept the selected option"
 		} else if m.replyToID != "" {
@@ -515,7 +798,7 @@ func (m channelModel) View() string {
 		Width(inputWidth).
 		Padding(0, 1)
 	inputBox := inputBorder.Render(inputStr)
-	composerLabel := "Message #ai-notetaker-company"
+	composerLabel := "Message #office"
 	if m.pending != nil {
 		composerLabel = fmt.Sprintf("Answer @%s's question", m.pending.From)
 	} else if m.replyToID != "" {
@@ -535,13 +818,15 @@ func (m channelModel) View() string {
 	} else if m.initFlow.IsActive() || m.initFlow.Phase() == tui.InitDone {
 		initPanel = "\n" + m.initFlow.View()
 	}
-
-	// Messages
-	viewHeight := m.height - 9 // header + composer + status
-	if viewHeight < 1 {
-		viewHeight = 1
+	overlayPanel := ""
+	if ac := m.autocomplete.View(); ac != "" {
+		overlayPanel += "\n" + ac
+	}
+	if mn := m.mention.View(); mn != "" {
+		overlayPanel += "\n" + mn
 	}
 
+	// Messages
 	var lines []string
 	contentWidth := inputWidth - 2
 	if contentWidth < 32 {
@@ -646,6 +931,17 @@ func (m channelModel) View() string {
 		interviewCard = renderInterviewCard(*m.pending, m.selectedOption, inputWidth)
 	}
 
+	fixedHeight := lipgloss.Height(titleBar) +
+		lipgloss.Height(interviewCard) +
+		lipgloss.Height(initPanel) +
+		lipgloss.Height(composerTitle) +
+		lipgloss.Height(inputBox) +
+		lipgloss.Height(overlayPanel) + 7
+	viewHeight := m.height - fixedHeight
+	if viewHeight < 1 {
+		viewHeight = 1
+	}
+
 	// Scroll
 	total := len(lines)
 	scroll := clampScroll(total, viewHeight, m.scroll)
@@ -703,6 +999,7 @@ func (m channelModel) View() string {
 		initPanel +
 		composerTitle + "\n" +
 		inputBox + "\n" +
+		overlayPanel +
 		statusBar
 }
 
@@ -718,12 +1015,25 @@ func (m channelModel) recommendedOptionIndex() int {
 	return 0
 }
 
+func (m channelModel) interviewOptionCount() int {
+	if m.pending == nil {
+		return 0
+	}
+	return len(m.pending.Options) + 1
+}
+
 func (m channelModel) selectedInterviewOption() *channelInterviewOption {
-	if m.pending == nil || len(m.pending.Options) == 0 {
+	if m.pending == nil {
 		return nil
 	}
-	if m.selectedOption < 0 || m.selectedOption >= len(m.pending.Options) {
+	if len(m.pending.Options) == 0 {
+		return nil
+	}
+	if m.selectedOption < 0 {
 		return &m.pending.Options[0]
+	}
+	if m.selectedOption >= len(m.pending.Options) {
+		return nil
 	}
 	return &m.pending.Options[m.selectedOption]
 }
@@ -988,24 +1298,28 @@ func renderInterviewCard(interview channelInterview, selected int, width int) st
 		lines = append(lines, "")
 		lines = append(lines, muted.Width(cardWidth-4).Render(interview.Context))
 	}
-	if len(interview.Options) > 0 {
-		lines = append(lines, "", muted.Render("Options"))
-		for i, option := range interview.Options {
-			prefix := "  "
-			if i == selected {
-				prefix = lipgloss.NewStyle().Foreground(lipgloss.Color("#60A5FA")).Bold(true).Render("→ ")
-			}
-			label := option.Label
-			if option.ID == interview.RecommendedID {
-				label += " (Recommended)"
-			}
-			lines = append(lines, prefix+titleStyle.Render(label))
-			if strings.TrimSpace(option.Description) != "" {
-				lines = append(lines, "    "+muted.Width(cardWidth-8).Render(option.Description))
-			}
+	lines = append(lines, "", muted.Render("Options"))
+	for i, option := range interview.Options {
+		prefix := "  "
+		if i == selected {
+			prefix = lipgloss.NewStyle().Foreground(lipgloss.Color("#60A5FA")).Bold(true).Render("→ ")
 		}
-		lines = append(lines, "", muted.Render("Press Enter to accept the selected option, or type your own answer below."))
+		label := option.Label
+		if option.ID == interview.RecommendedID {
+			label += " (Recommended)"
+		}
+		lines = append(lines, prefix+titleStyle.Render(label))
+		if strings.TrimSpace(option.Description) != "" {
+			lines = append(lines, "    "+muted.Width(cardWidth-8).Render(option.Description))
+		}
 	}
+	customPrefix := "  "
+	if selected >= len(interview.Options) {
+		customPrefix = lipgloss.NewStyle().Foreground(lipgloss.Color("#60A5FA")).Bold(true).Render("→ ")
+	}
+	lines = append(lines, customPrefix+titleStyle.Render("Custom answer"))
+	lines = append(lines, "    "+muted.Width(cardWidth-8).Render("Type your own answer in the composer below."))
+	lines = append(lines, "", muted.Render("Press Enter to accept the selected option, or type your own answer below."))
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#F59E0B")).
@@ -1036,17 +1350,59 @@ func postToChannel(text string, replyTo string) tea.Cmd {
 			"tagged":   extractTagsFromText(text),
 			"reply_to": strings.TrimSpace(replyTo),
 		})
-		resp, err := http.Post(
-			"http://127.0.0.1:7890/messages",
-			"application/json",
-			bytes.NewReader(body),
-		)
+		req, err := newBrokerRequest(http.MethodPost, "http://127.0.0.1:7890/messages", bytes.NewReader(body))
 		if err != nil {
 			return channelPostDoneMsg{err: err}
 		}
-		resp.Body.Close()
+		client := &http.Client{Timeout: 2 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return channelPostDoneMsg{err: err}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			if len(body) == 0 {
+				return channelPostDoneMsg{err: fmt.Errorf("broker returned %s", resp.Status)}
+			}
+			return channelPostDoneMsg{err: fmt.Errorf("%s", strings.TrimSpace(string(body)))}
+		}
 		return channelPostDoneMsg{}
 	}
+}
+
+func channelMentionAgents(members []channelMember) []tui.AgentMention {
+	defaults := []tui.AgentMention{
+		{Slug: "ceo", Name: "CEO"},
+		{Slug: "pm", Name: "Product Manager"},
+		{Slug: "fe", Name: "Frontend Engineer"},
+		{Slug: "be", Name: "Backend Engineer"},
+		{Slug: "ai", Name: "AI Engineer"},
+		{Slug: "designer", Name: "Designer"},
+		{Slug: "cmo", Name: "CMO"},
+		{Slug: "cro", Name: "CRO"},
+	}
+	seen := make(map[string]bool, len(defaults))
+	mentions := make([]tui.AgentMention, 0, len(defaults)+len(members))
+	for _, ag := range defaults {
+		seen[ag.Slug] = true
+		mentions = append(mentions, ag)
+	}
+	for _, member := range members {
+		if seen[member.Slug] {
+			continue
+		}
+		seen[member.Slug] = true
+		mentions = append(mentions, tui.AgentMention{Slug: member.Slug, Name: displayName(member.Slug)})
+	}
+	return mentions
+}
+
+func (m *channelModel) updateInputOverlays() {
+	input := string(m.input)
+	m.autocomplete.UpdateQuery(input)
+	m.mention.UpdateAgents(channelMentionAgents(m.members))
+	m.mention.UpdateQuery(input[:m.inputPos])
 }
 
 func extractTagsFromText(text string) []string {
@@ -1066,8 +1422,12 @@ func pollBroker(sinceID string) tea.Cmd {
 		if sinceID != "" {
 			url += "&since_id=" + sinceID
 		}
+		req, err := newBrokerRequest(http.MethodGet, url, nil)
+		if err != nil {
+			return channelMsg{}
+		}
 		client := &http.Client{Timeout: 2 * time.Second}
-		resp, err := client.Get(url)
+		resp, err := client.Do(req)
 		if err != nil {
 			return channelMsg{}
 		}
@@ -1090,8 +1450,12 @@ func pollBroker(sinceID string) tea.Cmd {
 
 func pollMembers() tea.Cmd {
 	return func() tea.Msg {
+		req, err := newBrokerRequest(http.MethodGet, "http://127.0.0.1:7890/members", nil)
+		if err != nil {
+			return channelMembersMsg{}
+		}
 		client := &http.Client{Timeout: 2 * time.Second}
-		resp, err := client.Get("http://127.0.0.1:7890/members")
+		resp, err := client.Do(req)
 		if err != nil {
 			return channelMembersMsg{}
 		}
@@ -1114,8 +1478,12 @@ func pollMembers() tea.Cmd {
 
 func pollInterview() tea.Cmd {
 	return func() tea.Msg {
+		req, err := newBrokerRequest(http.MethodGet, "http://127.0.0.1:7890/interview", nil)
+		if err != nil {
+			return channelInterviewMsg{}
+		}
 		client := &http.Client{Timeout: 2 * time.Second}
-		resp, err := client.Get("http://127.0.0.1:7890/interview")
+		resp, err := client.Do(req)
 		if err != nil {
 			return channelInterviewMsg{}
 		}
@@ -1144,16 +1512,103 @@ func postInterviewAnswer(interview channelInterview, choiceID, choiceText, custo
 			"choice_text": choiceText,
 			"custom_text": customText,
 		})
-		resp, err := http.Post(
-			"http://127.0.0.1:7890/interview/answer",
-			"application/json",
-			bytes.NewReader(body),
-		)
+		req, err := newBrokerRequest(http.MethodPost, "http://127.0.0.1:7890/interview/answer", bytes.NewReader(body))
 		if err != nil {
 			return channelInterviewAnswerDoneMsg{err: err}
 		}
-		resp.Body.Close()
+		client := &http.Client{Timeout: 2 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return channelInterviewAnswerDoneMsg{err: err}
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(resp.Body)
+			if len(body) == 0 {
+				return channelInterviewAnswerDoneMsg{err: fmt.Errorf("broker returned %s", resp.Status)}
+			}
+			return channelInterviewAnswerDoneMsg{err: fmt.Errorf("%s", strings.TrimSpace(string(body)))}
+		}
 		return channelInterviewAnswerDoneMsg{}
+	}
+}
+
+func channelIntegrationOptions() []tui.PickerOption {
+	options := make([]tui.PickerOption, 0, len(channelIntegrationSpecs))
+	for _, spec := range channelIntegrationSpecs {
+		options = append(options, tui.PickerOption{
+			Label:       spec.Label,
+			Value:       spec.Value,
+			Description: spec.Description,
+		})
+	}
+	return options
+}
+
+func findChannelIntegration(value string) (channelIntegrationSpec, bool) {
+	for _, spec := range channelIntegrationSpecs {
+		if spec.Value == value {
+			return spec, true
+		}
+	}
+	return channelIntegrationSpec{}, false
+}
+
+func connectIntegration(spec channelIntegrationSpec) tea.Cmd {
+	return func() tea.Msg {
+		apiKey := config.ResolveAPIKey("")
+		if apiKey == "" {
+			return channelIntegrationDoneMsg{err: errors.New("run /init first to configure your Nex API key")}
+		}
+		client := api.NewClient(apiKey)
+		result, err := api.Post[map[string]any](client,
+			fmt.Sprintf("/v1/integrations/%s/%s/connect", spec.Type, spec.Provider),
+			nil,
+			30*time.Second,
+		)
+		if err != nil {
+			return channelIntegrationDoneMsg{err: err}
+		}
+
+		authURL := mapString(result, "auth_url")
+		if authURL != "" {
+			_ = openBrowserURL(authURL)
+		}
+		connectID := mapString(result, "connect_id")
+		if connectID == "" {
+			return channelIntegrationDoneMsg{label: spec.Label, url: authURL}
+		}
+
+		deadline := time.Now().Add(5 * time.Minute)
+		for time.Now().Before(deadline) {
+			time.Sleep(3 * time.Second)
+			statusResp, err := api.Get[map[string]any](client,
+				fmt.Sprintf("/v1/integrations/connect/%s/status", connectID),
+				15*time.Second,
+			)
+			if err != nil {
+				if _, ok := err.(*api.AuthError); ok {
+					return channelIntegrationDoneMsg{err: err}
+				}
+				continue
+			}
+			status := strings.ToLower(mapString(statusResp, "status"))
+			switch status {
+			case "connected", "complete", "completed", "active":
+				return channelIntegrationDoneMsg{label: spec.Label, url: authURL}
+			case "failed", "error":
+				reason := mapString(statusResp, "error")
+				if reason == "" {
+					reason = status
+				}
+				return channelIntegrationDoneMsg{err: fmt.Errorf("%s connection failed: %s", spec.Label, reason)}
+			}
+		}
+
+		if authURL != "" {
+			return channelIntegrationDoneMsg{err: fmt.Errorf("%s connection timed out. Finish OAuth at %s", spec.Label, authURL)}
+		}
+		return channelIntegrationDoneMsg{err: fmt.Errorf("%s connection timed out", spec.Label)}
 	}
 }
 
@@ -1188,6 +1643,43 @@ func tickChannel() tea.Cmd {
 		return channelTickMsg(t)
 	})
 }
+
+func mapString(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	switch val := v.(type) {
+	case string:
+		return val
+	default:
+		return fmt.Sprintf("%v", val)
+	}
+}
+
+func openBrowserURL(url string) error {
+	var cmd *exec.Cmd
+	switch {
+	case url == "":
+		return nil
+	case isDarwin():
+		cmd = exec.Command("open", url)
+	case isLinux():
+		cmd = exec.Command("xdg-open", url)
+	case isWindows():
+		cmd = exec.Command("cmd", "/c", "start", "", url)
+	default:
+		return fmt.Errorf("unsupported platform")
+	}
+	return cmd.Start()
+}
+
+func isDarwin() bool  { return runtime.GOOS == "darwin" }
+func isLinux() bool   { return runtime.GOOS == "linux" }
+func isWindows() bool { return runtime.GOOS == "windows" }
 
 // killTeamSession kills the entire nex-team tmux session and all agent processes.
 func killTeamSession() {

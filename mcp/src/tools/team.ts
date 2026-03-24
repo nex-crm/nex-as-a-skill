@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 const brokerBaseUrl = (process.env.NEX_TEAM_BROKER_URL ?? "http://127.0.0.1:7890").replace(/\/+$/, "");
+const brokerToken = process.env.NEX_BROKER_TOKEN ?? "";
 
 type BrokerMessage = {
   id: string;
@@ -33,8 +34,14 @@ function resolveSlug(input?: string): string {
   return slug;
 }
 
+function authHeaders(): Record<string, string> {
+  if (!brokerToken) return {};
+  return { Authorization: `Bearer ${brokerToken}` };
+}
+
 async function brokerGet(path: string): Promise<unknown> {
   const res = await fetch(`${brokerBaseUrl}${path}`, {
+    headers: { ...authHeaders() },
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
@@ -46,7 +53,7 @@ async function brokerGet(path: string): Promise<unknown> {
 async function brokerPost(path: string, body: unknown): Promise<unknown> {
   const res = await fetch(`${brokerBaseUrl}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });

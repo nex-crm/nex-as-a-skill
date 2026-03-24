@@ -1,6 +1,9 @@
 package team
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,5 +49,65 @@ func TestBrokerPersistsAndReloadsState(t *testing.T) {
 	empty := NewBroker()
 	if len(empty.Messages()) != 0 {
 		t.Fatalf("expected reset to clear persisted messages, got %d", len(empty.Messages()))
+	}
+}
+
+func TestBrokerAuthRejectsUnauthenticated(t *testing.T) {
+	oldPathFn := brokerStatePath
+	tmpDir := t.TempDir()
+	brokerStatePath = func() string { return filepath.Join(tmpDir, "broker-state.json") }
+	defer func() { brokerStatePath = oldPathFn }()
+
+	b := NewBroker()
+	if err := b.StartOnPort(0); err != nil {
+		t.Fatalf("failed to start broker: %v", err)
+	}
+	defer b.Stop()
+
+	base := fmt.Sprintf("http://%s", b.Addr())
+
+	// Health should work without auth
+	resp, err := http.Get(base + "/health")
+	if err != nil {
+		t.Fatalf("health request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on /health, got %d", resp.StatusCode)
+	}
+
+	// Messages without auth should be rejected
+	resp, err = http.Get(base + "/messages")
+	if err != nil {
+		t.Fatalf("messages request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on /messages without auth, got %d", resp.StatusCode)
+	}
+
+	// Messages with correct token should succeed
+	req, _ := http.NewRequest("GET", base+"/messages", nil)
+	req.Header.Set("Authorization", "Bearer "+b.Token())
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("authenticated request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200 on /messages with auth, got %d: %s", resp.StatusCode, body)
+	}
+
+	// Messages with wrong token should be rejected
+	req, _ = http.NewRequest("GET", base+"/messages", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("bad token request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on /messages with wrong token, got %d", resp.StatusCode)
 	}
 }

@@ -25,6 +25,7 @@ func main() {
 	soloMode := flag.Bool("solo", false, "Single-agent TUI (no team)")
 	packFlag := flag.String("pack", "", "Agent pack (founding-team, coding-team, lead-gen-agency)")
 	channelView := flag.Bool("channel-view", false, "Run as channel view (internal)")
+	unsafeMode := flag.Bool("unsafe", false, "Bypass all agent permission checks (use for local dev only)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Nex CLI v%s\n\n", version)
@@ -96,14 +97,20 @@ func main() {
 	}
 
 	// Default: launch multi-agent team
-	runTeam(nil, *packFlag)
+	runTeam(nil, *packFlag, *unsafeMode)
 }
 
-func runTeam(args []string, packSlug string) {
+func runTeam(args []string, packSlug string, unsafe bool) {
 	l, err := team.NewLauncher(packSlug)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if unsafe {
+		l.SetUnsafe(true)
+		fmt.Fprintf(os.Stderr, "\n\u26a0\ufe0f  UNSAFE MODE: All agents have unrestricted permissions.\n")
+		fmt.Fprintf(os.Stderr, "   This bypasses all tool approval prompts. Use for local dev only.\n\n")
 	}
 
 	if err := l.Preflight(); err != nil {

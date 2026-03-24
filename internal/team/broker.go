@@ -1,6 +1,8 @@
 package team
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,30 +67,73 @@ type Broker struct {
 	pendingInterview *humanInterview
 	mu               sync.Mutex
 	server           *http.Server
+	token            string // shared secret for authenticating requests
+	addr             string // actual listen address (useful when port=0)
 }
 
-// NewBroker creates a new channel broker.
+// generateToken returns a cryptographically random hex token.
+func generateToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: this should never happen on modern systems
+		return fmt.Sprintf("nex-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
+// NewBroker creates a new channel broker with a random auth token.
 func NewBroker() *Broker {
-	b := &Broker{}
+	b := &Broker{
+		token: generateToken(),
+	}
 	_ = b.loadState()
 	return b
 }
 
+// Token returns the shared secret that agents must include in requests.
+func (b *Broker) Token() string {
+	return b.token
+}
+
+// Addr returns the actual listen address (e.g. "127.0.0.1:7890").
+func (b *Broker) Addr() string {
+	return b.addr
+}
+
+// requireAuth wraps a handler to enforce Bearer token authentication.
+// The /health endpoint is excluded so uptime checks work without credentials.
+func (b *Broker) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer "+b.token {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
 // Start launches the broker on localhost:7890.
 func (b *Broker) Start() error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", b.handleHealth)
-	mux.HandleFunc("/messages", b.handleMessages)
-	mux.HandleFunc("/members", b.handleMembers)
-	mux.HandleFunc("/interview", b.handleInterview)
-	mux.HandleFunc("/interview/answer", b.handleInterviewAnswer)
-	mux.HandleFunc("/reset", b.handleReset)
+	return b.StartOnPort(BrokerPort)
+}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", BrokerPort)
+// StartOnPort launches the broker on the given port. Use 0 for an OS-assigned port.
+func (b *Broker) StartOnPort(port int) error {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", b.handleHealth) // no auth — used for liveness checks
+	mux.HandleFunc("/messages", b.requireAuth(b.handleMessages))
+	mux.HandleFunc("/members", b.requireAuth(b.handleMembers))
+	mux.HandleFunc("/interview", b.requireAuth(b.handleInterview))
+	mux.HandleFunc("/interview/answer", b.requireAuth(b.handleInterviewAnswer))
+	mux.HandleFunc("/reset", b.requireAuth(b.handleReset))
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
+	b.addr = ln.Addr().String()
 
 	b.server = &http.Server{
 		Addr:         addr,

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -219,6 +221,106 @@ func TestInitCommandStartsSetupFlow(t *testing.T) {
 	}
 }
 
+func TestNewChannelModelAutoStartsInitWithoutAPIKey(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("NEX_API_KEY", "")
+	defer os.Setenv("HOME", origHome)
+
+	m := newChannelModel()
+
+	if !m.initFlow.IsActive() && m.initFlow.Phase() != "api_key" {
+		t.Fatalf("expected init flow to auto-start without API key, got phase %q", m.initFlow.Phase())
+	}
+	if !strings.Contains(m.notice, "Starting setup") {
+		t.Fatalf("expected setup notice, got %q", m.notice)
+	}
+}
+
+func TestSlashAutocompleteShowsAllCommandsOnSlash(t *testing.T) {
+	m := newChannelModel()
+	m.input = []rune("/")
+	m.inputPos = len(m.input)
+	m.updateInputOverlays()
+
+	if !m.autocomplete.IsVisible() {
+		t.Fatal("expected slash autocomplete to be visible")
+	}
+	view := stripANSI(m.autocomplete.View())
+	if !strings.Contains(view, "/init") || !strings.Contains(view, "/reply") {
+		t.Fatalf("expected command list in autocomplete, got %q", view)
+	}
+}
+
+func TestMentionAutocompleteFiltersAgents(t *testing.T) {
+	m := newChannelModel()
+	m.members = []channelMember{{Slug: "designer"}, {Slug: "cmo"}}
+	m.input = []rune("@de")
+	m.inputPos = len(m.input)
+	m.updateInputOverlays()
+
+	if !m.mention.IsVisible() {
+		t.Fatal("expected mention autocomplete to be visible")
+	}
+	view := stripANSI(m.mention.View())
+	if !strings.Contains(view, "@designer") {
+		t.Fatalf("expected filtered mention result, got %q", view)
+	}
+	if strings.Contains(view, "@cmo") {
+		t.Fatalf("expected non-matching mention to be filtered out, got %q", view)
+	}
+}
+
+func TestIntegrateCommandOpensPicker(t *testing.T) {
+	m := newChannelModel()
+	m.notice = ""
+	t.Setenv("NEX_API_KEY", "test-key")
+	m.input = []rune("/integrate")
+	m.inputPos = len(m.input)
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(channelModel)
+
+	if !got.picker.IsActive() {
+		t.Fatal("expected integration picker to be active")
+	}
+	if got.pickerMode != channelPickerIntegrations {
+		t.Fatalf("expected integration picker mode, got %q", got.pickerMode)
+	}
+	if !strings.Contains(got.notice, "Choose an integration") {
+		t.Fatalf("expected integration notice, got %q", got.notice)
+	}
+}
+
+func TestChannelMsgKeepsScrollWhenReadingHistory(t *testing.T) {
+	m := newChannelModel()
+	m.scroll = 3
+
+	next, _ := m.Update(channelMsg{messages: []brokerMessage{{ID: "msg-1", From: "ceo", Content: "new"}}})
+	got := next.(channelModel)
+
+	if got.scroll != 4 {
+		t.Fatalf("expected scroll to preserve reader position, got %d", got.scroll)
+	}
+}
+
+func TestChannelErrorsSurfaceInNotice(t *testing.T) {
+	m := newChannelModel()
+	errBoom := errors.New("boom")
+
+	next, _ := m.Update(channelResetDoneMsg{err: errBoom})
+	got := next.(channelModel)
+	if !strings.Contains(got.notice, "Reset failed") {
+		t.Fatalf("expected reset error notice, got %q", got.notice)
+	}
+
+	next, _ = got.Update(channelPostDoneMsg{err: errBoom})
+	got = next.(channelModel)
+	if !strings.Contains(got.notice, "Send failed") {
+		t.Fatalf("expected post error notice, got %q", got.notice)
+	}
+}
+
 func TestChannelViewShowsMessageIDInMeta(t *testing.T) {
 	m := newChannelModel()
 	m.width = 120
@@ -230,5 +332,25 @@ func TestChannelViewShowsMessageIDInMeta(t *testing.T) {
 	view := stripANSI(m.View())
 	if !strings.Contains(view, "msg-12") {
 		t.Fatalf("expected message ID to be visible in view, got %q", view)
+	}
+}
+
+func TestRenderInterviewCardShowsCustomAnswerAsFinalOption(t *testing.T) {
+	card := renderInterviewCard(channelInterview{
+		From:     "ceo",
+		Question: "What should we optimize for?",
+		Options: []channelInterviewOption{
+			{ID: "speed", Label: "Ship fast", Description: "Bias toward launch speed."},
+			{ID: "quality", Label: "Higher polish", Description: "Bias toward experience quality."},
+		},
+		RecommendedID: "speed",
+	}, 2, 60)
+
+	plain := stripANSI(card)
+	if !strings.Contains(plain, "Custom answer") {
+		t.Fatalf("expected custom answer option in card, got %q", plain)
+	}
+	if strings.LastIndex(plain, "Custom answer") <= strings.LastIndex(plain, "Higher polish") {
+		t.Fatalf("expected custom answer to appear after predefined options, got %q", plain)
 	}
 }

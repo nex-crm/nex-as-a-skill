@@ -16,6 +16,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,7 +39,11 @@ type Launcher struct {
 	cwd         string
 	broker      *Broker
 	mcpConfig   string
+	unsafe      bool
 }
+
+// SetUnsafe enables unrestricted permissions for all agents (CLI-only flag).
+func (l *Launcher) SetUnsafe(v bool) { l.unsafe = v }
 
 // NewLauncher creates a launcher for the given pack.
 func NewLauncher(packSlug string) (*Launcher, error) {
@@ -110,7 +116,8 @@ func (l *Launcher) Launch() error {
 	nexBinary, _ := os.Executable()
 
 	// Window 0 "team": channel on the left
-	channelCmd := fmt.Sprintf("%s --channel-view", nexBinary)
+	// Pass broker token via env so channel view + agents can authenticate
+	channelCmd := fmt.Sprintf("NEX_BROKER_TOKEN=%s %s --channel-view", l.broker.Token(), nexBinary)
 	err = exec.Command("tmux", "-L", "nex", "new-session", "-d",
 		"-s", l.sessionName,
 		"-n", "team",
@@ -322,9 +329,16 @@ func (l *Launcher) reconfigureVisibleAgents() error {
 }
 
 func ResetBrokerState() error {
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/reset", BrokerPort), nil)
+	return resetBrokerState(fmt.Sprintf("http://127.0.0.1:%d", BrokerPort), os.Getenv("NEX_BROKER_TOKEN"))
+}
+
+func resetBrokerState(baseURL, token string) error {
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/reset", nil)
 	if err != nil {
 		return err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
@@ -339,11 +353,58 @@ func ResetBrokerState() error {
 }
 
 func (l *Launcher) clearAgentPanes() error {
-	for i := 5; i >= 1; i-- {
-		target := fmt.Sprintf("%s:team.%d", l.sessionName, i)
+	panes, err := l.listTeamPanes()
+	if err != nil {
+		return err
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(panes)))
+	for _, idx := range panes {
+		target := fmt.Sprintf("%s:team.%d", l.sessionName, idx)
 		exec.Command("tmux", "-L", "nex", "kill-pane", "-t", target).Run()
 	}
 	return nil
+}
+
+func (l *Launcher) listTeamPanes() ([]int, error) {
+	out, err := exec.Command("tmux", "-L", "nex", "list-panes",
+		"-t", l.sessionName+":team",
+		"-F", "#{pane_index} #{pane_title}",
+	).CombinedOutput()
+	if err != nil {
+		// If the session isn't up, there's nothing to clear.
+		if strings.Contains(string(out), "no server") || strings.Contains(string(out), "can't find") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list panes: %w", err)
+	}
+	return parseAgentPaneIndices(string(out)), nil
+}
+
+func parseAgentPaneIndices(output string) []int {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	var panes []int
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 0 {
+			continue
+		}
+		idx, err := strconv.Atoi(parts[0])
+		if err != nil {
+			continue
+		}
+		title := ""
+		if len(parts) > 1 {
+			title = parts[1]
+		}
+		if idx == 0 || strings.Contains(title, "channel") {
+			continue
+		}
+		panes = append(panes, idx)
+	}
+	return panes
 }
 
 func (l *Launcher) spawnVisibleAgents() ([]string, error) {
@@ -569,13 +630,44 @@ func (l *Launcher) claudeCommand(slug, systemPrompt string) string {
 	escaped := strings.ReplaceAll(systemPrompt, "'", "'\\''")
 	mcpConfig := strings.ReplaceAll(l.mcpConfig, "'", "'\\''")
 	name := strings.ReplaceAll(l.getAgentName(slug), "'", "'\\''")
+
+	permFlags := l.resolvePermissionFlags(slug)
+
+	brokerToken := ""
+	if l.broker != nil {
+		brokerToken = l.broker.Token()
+	}
+
 	return fmt.Sprintf(
-		"NEX_AGENT_SLUG=%s claude --permission-mode bypassPermissions --dangerously-skip-permissions --append-system-prompt '%s' --mcp-config '%s' --strict-mcp-config -n '%s'",
+		"NEX_AGENT_SLUG=%s NEX_BROKER_TOKEN=%s claude %s --append-system-prompt '%s' --mcp-config '%s' --strict-mcp-config -n '%s'",
 		slug,
+		brokerToken,
+		permFlags,
 		escaped,
 		mcpConfig,
 		name,
 	)
+}
+
+// resolvePermissionFlags returns the Claude Code permission flags for an agent.
+// If --unsafe was passed, all agents get unrestricted access.
+// Otherwise, the agent's configured PermissionMode is used (defaulting to "plan").
+func (l *Launcher) resolvePermissionFlags(slug string) string {
+	if l.unsafe {
+		return "--permission-mode bypassPermissions --dangerously-skip-permissions"
+	}
+
+	mode := "plan" // safe default for new/unknown roles
+	for _, a := range l.pack.Agents {
+		if a.Slug == slug {
+			if a.PermissionMode != "" {
+				mode = a.PermissionMode
+			}
+			break
+		}
+	}
+
+	return fmt.Sprintf("--permission-mode %s", mode)
 }
 
 func (l *Launcher) ensureMCPConfig() (string, error) {

@@ -22,14 +22,16 @@ type BudgetLimit struct {
 
 // AgentConfig holds static configuration for an agent template.
 type AgentConfig struct {
-	Slug              string      `json:"slug,omitempty"`
-	Name              string      `json:"name"`
-	Expertise         []string    `json:"expertise"`
-	Personality       string      `json:"personality,omitempty"`
-	HeartbeatCron     string      `json:"heartbeatCron,omitempty"`
-	Tools             []string    `json:"tools,omitempty"`
+	Slug              string       `json:"slug,omitempty"`
+	Name              string       `json:"name"`
+	Expertise         []string     `json:"expertise"`
+	Personality       string       `json:"personality,omitempty"`
+	HeartbeatCron     string       `json:"heartbeatCron,omitempty"`
+	Tools             []string     `json:"tools,omitempty"`
 	Budget            *BudgetLimit `json:"budget,omitempty"`
-	AutoDecideTimeout int         `json:"autoDecideTimeout,omitempty"`
+	AutoDecideTimeout int          `json:"autoDecideTimeout,omitempty"`
+	PermissionMode    string       `json:"permissionMode,omitempty"`
+	AllowedTools      []string     `json:"allowedTools,omitempty"`
 }
 
 // AgentState holds the runtime state of a running agent.
