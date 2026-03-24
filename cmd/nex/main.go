@@ -129,8 +129,15 @@ func runTeam(args []string, packSlug string) {
 	fmt.Println()
 
 	if err := l.Attach(); err != nil {
-		fmt.Fprintf(os.Stderr, "error attaching: %v\n", err)
-		os.Exit(1)
+		// Attach failed (not a terminal, or tmux error).
+		// Keep the process alive to maintain the broker.
+		fmt.Fprintf(os.Stderr, "Could not attach to tmux (not a terminal?).\n")
+		fmt.Fprintf(os.Stderr, "Team is running in background. Attach manually:\n")
+		fmt.Fprintf(os.Stderr, "  tmux -L nex attach -t nex-team\n")
+		fmt.Fprintf(os.Stderr, "Broker running on http://127.0.0.1:7890\n")
+		fmt.Fprintf(os.Stderr, "Press Ctrl+C to stop.\n")
+		// Block forever — broker + notification loop stay alive
+		select {}
 	}
 }
 
