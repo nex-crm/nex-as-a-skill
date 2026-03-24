@@ -697,147 +697,95 @@ func (m channelModel) View() string {
 		return "Loading..."
 	}
 
-	// Styles
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#F8FAFC"))
-
-	agentColors := map[string]string{
-		"ceo": "#EAB308", "pm": "#22C55E", "fe": "#3B82F6",
-		"be": "#8B5CF6", "ai": "#14B8A6", "designer": "#EC4899", "cmo": "#F97316",
-		"cro": "#06B6D4", "you": "#FFFFFF",
-	}
-
-	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(slackMuted))
 	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Italic(true)
-	headerStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("#0F172A")).
-		Foreground(lipgloss.Color("#E2E8F0")).
-		Padding(0, 1)
-	headerMetaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8"))
-	pillBase := lipgloss.NewStyle().
-		Padding(0, 1).
-		Foreground(lipgloss.Color("#E5E7EB")).
-		Background(lipgloss.Color("#1E293B"))
 
-	var memberPills []string
-	for i, member := range m.members {
-		if i >= 5 {
-			break
-		}
-		color := agentColors[member.Slug]
-		if color == "" {
-			color = "#64748B"
-		}
-		label := displayName(member.Slug)
-		mood := inferMood(member.LastMessage)
-		if mood != "" {
-			label += " · " + mood
-		}
-		memberPills = append(memberPills, pillBase.Copy().
-			Foreground(lipgloss.Color(color)).
-			Background(lipgloss.Color("#111827")).
-			BorderForeground(lipgloss.Color(color)).
-			Render(label))
+	layout := computeLayout(m.width, m.height, m.threadPanelOpen, m.sidebarCollapsed)
+
+	// ── Sidebar ──────────────────────────────────────────────────────
+	sidebar := ""
+	if layout.ShowSidebar {
+		sidebar = renderSidebar(m.members, "general", layout.SidebarW, layout.ContentH)
 	}
-	if len(m.members) > 5 {
-		memberPills = append(memberPills, pillBase.Render(fmt.Sprintf("+%d", len(m.members)-5)))
+
+	// ── Thread panel ─────────────────────────────────────────────────
+	thread := ""
+	if layout.ShowThread {
+		thread = renderThreadPanel(m.messages, m.threadPanelID,
+			layout.ThreadW, layout.ContentH,
+			m.threadInput, m.threadInputPos, m.threadScroll,
+			m.focus == focusThread)
 	}
-	headerLine1 := lipgloss.JoinHorizontal(lipgloss.Top,
-		titleStyle.Render("The Nex Office"),
-		"  ",
-		headerMetaStyle.Render("Founding Team channel"),
-	)
-	headerLine2 := headerMetaStyle.Render("Shared office chat. CEO decides, teammates debate, and the office state persists.")
-	if len(memberPills) > 0 {
-		headerLine2 = lipgloss.JoinHorizontal(lipgloss.Top, headerLine2, "   ", strings.Join(memberPills, " "))
+
+	// ── Main panel: header + messages + composer ─────────────────────
+	mainW := layout.MainW
+	if mainW < 1 {
+		mainW = 1
 	}
+
+	// Channel header (2 lines)
+	headerStyle := channelHeaderStyle(mainW)
+	headerLine1 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F8FAFC")).
+		Render("# general")
+	headerMeta := lipgloss.NewStyle().Foreground(lipgloss.Color(slackMuted)).
+		Render("  Founding Team")
 	if m.pending != nil {
-		headerLine2 = lipgloss.JoinHorizontal(lipgloss.Top, headerLine2, "   ",
-			lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Bold(true).Render("Interview mode: team paused"))
+		headerMeta += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Bold(true).Render("Interview pending")
 	}
-	titleBar := headerStyle.Width(m.width).Render(headerLine1 + "\n" + headerLine2)
+	channelHeader := headerStyle.Render(headerLine1 + headerMeta)
+	headerH := lipgloss.Height(channelHeader)
 
-	// Input field
-	inputWidth := m.width - 4
-	if inputWidth < 20 {
-		inputWidth = 20
-	}
+	// Composer
+	typingAgents := typingAgentsFromMembers(m.members)
+	composerStr := renderComposer(mainW, m.input, m.inputPos, "general",
+		m.replyToID, typingAgents, m.pending, m.selectedOption,
+		false, "", 0, m.members, m.focus == focusMain)
 
-	var inputStr string
-	if len(m.input) == 0 {
-		cursorStyle := lipgloss.NewStyle().Reverse(true)
-		placeholder := " Type a message to the team... (/init, /reply, /expand, /collapse, /reset, /quit)"
-		if config.ResolveAPIKey("") != "" {
-			placeholder = " Type a message to the team... (/integrate, /reply, /expand, /collapse, /reset, /quit)"
-		}
-		if m.pending != nil {
-			placeholder = " Type a custom answer, or press Enter to accept the selected option"
-		} else if m.replyToID != "" {
-			placeholder = fmt.Sprintf(" Replying in thread %s... (/cancel to go back to main channel)", m.replyToID)
-		}
-		inputStr = cursorStyle.Render(" ") + mutedStyle.Render(placeholder)
-	} else {
-		before := string(m.input[:m.inputPos])
-		cursorStyle := lipgloss.NewStyle().Reverse(true)
-		var cursor, after string
-		if m.inputPos < len(m.input) {
-			cursor = cursorStyle.Render(string(m.input[m.inputPos]))
-			after = string(m.input[m.inputPos+1:])
-		} else {
-			cursor = cursorStyle.Render(" ")
-			after = ""
-		}
-		inputStr = before + cursor + after
-	}
-
-	inputBorder := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#2563EB")).
-		Foreground(lipgloss.Color("#F8FAFC")).
-		Width(inputWidth).
-		Padding(0, 1)
-	inputBox := inputBorder.Render(inputStr)
-	composerLabel := "Message #office"
+	// Interview card (above composer)
+	interviewCard := ""
 	if m.pending != nil {
-		composerLabel = fmt.Sprintf("Answer @%s's question", m.pending.From)
-	} else if m.replyToID != "" {
-		if parent, ok := findMessageByID(m.messages, m.replyToID); ok {
-			composerLabel = fmt.Sprintf("Reply in thread %s · @%s", m.replyToID, parent.From)
-		} else {
-			composerLabel = fmt.Sprintf("Reply in thread %s", m.replyToID)
-		}
+		interviewCard = renderInterviewCard(*m.pending, m.selectedOption, mainW-4)
 	}
-	composerTitle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#93C5FD")).
-		Bold(true).
-		Render(composerLabel)
+
+	// Init/picker/autocomplete overlays
 	initPanel := ""
 	if m.picker.IsActive() {
-		initPanel = "\n" + m.picker.View()
+		initPanel = m.picker.View()
 	} else if m.initFlow.IsActive() || m.initFlow.Phase() == tui.InitDone {
-		initPanel = "\n" + m.initFlow.View()
+		initPanel = m.initFlow.View()
 	}
 	overlayPanel := ""
 	if ac := m.autocomplete.View(); ac != "" {
-		overlayPanel += "\n" + ac
+		overlayPanel += ac + "\n"
 	}
 	if mn := m.mention.View(); mn != "" {
-		overlayPanel += "\n" + mn
+		overlayPanel += mn + "\n"
 	}
 
-	// Messages
-	var lines []string
-	contentWidth := inputWidth - 2
+	composerH := lipgloss.Height(composerStr)
+	interviewH := lipgloss.Height(interviewCard)
+	initH := lipgloss.Height(initPanel)
+	overlayH := lipgloss.Height(overlayPanel)
+
+	// Message area height
+	msgH := layout.ContentH - headerH - composerH - interviewH - initH - overlayH - 1 // 1 for status bar
+	if msgH < 1 {
+		msgH = 1
+	}
+
+	contentWidth := mainW - 2
 	if contentWidth < 32 {
 		contentWidth = 32
 	}
+
+	// Build message lines
+	var lines []string
 	if len(m.messages) == 0 {
 		lines = append(lines, "")
-		lines = append(lines, mutedStyle.Render("  Welcome to the channel. The right-side panes are your live teammates."))
-		lines = append(lines, mutedStyle.Render("  Drop a company-building thought here and they should self-select into the conversation."))
+		lines = append(lines, mutedStyle.Render("  Welcome to the channel."))
+		lines = append(lines, mutedStyle.Render("  Drop a company-building thought here."))
 		lines = append(lines, "")
-		lines = append(lines, mutedStyle.Render("  Suggested prompt: Let's build an AI notetaking app company for busy professionals."))
+		lines = append(lines, mutedStyle.Render("  Suggested: Let's build an AI notetaking app."))
 	} else {
 		lines = append(lines, renderDateSeparator(contentWidth, "Today"))
 		for _, tm := range flattenThreadMessages(m.messages, m.expandedThreads) {
@@ -847,7 +795,7 @@ func (m channelModel) View() string {
 				ts = ts[11:19]
 			}
 
-			color := agentColors[msg.From]
+			color := agentColorMap[msg.From]
 			if color == "" {
 				color = "#9CA3AF"
 			}
@@ -897,11 +845,9 @@ func (m channelModel) View() string {
 					prefix += ruleStyle.Render("│") + " "
 				}
 
-				// Check for A2UI JSON blocks and render them as visual components
 				textPart, a2uiRendered := renderA2UIBlocks(msg.Content, contentWidth-4)
-
 				for _, paragraph := range strings.Split(textPart, "\n") {
-					paragraph = highlightMentions(paragraph, agentColors)
+					paragraph = highlightMentions(paragraph, agentColorMap)
 					lines = appendWrapped(lines, contentWidth, prefix+paragraph)
 				}
 				if a2uiRendered != "" {
@@ -926,25 +872,10 @@ func (m channelModel) View() string {
 			}
 		}
 	}
-	interviewCard := ""
-	if m.pending != nil {
-		interviewCard = renderInterviewCard(*m.pending, m.selectedOption, inputWidth)
-	}
 
-	fixedHeight := lipgloss.Height(titleBar) +
-		lipgloss.Height(interviewCard) +
-		lipgloss.Height(initPanel) +
-		lipgloss.Height(composerTitle) +
-		lipgloss.Height(inputBox) +
-		lipgloss.Height(overlayPanel) + 7
-	viewHeight := m.height - fixedHeight
-	if viewHeight < 1 {
-		viewHeight = 1
-	}
-
-	// Scroll
+	// Scroll messages
 	total := len(lines)
-	scroll := clampScroll(total, viewHeight, m.scroll)
+	scroll := clampScroll(total, msgH, m.scroll)
 	end := total - scroll
 	if end > total {
 		end = total
@@ -952,7 +883,7 @@ func (m channelModel) View() string {
 	if end < 1 && total > 0 {
 		end = 1
 	}
-	start := end - viewHeight
+	start := end - msgH
 	if start < 0 {
 		start = 0
 	}
@@ -961,46 +892,75 @@ func (m channelModel) View() string {
 	if total > 0 {
 		visible = lines[start:end]
 	}
-	for len(visible) < viewHeight {
+	for len(visible) < msgH {
 		visible = append(visible, "")
 	}
-	bodyStyle := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("#1E293B")).
-		Padding(0, 1).
-		Width(inputWidth)
-	body := bodyStyle.Render(strings.Join(visible, "\n"))
 
-	// Status bar
+	msgPanel := mainPanelStyle(mainW, msgH).Render(strings.Join(visible, "\n"))
+
+	// Assemble main column
+	mainParts := []string{channelHeader, msgPanel}
+	if interviewCard != "" {
+		mainParts = append(mainParts, interviewCard)
+	}
+	if initPanel != "" {
+		mainParts = append(mainParts, initPanel)
+	}
+	if overlayPanel != "" {
+		mainParts = append(mainParts, overlayPanel)
+	}
+	mainParts = append(mainParts, composerStr)
+	mainCol := strings.Join(mainParts, "\n")
+
+	// ── Compose 3 columns ────────────────────────────────────────────
+	border := renderVerticalBorder(layout.ContentH, slackBorder)
+	var panels []string
+	if sidebar != "" {
+		panels = append(panels, sidebar, border)
+	}
+	panels = append(panels, mainCol)
+	if thread != "" {
+		panels = append(panels, border, thread)
+	}
+
+	content := lipgloss.JoinHorizontal(lipgloss.Top, panels...)
+
+	// ── Status bar ───────────────────────────────────────────────────
 	agentCount := countUniqueAgents(m.messages)
-	scrollHint := "PgUp/PgDn scroll"
+	onlineCount := len(m.members)
+	scrollHint := "PgUp/PgDn"
 	if scroll > 0 {
 		scrollHint = fmt.Sprintf("scroll +%d", scroll)
 	}
-	statusBar := mutedStyle.Render(fmt.Sprintf(
-		" %d messages │ %d agents active │ %s │ Ctrl+B {/}=swap pane │ Ctrl+B z=zoom pane",
-		len(m.messages), agentCount, scrollHint,
+	focusLabel := "main"
+	if m.focus == focusSidebar {
+		focusLabel = "sidebar"
+	} else if m.focus == focusThread {
+		focusLabel = "thread"
+	}
+	statusBar := statusBarStyle(m.width).Render(fmt.Sprintf(
+		" %s %d online │ %d msgs │ %d agents │ %s │ Tab focus:%s │ Ctrl+B sidebar │ /quit",
+		"\u25CF", onlineCount, len(m.messages), agentCount, scrollHint, focusLabel,
 	))
 	if m.pending != nil {
-		statusBar = lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Render(
-			" Interview pending │ team paused until you answer │ ↑/↓ choose option │ Enter submit",
+		statusBar = statusBarStyle(m.width).Render(
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Render(
+				" Interview pending │ ↑/↓ choose │ Enter submit",
+			),
 		)
 	} else if m.notice != "" {
-		statusBar = lipgloss.NewStyle().Foreground(lipgloss.Color("#93C5FD")).Render(" " + m.notice)
+		statusBar = statusBarStyle(m.width).Render(
+			lipgloss.NewStyle().Foreground(lipgloss.Color(slackActive)).Render(" " + m.notice),
+		)
 	} else if m.replyToID != "" {
-		statusBar = lipgloss.NewStyle().Foreground(lipgloss.Color("#93C5FD")).Render(
-			fmt.Sprintf(" Reply mode │ thread %s │ /cancel to return to main channel", m.replyToID),
+		statusBar = statusBarStyle(m.width).Render(
+			lipgloss.NewStyle().Foreground(lipgloss.Color(slackActive)).Render(
+				fmt.Sprintf(" ↩ Reply mode │ thread %s │ /cancel to return", m.replyToID),
+			),
 		)
 	}
 
-	return titleBar + "\n" +
-		body + "\n" +
-		interviewCard +
-		initPanel +
-		composerTitle + "\n" +
-		inputBox + "\n" +
-		overlayPanel +
-		statusBar
+	return content + "\n" + statusBar
 }
 
 func (m channelModel) recommendedOptionIndex() int {
@@ -1047,6 +1007,99 @@ func countUniqueAgents(messages []brokerMessage) int {
 		seen[m.From] = true
 	}
 	return len(seen)
+}
+
+// nextFocus cycles through visible panels: main → sidebar → thread → main.
+func (m channelModel) nextFocus() focusArea {
+	order := []focusArea{focusMain}
+	if !m.sidebarCollapsed {
+		order = append(order, focusSidebar)
+	}
+	if m.threadPanelOpen {
+		order = append(order, focusThread)
+	}
+	for i, f := range order {
+		if f == m.focus {
+			return order[(i+1)%len(order)]
+		}
+	}
+	return focusMain
+}
+
+// updateThread handles key events when the thread panel is focused.
+func (m channelModel) updateThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if len(m.threadInput) > 0 {
+			text := string(m.threadInput)
+			m.threadInput = nil
+			m.threadInputPos = 0
+			m.posting = true
+			return m, postToChannel(text, m.threadPanelID)
+		}
+	case "backspace":
+		if m.threadInputPos > 0 {
+			m.threadInput = append(m.threadInput[:m.threadInputPos-1], m.threadInput[m.threadInputPos:]...)
+			m.threadInputPos--
+		}
+	case "ctrl+u":
+		m.threadInput = nil
+		m.threadInputPos = 0
+	case "ctrl+a":
+		m.threadInputPos = 0
+	case "ctrl+e":
+		m.threadInputPos = len(m.threadInput)
+	case "left":
+		if m.threadInputPos > 0 {
+			m.threadInputPos--
+		}
+	case "right":
+		if m.threadInputPos < len(m.threadInput) {
+			m.threadInputPos++
+		}
+	case "up":
+		m.threadScroll++
+	case "down":
+		m.threadScroll--
+		if m.threadScroll < 0 {
+			m.threadScroll = 0
+		}
+	case "pgup":
+		m.threadScroll += 5
+	case "pgdown":
+		m.threadScroll -= 5
+		if m.threadScroll < 0 {
+			m.threadScroll = 0
+		}
+	default:
+		if msg.Type == tea.KeySpace {
+			ch := []rune{' '}
+			tail := make([]rune, len(m.threadInput[m.threadInputPos:]))
+			copy(tail, m.threadInput[m.threadInputPos:])
+			m.threadInput = append(m.threadInput[:m.threadInputPos], append(ch, tail...)...)
+			m.threadInputPos++
+		} else if len(msg.String()) == 1 || msg.Type == tea.KeyRunes {
+			ch := msg.Runes
+			if len(ch) > 0 {
+				tail := make([]rune, len(m.threadInput[m.threadInputPos:]))
+				copy(tail, m.threadInput[m.threadInputPos:])
+				m.threadInput = append(m.threadInput[:m.threadInputPos], append(ch, tail...)...)
+				m.threadInputPos += len(ch)
+			}
+		}
+	}
+	return m, nil
+}
+
+// updateSidebar handles key events when the sidebar is focused.
+func (m channelModel) updateSidebar(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Sidebar is currently display-only; arrow keys could navigate members
+	// but there is no action to take. For now, just consume the keys.
+	switch msg.String() {
+	case "up", "down":
+		// Reserved for future sidebar navigation
+	}
+	return m, nil
 }
 
 func appendWrapped(lines []string, width int, text string) []string {
