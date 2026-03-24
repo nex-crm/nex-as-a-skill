@@ -11,6 +11,10 @@
 import { dispatch, dispatchTokens, commandNames } from "./commands/dispatch.js";
 import { resolveFormat } from "./lib/config.js";
 import type { Format } from "./lib/output.js";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json") as { version: string };
 
 /**
  * Extract global flags (--format, --api-key, --timeout) from args.
@@ -56,8 +60,6 @@ async function main(): Promise<void> {
 
   // --version flag
   if (args.includes("--version") || args.includes("-v")) {
-    const pkg: any = await import("../package.json");
-    const version = pkg.default?.version ?? pkg.version;
     console.log(version);
     process.exit(0);
   }
