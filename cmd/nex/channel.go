@@ -1649,6 +1649,9 @@ func (m channelModel) runCommand(trimmed, threadTarget string) (tea.Model, tea.C
 	}
 
 	switch {
+	case trimmed == "/quit" || trimmed == "/exit" || trimmed == "/q":
+		killTeamSession()
+		return m, tea.Quit
 	case trimmed == "/reset":
 		clearCurrent()
 		m.notice = ""

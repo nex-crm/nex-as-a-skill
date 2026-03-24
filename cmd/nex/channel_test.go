@@ -152,6 +152,49 @@ func TestThreadsStartCollapsedByDefault(t *testing.T) {
 	}
 }
 
+func TestCountRepliesCountsNestedDescendants(t *testing.T) {
+	messages := []brokerMessage{
+		{ID: "msg-1", From: "ceo", Content: "Root"},
+		{ID: "msg-2", From: "fe", Content: "Reply", ReplyTo: "msg-1", Timestamp: "2026-03-24T10:01:00Z"},
+		{ID: "msg-3", From: "be", Content: "Nested", ReplyTo: "msg-2", Timestamp: "2026-03-24T10:02:00Z"},
+	}
+
+	count, lastReply := countReplies(messages, "msg-1")
+	if count != 2 {
+		t.Fatalf("expected nested reply count 2, got %d", count)
+	}
+	if lastReply == "" {
+		t.Fatal("expected last reply time for nested reply")
+	}
+}
+
+func TestRenderThreadPanelShowsNestedReplies(t *testing.T) {
+	messages := []brokerMessage{
+		{ID: "msg-1", From: "ceo", Content: "Root topic", Timestamp: "2026-03-24T10:00:00Z"},
+		{ID: "msg-2", From: "fe", Content: "First reply", ReplyTo: "msg-1", Timestamp: "2026-03-24T10:01:00Z"},
+		{ID: "msg-3", From: "be", Content: "Nested reply", ReplyTo: "msg-2", Timestamp: "2026-03-24T10:02:00Z"},
+	}
+
+	view := stripANSI(renderThreadPanel(messages, "msg-1", 44, 18, nil, 0, 0, "", true))
+	if !strings.Contains(view, "2 replies") {
+		t.Fatalf("expected thread panel to count nested replies, got %q", view)
+	}
+	if !strings.Contains(view, "Nested reply") {
+		t.Fatalf("expected nested reply to render in thread panel, got %q", view)
+	}
+}
+
+func TestChannelViewUsesOfficeHeaderAndComposer(t *testing.T) {
+	m := newChannelModel()
+	m.width = 120
+	m.height = 30
+
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "general") {
+		t.Fatalf("expected general channel reference, got %q", view)
+	}
+}
+
 func TestReplyCommandEntersReplyMode(t *testing.T) {
 	m := newChannelModel()
 	m.messages = []brokerMessage{
@@ -249,6 +292,58 @@ func TestSlashAutocompleteShowsAllCommandsOnSlash(t *testing.T) {
 	view := stripANSI(m.autocomplete.View())
 	if !strings.Contains(view, "/init") || !strings.Contains(view, "/reply") {
 		t.Fatalf("expected command list in autocomplete, got %q", view)
+	}
+}
+
+func TestSlashAutocompleteEnterSubmitsSelectedCommand(t *testing.T) {
+	m := newChannelModel()
+	m.input = []rune("/in")
+	m.inputPos = len(m.input)
+	m.updateInputOverlays()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(channelModel)
+
+	if cmd == nil {
+		t.Fatal("expected enter to submit the selected slash command")
+	}
+	if got.notice != "Starting setup..." {
+		t.Fatalf("expected /init to run from partial autocomplete, got %q", got.notice)
+	}
+}
+
+func TestThreadSlashAutocompleteEnterSubmitsSelectedCommand(t *testing.T) {
+	m := newChannelModel()
+	m.threadPanelOpen = true
+	m.threadPanelID = "msg-1"
+	m.focus = focusThread
+	m.threadInput = []rune("/in")
+	m.threadInputPos = len(m.threadInput)
+	m.updateThreadOverlays()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(channelModel)
+
+	if cmd == nil {
+		t.Fatal("expected enter to submit the selected slash command from thread input")
+	}
+	if got.notice != "Starting setup..." {
+		t.Fatalf("expected /init to run from thread autocomplete, got %q", got.notice)
+	}
+}
+
+func TestSlashAutocompleteEnterSubmitsQuitCommand(t *testing.T) {
+	m := newChannelModel()
+	m.input = []rune("/qui")
+	m.inputPos = len(m.input)
+	m.updateInputOverlays()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected quit command to emit tea.Quit")
+	}
+	if _, ok := next.(channelModel); !ok {
+		t.Fatal("expected channel model back from update")
 	}
 }
 

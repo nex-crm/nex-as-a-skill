@@ -136,12 +136,25 @@ func (l *Launcher) Launch() error {
 		return err
 	}
 
-	// Enable pane borders with stable labels.
+	// Enable pane borders with labels and visible resize handles.
 	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
 		"pane-border-status", "top",
 	).Run()
+	// Show agent name + drag hint in border
 	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
-		"pane-border-format", " #{pane_title} ",
+		"pane-border-format", " #{pane_title} #[fg=colour240]drag border to resize ",
+	).Run()
+	// Make inactive border visible but subtle
+	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
+		"pane-border-style", "fg=colour240",
+	).Run()
+	// Active pane border bright so you know which pane has focus
+	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
+		"pane-active-border-style", "fg=colour45",
+	).Run()
+	// Use line-drawing characters for border (makes drag target clearer)
+	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
+		"pane-border-lines", "heavy",
 	).Run()
 
 	exec.Command("tmux", "-L", "nex", "select-pane",
