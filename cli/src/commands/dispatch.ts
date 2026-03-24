@@ -1014,6 +1014,44 @@ async function executeNotifySetFrequency(args: string[], ctx: CommandContext): P
   }
 }
 
+const VALID_NOTIFY_TYPES = ["daily_digest", "meeting_summary", "task_reminder", "task_assigned", "context_alert"];
+
+async function executeNotifyEnable(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const typeName = args[0];
+  if (!typeName || !VALID_NOTIFY_TYPES.includes(typeName)) {
+    return fail(`Usage: notify enable <type>\nValid types: ${VALID_NOTIFY_TYPES.join(", ")}`);
+  }
+
+  try {
+    const client = makeClient(ctx);
+    const prefs = (await client.get("/v1/notifications/preferences")) as { enabled_types?: string[] };
+    const current = new Set(prefs.enabled_types ?? []);
+    current.add(typeName);
+    const result = await client.patch("/v1/notifications/preferences", { enabled_types: [...current] });
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executeNotifyDisable(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const typeName = args[0];
+  if (!typeName || !VALID_NOTIFY_TYPES.includes(typeName)) {
+    return fail(`Usage: notify disable <type>\nValid types: ${VALID_NOTIFY_TYPES.join(", ")}`);
+  }
+
+  try {
+    const client = makeClient(ctx);
+    const prefs = (await client.get("/v1/notifications/preferences")) as { enabled_types?: string[] };
+    const current = new Set(prefs.enabled_types ?? []);
+    current.delete(typeName);
+    const result = await client.patch("/v1/notifications/preferences", { enabled_types: [...current] });
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
 async function executeNotifyRuleCreate(args: string[], ctx: CommandContext): Promise<CommandResult> {
   const description = args.join(" ");
   if (!description) return fail('Usage: notify rule-create "<description>"');
@@ -1330,6 +1368,8 @@ register("integrate disconnect", { execute: executeIntegrateDisconnect, descript
 register("notify list", { execute: executeNotifyList, description: "List recent notifications", category: "query", usage: "notify list [--limit <n>] [--since <date>]" });
 register("notify preferences", { execute: executeNotifyPreferences, description: "Show notification preferences", category: "query" });
 register("notify set-frequency", { execute: executeNotifySetFrequency, description: "Set notification polling frequency", category: "config", usage: "notify set-frequency <minutes>" });
+register("notify enable", { execute: executeNotifyEnable, description: "Enable a notification type", category: "config", usage: "notify enable <type>" });
+register("notify disable", { execute: executeNotifyDisable, description: "Disable a notification type", category: "config", usage: "notify disable <type>" });
 register("notify rule-create", { execute: executeNotifyRuleCreate, description: "Create a custom notification rule", category: "write", usage: 'notify rule-create "<description>"' });
 register("notify rule-list", { execute: executeNotifyRuleList, description: "List custom notification rules", category: "query" });
 register("notify rule-delete", { execute: executeNotifyRuleDelete, description: "Delete a custom notification rule", category: "write", usage: "notify rule-delete <id>" });
