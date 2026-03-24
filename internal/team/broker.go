@@ -21,12 +21,17 @@ const BrokerPort = 7890
 var brokerStatePath = defaultBrokerStatePath
 
 type channelMessage struct {
-	ID        string   `json:"id"`
-	From      string   `json:"from"`
-	Content   string   `json:"content"`
-	Tagged    []string `json:"tagged"`
-	ReplyTo   string   `json:"reply_to,omitempty"`
-	Timestamp string   `json:"timestamp"`
+	ID          string   `json:"id"`
+	From        string   `json:"from"`
+	Kind        string   `json:"kind,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	SourceLabel string   `json:"source_label,omitempty"`
+	EventID     string   `json:"event_id,omitempty"`
+	Title       string   `json:"title,omitempty"`
+	Content     string   `json:"content"`
+	Tagged      []string `json:"tagged"`
+	ReplyTo     string   `json:"reply_to,omitempty"`
+	Timestamp   string   `json:"timestamp"`
 }
 
 type interviewOption struct {
@@ -54,10 +59,11 @@ type humanInterview struct {
 }
 
 type brokerState struct {
-	Messages         []channelMessage `json:"messages"`
-	Counter          int              `json:"counter"`
-	PendingInterview *humanInterview  `json:"pending_interview,omitempty"`
-	Usage            teamUsageState   `json:"usage,omitempty"`
+	Messages          []channelMessage `json:"messages"`
+	Counter           int              `json:"counter"`
+	NotificationSince string           `json:"notification_since,omitempty"`
+	PendingInterview  *humanInterview  `json:"pending_interview,omitempty"`
+	Usage             teamUsageState   `json:"usage,omitempty"`
 }
 
 type usageTotals struct {
@@ -78,14 +84,15 @@ type teamUsageState struct {
 // Broker is a lightweight HTTP message broker for the team channel.
 // All agent MCP instances connect to this shared broker.
 type Broker struct {
-	messages         []channelMessage
-	counter          int
-	pendingInterview *humanInterview
-	usage            teamUsageState
-	mu               sync.Mutex
-	server           *http.Server
-	token            string // shared secret for authenticating requests
-	addr             string // actual listen address (useful when port=0)
+	messages          []channelMessage
+	counter           int
+	notificationSince string
+	pendingInterview  *humanInterview
+	usage             teamUsageState
+	mu                sync.Mutex
+	server            *http.Server
+	token             string // shared secret for authenticating requests
+	addr              string // actual listen address (useful when port=0)
 }
 
 // generateToken returns a cryptographically random hex token.
@@ -140,6 +147,7 @@ func (b *Broker) StartOnPort(port int) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", b.handleHealth) // no auth — used for liveness checks
 	mux.HandleFunc("/messages", b.requireAuth(b.handleMessages))
+	mux.HandleFunc("/notifications/nex", b.requireAuth(b.handleNexNotifications))
 	mux.HandleFunc("/members", b.requireAuth(b.handleMembers))
 	mux.HandleFunc("/interview", b.requireAuth(b.handleInterview))
 	mux.HandleFunc("/interview/answer", b.requireAuth(b.handleInterviewAnswer))
@@ -199,6 +207,7 @@ func (b *Broker) Reset() {
 	b.messages = nil
 	b.pendingInterview = nil
 	b.counter = 0
+	b.notificationSince = ""
 	b.usage = teamUsageState{Agents: make(map[string]usageTotals)}
 	_ = b.saveLocked()
 	b.mu.Unlock()
@@ -227,6 +236,7 @@ func (b *Broker) loadState() error {
 	}
 	b.messages = state.Messages
 	b.counter = state.Counter
+	b.notificationSince = state.NotificationSince
 	b.pendingInterview = state.PendingInterview
 	b.usage = state.Usage
 	if b.usage.Agents == nil {
@@ -237,7 +247,7 @@ func (b *Broker) loadState() error {
 
 func (b *Broker) saveLocked() error {
 	path := brokerStatePath()
-	if len(b.messages) == 0 && b.pendingInterview == nil && b.counter == 0 && usageStateIsZero(b.usage) {
+	if len(b.messages) == 0 && b.pendingInterview == nil && b.counter == 0 && b.notificationSince == "" && usageStateIsZero(b.usage) {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -247,10 +257,11 @@ func (b *Broker) saveLocked() error {
 		return err
 	}
 	state := brokerState{
-		Messages:         b.messages,
-		Counter:          b.counter,
-		PendingInterview: b.pendingInterview,
-		Usage:            b.usage,
+		Messages:          b.messages,
+		Counter:           b.counter,
+		NotificationSince: b.notificationSince,
+		PendingInterview:  b.pendingInterview,
+		Usage:             b.usage,
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -306,6 +317,22 @@ func (b *Broker) handleUsage(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(usage)
 }
 
+func (b *Broker) NotificationCursor() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.notificationSince
+}
+
+func (b *Broker) SetNotificationCursor(cursor string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if cursor == "" || cursor == b.notificationSince {
+		return nil
+	}
+	b.notificationSince = cursor
+	return b.saveLocked()
+}
+
 func (b *Broker) handleMessages(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -345,6 +372,39 @@ func (b *Broker) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"accepted": len(events)})
+}
+
+func (b *Broker) handleNexNotifications(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		EventID     string   `json:"event_id"`
+		Title       string   `json:"title"`
+		Content     string   `json:"content"`
+		Tagged      []string `json:"tagged"`
+		ReplyTo     string   `json:"reply_to"`
+		Source      string   `json:"source"`
+		SourceLabel string   `json:"source_label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	msg, duplicate, err := b.PostAutomationMessage("nex", body.Title, body.Content, body.EventID, body.Source, body.SourceLabel, body.Tagged, body.ReplyTo)
+	if err != nil {
+		http.Error(w, "failed to persist broker state", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"id":        msg.ID,
+		"duplicate": duplicate,
+	})
 }
 
 type usageEvent struct {
@@ -516,6 +576,49 @@ func (b *Broker) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (b *Broker) PostAutomationMessage(from, title, content, eventID, source, sourceLabel string, tagged []string, replyTo string) (channelMessage, bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if strings.TrimSpace(eventID) != "" {
+		for _, existing := range b.messages {
+			if existing.EventID != "" && existing.EventID == strings.TrimSpace(eventID) {
+				return existing, true, nil
+			}
+		}
+	}
+
+	b.counter++
+	msg := channelMessage{
+		ID:          fmt.Sprintf("msg-%d", b.counter),
+		From:        from,
+		Kind:        "automation",
+		Source:      strings.TrimSpace(source),
+		SourceLabel: strings.TrimSpace(sourceLabel),
+		EventID:     strings.TrimSpace(eventID),
+		Title:       strings.TrimSpace(title),
+		Content:     strings.TrimSpace(content),
+		Tagged:      tagged,
+		ReplyTo:     strings.TrimSpace(replyTo),
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+	}
+	if msg.Source == "" {
+		msg.Source = "context_graph"
+	}
+	if msg.SourceLabel == "" {
+		msg.SourceLabel = "Nex"
+	}
+	if msg.From == "" {
+		msg.From = "nex"
+	}
+
+	b.messages = append(b.messages, msg)
+	if err := b.saveLocked(); err != nil {
+		return channelMessage{}, false, err
+	}
+	return msg, false, nil
+}
+
 func (b *Broker) handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit := 20
@@ -570,6 +673,9 @@ func (b *Broker) handleMembers(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	members := make(map[string]struct{ lastMessage, lastTime string })
 	for _, msg := range b.messages {
+		if msg.Kind == "automation" || msg.From == "nex" {
+			continue
+		}
 		content := msg.Content
 		if len(content) > 80 {
 			content = content[:80]
@@ -757,6 +863,18 @@ func FormatChannelView(messages []channelMessage) string {
 		}
 
 		prefix := m.From
+		if m.Kind == "automation" || m.From == "nex" {
+			source := m.Source
+			if source == "" {
+				source = "context_graph"
+			}
+			title := m.Title
+			if title != "" {
+				title += ": "
+			}
+			sb.WriteString(fmt.Sprintf("  %s  Nex/%s: %s%s\n", ts, source, title, m.Content))
+			continue
+		}
 		if strings.HasPrefix(m.Content, "[STATUS]") {
 			sb.WriteString(fmt.Sprintf("  %s  @%s %s\n", ts, prefix, m.Content))
 		} else {

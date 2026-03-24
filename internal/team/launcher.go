@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,14 +23,40 @@ import (
 	"time"
 
 	"github.com/nex-ai/nex-cli/internal/agent"
+	"github.com/nex-ai/nex-cli/internal/api"
 	"github.com/nex-ai/nex-cli/internal/config"
 	"github.com/nex-ai/nex-cli/internal/provider"
 	"github.com/nex-ai/nex-cli/internal/tui"
 )
 
 const (
-	SessionName = "nex-team"
+	SessionName                     = "nex-team"
+	defaultNotificationPollInterval = 15 * time.Minute
 )
+
+type nexFeedItemContentItem struct {
+	Title         string `json:"title"`
+	Context       string `json:"context"`
+	EstimatedTime string `json:"estimated_time"`
+}
+
+type nexFeedItemContent struct {
+	ImportantItems []nexFeedItemContentItem `json:"important_items"`
+	EntityChanges  []nexFeedItemContentItem `json:"entity_changes"`
+}
+
+type nexFeedItem struct {
+	ID        string             `json:"id"`
+	Type      string             `json:"type"`
+	Status    string             `json:"status"`
+	AlertTime string             `json:"alert_time"`
+	SentAt    string             `json:"sent_at"`
+	Content   nexFeedItemContent `json:"content"`
+}
+
+type nexFeedResponse struct {
+	Items []nexFeedItem `json:"items"`
+}
 
 // Launcher sets up and manages the multi-agent team.
 type Launcher struct {
@@ -190,6 +217,7 @@ func (l *Launcher) Launch() error {
 
 	// Start the notification loop that pushes new messages to agent panes
 	go l.notifyAgentsLoop()
+	go l.pollNexNotificationsLoop()
 
 	return nil
 }
@@ -241,6 +269,147 @@ func (l *Launcher) notifyAgentsLoop() {
 				).Run()
 			}
 		}
+	}
+}
+
+func (l *Launcher) pollNexNotificationsLoop() {
+	if l.broker == nil {
+		return
+	}
+	apiKey := config.ResolveAPIKey("")
+	if apiKey == "" {
+		return
+	}
+	client := api.NewClient(apiKey)
+	interval := notificationPollInterval()
+
+	time.Sleep(10 * time.Second)
+	for {
+		l.fetchAndIngestNexNotifications(client)
+		time.Sleep(interval)
+	}
+}
+
+func notificationPollInterval() time.Duration {
+	if raw := os.Getenv("NEX_NOTIFY_INTERVAL_MINUTES"); raw != "" {
+		if minutes, err := strconv.Atoi(raw); err == nil && minutes > 0 {
+			return time.Duration(minutes) * time.Minute
+		}
+	}
+	return defaultNotificationPollInterval
+}
+
+func (l *Launcher) fetchAndIngestNexNotifications(client *api.Client) {
+	if l.broker == nil {
+		return
+	}
+	if l.broker.NotificationCursor() == "" {
+		// Cold starts should not replay old feed history into a fresh office.
+		// Seed the cursor at "now" and only surface notifications that arrive after launch.
+		_ = l.broker.SetNotificationCursor(time.Now().UTC().Format(time.RFC3339Nano))
+		return
+	}
+
+	params := url.Values{}
+	params.Set("limit", "10")
+	if since := l.broker.NotificationCursor(); since != "" {
+		params.Set("since", since)
+	}
+
+	result, err := api.Get[nexFeedResponse](client, "/v1/notifications/feed?"+params.Encode(), 15*time.Second)
+	if err != nil {
+		return
+	}
+	if len(result.Items) == 0 {
+		return
+	}
+
+	latest := l.broker.NotificationCursor()
+	for _, item := range result.Items {
+		if item.SentAt != "" && (latest == "" || item.SentAt > latest) {
+			latest = item.SentAt
+		}
+		title, content := formatNexFeedItem(item)
+		if strings.TrimSpace(content) == "" {
+			continue
+		}
+		_, _, err := l.broker.PostAutomationMessage(
+			"nex",
+			title,
+			content,
+			item.ID,
+			"context_graph",
+			"Nex",
+			[]string{"ceo"},
+			"",
+		)
+		if err != nil {
+			return
+		}
+	}
+
+	if latest != "" {
+		_ = l.broker.SetNotificationCursor(latest)
+	}
+}
+
+func formatNexFeedItem(item nexFeedItem) (string, string) {
+	title := humanizeNotificationType(item.Type)
+	var lines []string
+
+	for _, important := range item.Content.ImportantItems {
+		line := strings.TrimSpace(important.Title)
+		if important.Context != "" {
+			line += " — " + strings.TrimSpace(important.Context)
+		}
+		if important.EstimatedTime != "" {
+			line += " (" + strings.TrimSpace(important.EstimatedTime) + ")"
+		}
+		if line != "" {
+			lines = append(lines, "Important: "+line)
+		}
+	}
+	for _, change := range item.Content.EntityChanges {
+		line := strings.TrimSpace(change.Title)
+		if change.Context != "" {
+			line += " — " + strings.TrimSpace(change.Context)
+		}
+		if line != "" {
+			lines = append(lines, "Change: "+line)
+		}
+	}
+
+	if title == "" && len(lines) > 0 {
+		title = "Context alert"
+	}
+
+	return title, strings.Join(lines, "\n")
+}
+
+func humanizeNotificationType(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "context_alert":
+		return "Context alert"
+	case "daily_digest":
+		return "Daily digest"
+	case "meeting_summary":
+		return "Meeting summary"
+	case "task_reminder":
+		return "Task reminder"
+	case "task_assigned":
+		return "Task assigned"
+	default:
+		if kind == "" {
+			return ""
+		}
+		parts := strings.Split(strings.ReplaceAll(kind, "_", " "), " ")
+		for i, part := range parts {
+			if part == "" {
+				continue
+			}
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+		return strings.Join(parts, " ")
 	}
 }
 

@@ -54,6 +54,23 @@ func TestBrokerPersistsAndReloadsState(t *testing.T) {
 	}
 }
 
+func TestBrokerPersistsNotificationCursorWithoutMessages(t *testing.T) {
+	oldPathFn := brokerStatePath
+	tmpDir := t.TempDir()
+	brokerStatePath = func() string { return filepath.Join(tmpDir, "broker-state.json") }
+	defer func() { brokerStatePath = oldPathFn }()
+
+	b := NewBroker()
+	if err := b.SetNotificationCursor("2026-03-24T10:00:00Z"); err != nil {
+		t.Fatalf("SetNotificationCursor failed: %v", err)
+	}
+
+	reloaded := NewBroker()
+	if got := reloaded.NotificationCursor(); got != "2026-03-24T10:00:00Z" {
+		t.Fatalf("expected persisted notification cursor, got %q", got)
+	}
+}
+
 func TestBrokerAuthRejectsUnauthenticated(t *testing.T) {
 	oldPathFn := brokerStatePath
 	tmpDir := t.TempDir()
@@ -225,5 +242,54 @@ func TestBrokerUsageEndpointAggregatesTelemetry(t *testing.T) {
 	}
 	if usage.Agents["be"].CostUsd != 0.18 {
 		t.Fatalf("expected backend cost 0.18, got %+v", usage.Agents["be"])
+	}
+}
+
+func TestBrokerPostsAndDedupesNexNotifications(t *testing.T) {
+	oldPathFn := brokerStatePath
+	tmpDir := t.TempDir()
+	brokerStatePath = func() string { return filepath.Join(tmpDir, "broker-state.json") }
+	defer func() { brokerStatePath = oldPathFn }()
+
+	b := NewBroker()
+	if err := b.StartOnPort(0); err != nil {
+		t.Fatalf("failed to start broker: %v", err)
+	}
+	defer b.Stop()
+
+	base := fmt.Sprintf("http://%s", b.Addr())
+	body := map[string]any{
+		"event_id":     "feed-item-1",
+		"title":        "Context alert",
+		"content":      "Important: Acme mentioned budget pressure",
+		"tagged":       []string{"ceo"},
+		"source":       "context_graph",
+		"source_label": "Nex",
+	}
+	payload, _ := json.Marshal(body)
+
+	for i := 0; i < 2; i++ {
+		req, _ := http.NewRequest(http.MethodPost, base+"/notifications/nex", bytes.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+b.Token())
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("notification post failed: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 from nex notification ingest, got %d", resp.StatusCode)
+		}
+	}
+
+	msgs := b.Messages()
+	if len(msgs) != 1 {
+		t.Fatalf("expected deduped single notification, got %d", len(msgs))
+	}
+	if msgs[0].Kind != "automation" || msgs[0].From != "nex" {
+		t.Fatalf("expected automation message from nex, got %+v", msgs[0])
+	}
+	if msgs[0].EventID != "feed-item-1" {
+		t.Fatalf("expected event id to persist, got %+v", msgs[0])
 	}
 }
