@@ -128,6 +128,9 @@ func (l *Launcher) Launch() error {
 		return fmt.Errorf("create tmux session: %w", err)
 	}
 
+	// Enable mouse passthrough so scroll events reach Bubbletea apps inside panes
+	exec.Command("tmux", "-L", "nex", "set-option", "-g", "mouse", "on").Run()
+
 	visibleSlugs, err := l.spawnVisibleAgents()
 	if err != nil {
 		return err
@@ -359,6 +362,9 @@ func (l *Launcher) clearAgentPanes() error {
 	}
 	sort.Sort(sort.Reverse(sort.IntSlice(panes)))
 	for _, idx := range panes {
+		if idx == 0 {
+			continue // skip pane 0 (channel TUI)
+		}
 		target := fmt.Sprintf("%s:team.%d", l.sessionName, idx)
 		exec.Command("tmux", "-L", "nex", "kill-pane", "-t", target).Run()
 	}

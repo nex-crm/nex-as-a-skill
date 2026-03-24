@@ -227,6 +227,27 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			if m.focus == focusThread && m.threadPanelOpen {
+				m.threadScroll++
+			} else {
+				m.scroll++
+			}
+		case tea.MouseButtonWheelDown:
+			if m.focus == focusThread && m.threadPanelOpen {
+				if m.threadScroll > 0 {
+					m.threadScroll--
+				}
+			} else {
+				if m.scroll > 0 {
+					m.scroll--
+				}
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// ── Global keys (always active) ───────────────────────────────
 		switch msg.String() {
@@ -277,6 +298,7 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ── Tab: cycle focus 0→1→2→0 (only visible panels) ───────────
 		if msg.String() == "tab" && !m.autocomplete.IsVisible() && !m.mention.IsVisible() && !m.picker.IsActive() {
 			m.focus = m.nextFocus()
+			m.updateOverlaysForCurrentInput()
 			return m, nil
 		}
 
@@ -303,17 +325,12 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "tab":
 				if name := m.autocomplete.Accept(); name != "" {
-					m.input = []rune("/" + name + " ")
-					m.inputPos = len(m.input)
-					m.updateInputOverlays()
+					m.setActiveInput("/" + name + " ")
 				}
 				return m, nil
 			case "enter":
 				if name := m.autocomplete.Accept(); name != "" {
-					m.input = []rune("/" + name)
-					m.inputPos = len(m.input)
-					m.updateInputOverlays()
-					return m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+					return m.runActiveCommand("/" + name)
 				}
 			case "up", "down", "shift+tab":
 				var cmd tea.Cmd
@@ -330,13 +347,7 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "tab", "enter":
 				if mention := m.mention.Accept(); mention != "" {
-					input := string(m.input)
-					atIdx := strings.LastIndex(input[:m.inputPos], "@")
-					if atIdx >= 0 {
-						m.input = []rune(input[:atIdx] + mention + " " + input[m.inputPos:])
-						m.inputPos = atIdx + len([]rune(mention)) + 1
-						m.updateInputOverlays()
-					}
+					m.insertAcceptedMention(mention)
 				}
 				return m, nil
 			case "up", "down", "shift+tab":
@@ -359,124 +370,8 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					killTeamSession()
 					return m, tea.Quit
 				}
-				if trimmed == "/reset" {
-					m.input = nil
-					m.inputPos = 0
-					m.notice = ""
-					m.posting = true
-					return m, resetTeamSession()
-				}
-				if trimmed == "/integrate" {
-					m.input = nil
-					m.inputPos = 0
-					if config.ResolveAPIKey("") == "" {
-						m.notice = "Run setup first. No Nex API key is configured."
-						m.initFlow, _ = m.initFlow.Start()
-						return m, nil
-					}
-					m.picker = tui.NewPicker("Choose Integration", channelIntegrationOptions())
-					m.picker.SetActive(true)
-					m.pickerMode = channelPickerIntegrations
-					m.notice = "Choose an integration to connect."
-					return m, nil
-				}
-				if trimmed == "/init" {
-					m.input = nil
-					m.inputPos = 0
-					m.notice = "Starting setup..."
-					var cmd tea.Cmd
-					m.initFlow, cmd = m.initFlow.Start()
-					return m, cmd
-				}
-				if trimmed == "/cancel" {
-					m.input = nil
-					m.inputPos = 0
-					if m.replyToID != "" {
-						m.replyToID = ""
-						m.threadPanelOpen = false
-						m.threadPanelID = ""
-						m.threadInput = nil
-						m.threadInputPos = 0
-						m.threadScroll = 0
-						if m.focus == focusThread {
-							m.focus = focusMain
-						}
-						m.notice = "Reply mode cleared."
-					} else if m.initFlow.IsActive() || m.initFlow.Phase() == tui.InitDone || m.picker.IsActive() {
-						m.initFlow = tui.NewInitFlow()
-						m.picker.SetActive(false)
-						m.notice = "Setup canceled."
-					} else {
-						m.notice = "Nothing to cancel."
-					}
-					return m, nil
-				}
-				if strings.HasPrefix(trimmed, "/reply") {
-					m.input = nil
-					m.inputPos = 0
-					target := strings.TrimSpace(strings.TrimPrefix(trimmed, "/reply"))
-					if target == "" {
-						m.notice = "Usage: /reply <message-id>"
-						return m, nil
-					}
-					if _, ok := findMessageByID(m.messages, target); !ok {
-						m.notice = fmt.Sprintf("Message %s not found.", target)
-						return m, nil
-					}
-					m.replyToID = target
-					m.threadPanelOpen = true
-					m.threadPanelID = target
-					m.threadInput = nil
-					m.threadInputPos = 0
-					m.threadScroll = 0
-					m.notice = fmt.Sprintf("Replying in thread %s.", target)
-					return m, nil
-				}
-				if strings.HasPrefix(trimmed, "/expand") {
-					m.input = nil
-					m.inputPos = 0
-					target := strings.TrimSpace(strings.TrimPrefix(trimmed, "/expand"))
-					if target == "" {
-						m.notice = "Usage: /expand <message-id|all>"
-						return m, nil
-					}
-					if target == "all" {
-						for _, msg := range m.messages {
-							if hasThreadReplies(m.messages, msg.ID) {
-								m.expandedThreads[msg.ID] = true
-							}
-						}
-						m.notice = "Expanded all threads."
-						return m, nil
-					}
-					if _, ok := findMessageByID(m.messages, target); !ok {
-						m.notice = fmt.Sprintf("Message %s not found.", target)
-						return m, nil
-					}
-					m.expandedThreads[target] = true
-					m.notice = fmt.Sprintf("Expanded thread %s.", target)
-					return m, nil
-				}
-				if strings.HasPrefix(trimmed, "/collapse") {
-					m.input = nil
-					m.inputPos = 0
-					target := strings.TrimSpace(strings.TrimPrefix(trimmed, "/collapse"))
-					if target == "" {
-						m.notice = "Usage: /collapse <message-id|all>"
-						return m, nil
-					}
-					if target == "all" {
-						m.expandedThreads = make(map[string]bool)
-						m.notice = "Collapsed all threads."
-						return m, nil
-					}
-					if _, ok := findMessageByID(m.messages, target); !ok {
-						m.notice = fmt.Sprintf("Message %s not found.", target)
-						return m, nil
-					}
-					delete(m.expandedThreads, target)
-					m.notice = fmt.Sprintf("Collapsed thread %s.", target)
-					return m, nil
+				if strings.HasPrefix(trimmed, "/") {
+					return m.runActiveCommand(trimmed)
 				}
 
 				m.input = nil
@@ -507,15 +402,19 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateInputOverlays()
 		case "ctrl+a":
 			m.inputPos = 0
+			m.updateInputOverlays()
 		case "ctrl+e":
 			m.inputPos = len(m.input)
+			m.updateInputOverlays()
 		case "left":
 			if m.inputPos > 0 {
 				m.inputPos--
+				m.updateInputOverlays()
 			}
 		case "right":
 			if m.inputPos < len(m.input) {
 				m.inputPos++
+				m.updateInputOverlays()
 			}
 		case "up":
 			if m.pending != nil && m.selectedOption > 0 {
@@ -649,7 +548,7 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case channelMembersMsg:
 		m.members = msg.members
-		m.updateInputOverlays()
+		m.updateOverlaysForCurrentInput()
 
 	case channelUsageMsg:
 		m.usage = msg.usage
@@ -733,16 +632,20 @@ func (m channelModel) View() string {
 	// ── Sidebar ──────────────────────────────────────────────────────
 	sidebar := ""
 	if layout.ShowSidebar {
-		sidebar = renderSidebar(m.members, "general", layout.SidebarW, layout.ContentH)
+		sidebar = renderSidebar(m.members, "office", layout.SidebarW, layout.ContentH)
 	}
 
 	// ── Thread panel ─────────────────────────────────────────────────
 	thread := ""
 	if layout.ShowThread {
+		threadPopup := ""
+		if m.focus == focusThread {
+			threadPopup = m.renderActivePopup(maxInt(layout.ThreadW-4, 24))
+		}
 		thread = renderThreadPanel(m.messages, m.threadPanelID,
 			layout.ThreadW, layout.ContentH,
 			m.threadInput, m.threadInputPos, m.threadScroll,
-			m.focus == focusThread)
+			threadPopup, m.focus == focusThread)
 	}
 
 	// ── Main panel: header + messages + composer ─────────────────────
@@ -754,7 +657,7 @@ func (m channelModel) View() string {
 	// Channel header (2 lines)
 	headerStyle := channelHeaderStyle(mainW)
 	headerLine1 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F8FAFC")).
-		Render("# general")
+		Render("The Nex Office")
 	headerMeta := lipgloss.NewStyle().Foreground(lipgloss.Color(slackMuted)).
 		Render("  Founding Team")
 	if m.usage.Total.TotalTokens > 0 || m.usage.Total.CostUsd > 0 {
@@ -773,9 +676,9 @@ func (m channelModel) View() string {
 
 	// Composer
 	typingAgents := typingAgentsFromMembers(m.members)
-	composerStr := renderComposer(mainW, m.input, m.inputPos, "general",
+	composerStr := renderComposer(mainW, m.input, m.inputPos, "office",
 		m.replyToID, typingAgents, m.pending, m.selectedOption,
-		false, "", 0, m.members, m.focus == focusMain)
+		m.focus == focusMain)
 
 	// Interview card (above composer)
 	interviewCard := ""
@@ -783,28 +686,20 @@ func (m channelModel) View() string {
 		interviewCard = renderInterviewCard(*m.pending, m.selectedOption, mainW-4)
 	}
 
-	// Init/picker/autocomplete overlays
+	// Init/picker overlays
 	initPanel := ""
 	if m.picker.IsActive() {
 		initPanel = m.picker.View()
 	} else if m.initFlow.IsActive() || m.initFlow.Phase() == tui.InitDone {
 		initPanel = m.initFlow.View()
 	}
-	overlayPanel := ""
-	if ac := m.autocomplete.View(); ac != "" {
-		overlayPanel += ac + "\n"
-	}
-	if mn := m.mention.View(); mn != "" {
-		overlayPanel += mn + "\n"
-	}
 
 	composerH := lipgloss.Height(composerStr)
 	interviewH := lipgloss.Height(interviewCard)
 	initH := lipgloss.Height(initPanel)
-	overlayH := lipgloss.Height(overlayPanel)
 
 	// Message area height
-	msgH := layout.ContentH - headerH - composerH - interviewH - initH - overlayH - 1 // 1 for status bar
+	msgH := layout.ContentH - headerH - composerH - interviewH - initH - 1 // 1 for status bar
 	if msgH < 1 {
 		msgH = 1
 	}
@@ -931,6 +826,9 @@ func (m channelModel) View() string {
 	for len(visible) < msgH {
 		visible = append(visible, "")
 	}
+	if popup := m.renderActivePopup(contentWidth); popup != "" && m.focus == focusMain {
+		visible = overlayBottomLines(visible, strings.Split(popup, "\n"))
+	}
 
 	msgPanel := mainPanelStyle(mainW, msgH).Render(strings.Join(visible, "\n"))
 
@@ -941,9 +839,6 @@ func (m channelModel) View() string {
 	}
 	if initPanel != "" {
 		mainParts = append(mainParts, initPanel)
-	}
-	if overlayPanel != "" {
-		mainParts = append(mainParts, overlayPanel)
 	}
 	mainParts = append(mainParts, composerStr)
 	mainCol := strings.Join(mainParts, "\n")
@@ -1130,6 +1025,10 @@ func (m channelModel) updateThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if len(m.threadInput) > 0 {
 			text := string(m.threadInput)
+			trimmed := strings.TrimSpace(text)
+			if strings.HasPrefix(trimmed, "/") {
+				return m.runCommand(trimmed, m.threadPanelID)
+			}
 			m.threadInput = nil
 			m.threadInputPos = 0
 			m.posting = true
@@ -1139,21 +1038,27 @@ func (m channelModel) updateThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.threadInputPos > 0 {
 			m.threadInput = append(m.threadInput[:m.threadInputPos-1], m.threadInput[m.threadInputPos:]...)
 			m.threadInputPos--
+			m.updateThreadOverlays()
 		}
 	case "ctrl+u":
 		m.threadInput = nil
 		m.threadInputPos = 0
+		m.updateThreadOverlays()
 	case "ctrl+a":
 		m.threadInputPos = 0
+		m.updateThreadOverlays()
 	case "ctrl+e":
 		m.threadInputPos = len(m.threadInput)
+		m.updateThreadOverlays()
 	case "left":
 		if m.threadInputPos > 0 {
 			m.threadInputPos--
+			m.updateThreadOverlays()
 		}
 	case "right":
 		if m.threadInputPos < len(m.threadInput) {
 			m.threadInputPos++
+			m.updateThreadOverlays()
 		}
 	case "up":
 		m.threadScroll++
@@ -1176,6 +1081,7 @@ func (m channelModel) updateThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			copy(tail, m.threadInput[m.threadInputPos:])
 			m.threadInput = append(m.threadInput[:m.threadInputPos], append(ch, tail...)...)
 			m.threadInputPos++
+			m.updateThreadOverlays()
 		} else if len(msg.String()) == 1 || msg.Type == tea.KeyRunes {
 			ch := msg.Runes
 			if len(ch) > 0 {
@@ -1183,6 +1089,7 @@ func (m channelModel) updateThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				copy(tail, m.threadInput[m.threadInputPos:])
 				m.threadInput = append(m.threadInput[:m.threadInputPos], append(ch, tail...)...)
 				m.threadInputPos += len(ch)
+				m.updateThreadOverlays()
 			}
 		}
 	}
@@ -1549,11 +1456,264 @@ func channelMentionAgents(members []channelMember) []tui.AgentMention {
 	return mentions
 }
 
-func (m *channelModel) updateInputOverlays() {
-	input := string(m.input)
-	m.autocomplete.UpdateQuery(input)
+func (m *channelModel) updateOverlaysForInput(input []rune, cursor int) {
+	text := string(input)
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(input) {
+		cursor = len(input)
+	}
+	m.autocomplete.UpdateQuery(strings.TrimLeft(text[:cursor], " "))
 	m.mention.UpdateAgents(channelMentionAgents(m.members))
-	m.mention.UpdateQuery(input[:m.inputPos])
+	m.mention.UpdateQuery(text[:cursor])
+}
+
+func (m *channelModel) updateInputOverlays() {
+	m.updateOverlaysForInput(m.input, m.inputPos)
+}
+
+func (m *channelModel) updateThreadOverlays() {
+	m.updateOverlaysForInput(m.threadInput, m.threadInputPos)
+}
+
+func (m *channelModel) updateOverlaysForCurrentInput() {
+	if m.focus == focusThread && m.threadPanelOpen {
+		m.updateThreadOverlays()
+		return
+	}
+	if m.focus == focusMain {
+		m.updateInputOverlays()
+		return
+	}
+	m.autocomplete.Dismiss()
+	m.mention.Dismiss()
+}
+
+func (m *channelModel) setActiveInput(text string) {
+	if m.focus == focusThread && m.threadPanelOpen {
+		m.threadInput = []rune(text)
+		m.threadInputPos = len(m.threadInput)
+		m.updateThreadOverlays()
+		return
+	}
+	m.input = []rune(text)
+	m.inputPos = len(m.input)
+	m.updateInputOverlays()
+}
+
+func (m *channelModel) activeInputString() string {
+	if m.focus == focusThread && m.threadPanelOpen {
+		return string(m.threadInput)
+	}
+	return string(m.input)
+}
+
+func (m *channelModel) insertAcceptedMention(mention string) {
+	if m.focus == focusThread && m.threadPanelOpen {
+		m.threadInput, m.threadInputPos = replaceMentionInInput(m.threadInput, m.threadInputPos, mention)
+		m.updateThreadOverlays()
+		return
+	}
+	m.input, m.inputPos = replaceMentionInInput(m.input, m.inputPos, mention)
+	m.updateInputOverlays()
+}
+
+func replaceMentionInInput(input []rune, pos int, mention string) ([]rune, int) {
+	text := string(input)
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > len(input) {
+		pos = len(input)
+	}
+	atIdx := strings.LastIndex(text[:pos], "@")
+	if atIdx < 0 {
+		return input, pos
+	}
+	updated := []rune(text[:atIdx] + mention + " " + text[pos:])
+	return updated, atIdx + len([]rune(mention)) + 1
+}
+
+func (m channelModel) renderActivePopup(width int) string {
+	if width < 24 {
+		width = 24
+	}
+	if m.autocomplete.IsVisible() {
+		var options []composerPopupOption
+		for _, cmd := range m.autocomplete.Matches() {
+			options = append(options, composerPopupOption{
+				Label: "/" + cmd.Name,
+				Meta:  cmd.Description,
+			})
+		}
+		return renderComposerPopup(options, m.autocomplete.SelectedIndex(), width, slackActive)
+	}
+	if m.mention.IsVisible() {
+		var options []composerPopupOption
+		for _, ag := range m.mention.Matches() {
+			options = append(options, composerPopupOption{
+				Label: "@" + ag.Slug,
+				Meta:  ag.Name,
+			})
+		}
+		return renderComposerPopup(options, m.mention.SelectedIndex(), width, "#2BAC76")
+	}
+	return ""
+}
+
+func overlayBottomLines(base, overlay []string) []string {
+	if len(base) == 0 || len(overlay) == 0 {
+		return base
+	}
+	out := append([]string(nil), base...)
+	start := len(out) - len(overlay)
+	if start < 0 {
+		start = 0
+		overlay = overlay[len(overlay)-len(out):]
+	}
+	for i, line := range overlay {
+		out[start+i] = line
+	}
+	return out
+}
+
+func (m channelModel) runActiveCommand(trimmed string) (tea.Model, tea.Cmd) {
+	threadTarget := ""
+	if m.focus == focusThread && m.threadPanelOpen {
+		threadTarget = m.threadPanelID
+	}
+	return m.runCommand(trimmed, threadTarget)
+}
+
+func (m channelModel) runCommand(trimmed, threadTarget string) (tea.Model, tea.Cmd) {
+	clearMain := func() {
+		m.input = nil
+		m.inputPos = 0
+	}
+	clearThread := func() {
+		m.threadInput = nil
+		m.threadInputPos = 0
+	}
+	clearCurrent := func() {
+		if threadTarget != "" {
+			clearThread()
+			m.updateThreadOverlays()
+			return
+		}
+		clearMain()
+		m.updateInputOverlays()
+	}
+
+	switch {
+	case trimmed == "/reset":
+		clearCurrent()
+		m.notice = ""
+		m.posting = true
+		return m, resetTeamSession()
+	case trimmed == "/integrate":
+		clearCurrent()
+		if config.ResolveAPIKey("") == "" {
+			m.notice = "Run setup first. No Nex API key is configured."
+			m.initFlow, _ = m.initFlow.Start()
+			return m, nil
+		}
+		m.picker = tui.NewPicker("Choose Integration", channelIntegrationOptions())
+		m.picker.SetActive(true)
+		m.pickerMode = channelPickerIntegrations
+		m.notice = "Choose an integration to connect."
+		return m, nil
+	case trimmed == "/init":
+		clearCurrent()
+		m.notice = "Starting setup..."
+		var cmd tea.Cmd
+		m.initFlow, cmd = m.initFlow.Start()
+		return m, cmd
+	case trimmed == "/cancel":
+		clearCurrent()
+		if m.replyToID != "" {
+			m.replyToID = ""
+			m.threadPanelOpen = false
+			m.threadPanelID = ""
+			clearThread()
+			m.threadScroll = 0
+			if m.focus == focusThread {
+				m.focus = focusMain
+			}
+			m.notice = "Reply mode cleared."
+		} else if m.initFlow.IsActive() || m.initFlow.Phase() == tui.InitDone || m.picker.IsActive() {
+			m.initFlow = tui.NewInitFlow()
+			m.picker.SetActive(false)
+			m.notice = "Setup canceled."
+		} else {
+			m.notice = "Nothing to cancel."
+		}
+		return m, nil
+	case strings.HasPrefix(trimmed, "/reply"):
+		clearCurrent()
+		target := strings.TrimSpace(strings.TrimPrefix(trimmed, "/reply"))
+		if target == "" {
+			m.notice = "Usage: /reply <message-id>"
+			return m, nil
+		}
+		if _, ok := findMessageByID(m.messages, target); !ok {
+			m.notice = fmt.Sprintf("Message %s not found.", target)
+			return m, nil
+		}
+		m.replyToID = target
+		m.threadPanelOpen = true
+		m.threadPanelID = target
+		clearThread()
+		m.threadScroll = 0
+		m.focus = focusThread
+		m.notice = fmt.Sprintf("Replying in thread %s.", target)
+		m.updateThreadOverlays()
+		return m, nil
+	case strings.HasPrefix(trimmed, "/expand"):
+		clearCurrent()
+		target := strings.TrimSpace(strings.TrimPrefix(trimmed, "/expand"))
+		if target == "" {
+			m.notice = "Usage: /expand <message-id|all>"
+			return m, nil
+		}
+		if target == "all" {
+			for _, msg := range m.messages {
+				if hasThreadReplies(m.messages, msg.ID) {
+					m.expandedThreads[msg.ID] = true
+				}
+			}
+			m.notice = "Expanded all threads."
+			return m, nil
+		}
+		if _, ok := findMessageByID(m.messages, target); !ok {
+			m.notice = fmt.Sprintf("Message %s not found.", target)
+			return m, nil
+		}
+		m.expandedThreads[target] = true
+		m.notice = fmt.Sprintf("Expanded thread %s.", target)
+		return m, nil
+	case strings.HasPrefix(trimmed, "/collapse"):
+		clearCurrent()
+		target := strings.TrimSpace(strings.TrimPrefix(trimmed, "/collapse"))
+		if target == "" {
+			m.notice = "Usage: /collapse <message-id|all>"
+			return m, nil
+		}
+		if target == "all" {
+			m.expandedThreads = make(map[string]bool)
+			m.notice = "Collapsed all threads."
+			return m, nil
+		}
+		if _, ok := findMessageByID(m.messages, target); !ok {
+			m.notice = fmt.Sprintf("Message %s not found.", target)
+			return m, nil
+		}
+		delete(m.expandedThreads, target)
+		m.notice = fmt.Sprintf("Collapsed thread %s.", target)
+		return m, nil
+	default:
+		return m, nil
+	}
 }
 
 func extractTagsFromText(text string) []string {
@@ -1794,6 +1954,8 @@ func connectIntegration(spec channelIntegrationSpec) tea.Cmd {
 
 func resetTeamSession() tea.Cmd {
 	return func() tea.Msg {
+		// Clear broker messages + restart agent Claude sessions
+		// but keep the channel TUI pane alive
 		l, err := team.NewLauncher("")
 		if err != nil {
 			return channelResetDoneMsg{err: err}
@@ -1988,7 +2150,7 @@ func isA2UIType(t string) bool {
 }
 
 func runChannelView() {
-	p := tea.NewProgram(newChannelModel(), tea.WithAltScreen())
+	p := tea.NewProgram(newChannelModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "channel view error: %v\n", err)
 		os.Exit(1)
