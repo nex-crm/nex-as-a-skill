@@ -41,6 +41,12 @@ for i in 1 2 3 4 5; do
 done
 if $BROKER_OK; then pass; else fail "broker down"; fi
 
+# Read broker auth token from temp file
+BROKER_TOKEN=$(cat /tmp/nex-broker-token 2>/dev/null || echo "")
+if [ -z "$BROKER_TOKEN" ]; then
+  echo "    WARNING: no broker token found, authenticated requests will fail"
+fi
+
 log_test "tmux session exists"
 if tmux -L nex list-sessions 2>&1 | grep -q "nex-team"; then pass; else fail "no session"; fi
 
@@ -78,12 +84,13 @@ echo "--- Phase 3: Post to Channel ---"
 log_test "Post via broker API"
 RESULT=$(curl -s -X POST http://127.0.0.1:7890/messages \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $BROKER_TOKEN" \
   -d '{"from":"you","content":"Let'\''s build an AI notetaker company. @ceo what'\''s our strategy? @pm what features should v1 have?","tagged":["ceo","pm"]}')
 if echo "$RESULT" | grep -q "id"; then pass; else fail "$RESULT"; fi
 
 log_test "Message in broker"
 sleep 1
-MSGS=$(curl -s http://127.0.0.1:7890/messages?limit=5)
+MSGS=$(curl -s -H "Authorization: Bearer $BROKER_TOKEN" http://127.0.0.1:7890/messages?limit=5)
 echo "$MSGS" > "$ARTIFACTS/broker-messages.txt"
 if echo "$MSGS" | grep -q "notetaker"; then pass; else fail "not stored"; fi
 
@@ -153,7 +160,7 @@ fi
 log_test "At least one agent replies in the broker"
 AGENT_REPLIED=false
 for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-  FINAL=$(curl -s http://127.0.0.1:7890/messages?limit=100 2>/dev/null)
+  FINAL=$(curl -s -H "Authorization: Bearer $BROKER_TOKEN" http://127.0.0.1:7890/messages?limit=100 2>/dev/null)
   echo "$FINAL" > "$ARTIFACTS/broker-final.json"
   if echo "$FINAL" | python3 -c "import sys,json; msgs=json.load(sys.stdin).get('messages',[]); print('yes' if any(m.get('from') not in ('you','') for m in msgs) else 'no')" 2>/dev/null | grep -q yes; then
     AGENT_REPLIED=true

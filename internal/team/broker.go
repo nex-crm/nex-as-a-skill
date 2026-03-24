@@ -161,6 +161,11 @@ func (b *Broker) StartOnPort(port int) error {
 		WriteTimeout: 5 * time.Second,
 	}
 
+	// Write token to well-known path so tests and tools can authenticate.
+	// Use /tmp directly (not os.TempDir which varies by OS).
+	tokenFile := "/tmp/nex-broker-token"
+	_ = os.WriteFile(tokenFile, []byte(b.token), 0600)
+
 	go func() {
 		_ = b.server.Serve(ln)
 	}()
