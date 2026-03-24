@@ -9,6 +9,20 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+func truncateLabel(label string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	r := []rune(label)
+	if len(r) <= max {
+		return label
+	}
+	if max == 1 {
+		return "…"
+	}
+	return string(r[:max-1]) + "…"
+}
+
 // Sidebar theme colors.
 const (
 	sidebarBG      = "#1A1D21"
@@ -31,28 +45,7 @@ var sidebarAgentColors = map[string]string{
 
 // sidebarName returns a short name suitable for the narrow sidebar column.
 func sidebarName(slug string) string {
-	switch slug {
-	case "ceo":
-		return "CEO"
-	case "pm":
-		return "PM"
-	case "fe":
-		return "FE"
-	case "be":
-		return "BE"
-	case "ai":
-		return "AI"
-	case "designer":
-		return "Designer"
-	case "cmo":
-		return "CMO"
-	case "cro":
-		return "CRO"
-	case "you":
-		return "You"
-	default:
-		return slug
-	}
+	return displayName(slug)
 }
 
 // memberActivity describes what an agent is doing based on recency and content.
@@ -177,7 +170,7 @@ func renderSidebar(members []channelMember, activeChannel string, width, height 
 		if agentColor == "" {
 			agentColor = "#64748B"
 		}
-		name := sidebarName(m.Slug)
+		name := truncateLabel(sidebarName(m.Slug), innerW/2)
 		nameStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(agentColor)).
 			Bold(true)

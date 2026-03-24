@@ -124,8 +124,8 @@ var channelSlashCommands = []tui.SlashCommand{
 	{Name: "expand", Description: "Expand a collapsed thread"},
 	{Name: "collapse", Description: "Collapse a thread"},
 	{Name: "cancel", Description: "Exit reply/setup mode"},
-	{Name: "reset", Description: "Reset office state and agents"},
-	{Name: "quit", Description: "Exit the office"},
+	{Name: "reset", Description: "Reset channel and agents"},
+	{Name: "quit", Description: "Exit nex"},
 }
 
 type channelPickerMode string
@@ -302,15 +302,7 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// ── Route by focus area ───────────────────────────────────────
-		if m.focus == focusThread && m.threadPanelOpen {
-			return m.updateThread(msg)
-		}
-		if m.focus == focusSidebar && !m.sidebarCollapsed {
-			return m.updateSidebar(msg)
-		}
-
-		// ── focusMain: existing behavior ──────────────────────────────
+		// ── Global overlays/pickers before panel-specific handling ────
 		if m.picker.IsActive() {
 			var cmd tea.Cmd
 			m.picker, cmd = m.picker.Update(msg)
@@ -361,6 +353,16 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				_ = cmd
 			}
 		}
+
+		// ── Route by focus area ───────────────────────────────────────
+		if m.focus == focusThread && m.threadPanelOpen {
+			return m.updateThread(msg)
+		}
+		if m.focus == focusSidebar && !m.sidebarCollapsed {
+			return m.updateSidebar(msg)
+		}
+
+		// ── focusMain: existing behavior ──────────────────────────────
 		switch msg.String() {
 		case "enter":
 			if len(m.input) > 0 {
@@ -632,7 +634,7 @@ func (m channelModel) View() string {
 	// ── Sidebar ──────────────────────────────────────────────────────
 	sidebar := ""
 	if layout.ShowSidebar {
-		sidebar = renderSidebar(m.members, "office", layout.SidebarW, layout.ContentH)
+		sidebar = renderSidebar(mergePackMembers(m.members), "general", layout.SidebarW, layout.ContentH)
 	}
 
 	// ── Thread panel ─────────────────────────────────────────────────
@@ -676,7 +678,7 @@ func (m channelModel) View() string {
 
 	// Composer
 	typingAgents := typingAgentsFromMembers(m.members)
-	composerStr := renderComposer(mainW, m.input, m.inputPos, "office",
+	composerStr := renderComposer(mainW, m.input, m.inputPos, "general",
 		m.replyToID, typingAgents, m.pending, m.selectedOption,
 		m.focus == focusMain)
 
@@ -1251,6 +1253,47 @@ func clampScroll(total, viewHeight, scroll int) int {
 		return maxScroll
 	}
 	return scroll
+}
+
+// mergePackMembers returns all pack agents as members, enriched with
+// broker activity data when available. Agents who haven't posted yet
+// show as "idle" instead of being absent from the sidebar.
+func mergePackMembers(brokerMembers []channelMember) []channelMember {
+	// Default pack agents (founding team)
+	packSlugs := []string{"ceo", "pm", "fe", "be", "ai", "designer", "cmo", "cro"}
+
+	// Build lookup from broker data
+	brokerMap := make(map[string]channelMember)
+	for _, m := range brokerMembers {
+		brokerMap[m.Slug] = m
+	}
+
+	var result []channelMember
+	for _, slug := range packSlugs {
+		if bm, ok := brokerMap[slug]; ok {
+			result = append(result, bm)
+		} else {
+			result = append(result, channelMember{
+				Slug:        slug,
+				LastMessage: "",
+				LastTime:    "",
+			})
+		}
+	}
+	// Add any broker members not in the pack (e.g., "you")
+	for _, m := range brokerMembers {
+		found := false
+		for _, s := range packSlugs {
+			if m.Slug == s {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, m)
+		}
+	}
+	return result
 }
 
 func displayName(slug string) string {
