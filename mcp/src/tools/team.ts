@@ -8,6 +8,7 @@ type BrokerMessage = {
   from: string;
   content: string;
   tagged?: string[];
+  reply_to?: string;
   timestamp: string;
 };
 
@@ -68,32 +69,99 @@ function formatMessages(messages: BrokerMessage[], mySlug?: string): string {
     const ts = message.timestamp.length > 19 ? message.timestamp.slice(11, 19) : message.timestamp;
     const mentionsMe = !!mySlug && (message.tagged ?? []).includes(mySlug);
     const tagNote = mentionsMe ? " [tagged you]" : "";
-    return `${ts} @${message.from}: ${message.content}${tagNote}`;
+    const threadNote = message.reply_to ? ` ↳ ${message.reply_to}` : "";
+    return `${ts} ${message.id}${threadNote} @${message.from}: ${message.content}${tagNote}`;
   });
   return lines.join("\n");
+}
+
+function isRecentEnough(timestamp: string, maxAgeMs: number): boolean {
+  const parsed = Date.parse(timestamp);
+  if (Number.isNaN(parsed)) {
+    return false;
+  }
+  return Date.now() - parsed <= maxAgeMs;
+}
+
+async function inferReplyTarget(slug: string): Promise<string | undefined> {
+  const params = new URLSearchParams();
+  params.set("my_slug", slug);
+  params.set("limit", "25");
+  const result = await brokerGet(`/messages?${params.toString()}`) as {
+    messages?: BrokerMessage[];
+  };
+  const messages = result.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.from === slug) {
+      continue;
+    }
+    if (!(message.tagged ?? []).includes(slug)) {
+      continue;
+    }
+    if (!isRecentEnough(message.timestamp, 15 * 60 * 1000)) {
+      continue;
+    }
+    return message.id;
+  }
+  return undefined;
+}
+
+async function inferDefaultThreadTarget(slug: string): Promise<string | undefined> {
+  const params = new URLSearchParams();
+  params.set("my_slug", slug);
+  params.set("limit", "40");
+  const result = await brokerGet(`/messages?${params.toString()}`) as {
+    messages?: BrokerMessage[];
+  };
+  const messages = result.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.from === slug) {
+      continue;
+    }
+    if (message.content.startsWith("[STATUS]")) {
+      continue;
+    }
+    if (!isRecentEnough(message.timestamp, 20 * 60 * 1000)) {
+      continue;
+    }
+    return message.id;
+  }
+  return undefined;
 }
 
 export function registerTeamTools(server: McpServer) {
   server.tool(
     "team_broadcast",
-    "Post a message into the ephemeral team channel so the human and every agent can see it.",
+    "Post a message into the shared team channel so the human and every agent can see it.",
     {
       content: z.string().describe("Message to post to the shared team channel"),
       my_slug: z.string().optional().describe("Agent slug sending the message. Defaults to NEX_AGENT_SLUG."),
       tagged: z.array(z.string()).optional().describe("Optional list of tagged agent slugs who should respond"),
+      reply_to_id: z.string().optional().describe("Reply in-thread to a specific message ID when continuing a narrow discussion"),
+      new_topic: z.boolean().optional().describe("Set true only when this genuinely needs to start a new top-level thread"),
     },
     { readOnlyHint: false, openWorldHint: true },
-    async ({ content, my_slug, tagged }) => {
+    async ({ content, my_slug, tagged, reply_to_id, new_topic }) => {
       const slug = resolveSlug(my_slug);
+      let replyTo = reply_to_id;
+      if (!replyTo && !new_topic) {
+        replyTo = await inferReplyTarget(slug);
+      }
+      if (!replyTo && !new_topic) {
+        replyTo = await inferDefaultThreadTarget(slug);
+      }
       const result = await brokerPost("/messages", {
         from: slug,
         content,
         tagged: tagged ?? [],
+        reply_to: replyTo,
       }) as { id?: string; total?: number };
       return {
         content: [{
           type: "text",
-          text: `Posted to team channel as @${slug}${result.id ? ` (${result.id})` : ""}.`,
+          text: `Posted to team channel as @${slug}${result.id ? ` (${result.id})` : ""}${replyTo ? ` in reply to ${replyTo}` : ""}.`,
         }],
       };
     },
@@ -101,7 +169,7 @@ export function registerTeamTools(server: McpServer) {
 
   server.tool(
     "team_poll",
-    "Read recent messages from the ephemeral team channel so you can stay in sync with teammates.",
+    "Read recent messages from the shared team channel so you can stay in sync with teammates.",
     {
       my_slug: z.string().optional().describe("Your agent slug so tagged_count can be computed. Defaults to NEX_AGENT_SLUG."),
       since_id: z.string().optional().describe("Only return messages after this message ID"),
@@ -157,7 +225,7 @@ export function registerTeamTools(server: McpServer) {
 
   server.tool(
     "team_members",
-    "List active participants in the ephemeral team channel with their latest visible activity.",
+    "List active participants in the shared team channel with their latest visible activity.",
     {},
     { readOnlyHint: true, openWorldHint: true },
     async () => {

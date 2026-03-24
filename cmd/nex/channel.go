@@ -37,6 +37,7 @@ type brokerMessage struct {
 	From      string   `json:"from"`
 	Content   string   `json:"content"`
 	Tagged    []string `json:"tagged"`
+	ReplyTo   string   `json:"reply_to"`
 	Timestamp string   `json:"timestamp"`
 }
 
@@ -66,25 +67,34 @@ type channelTickMsg time.Time
 type channelPostDoneMsg struct{ err error }
 type channelInterviewAnswerDoneMsg struct{ err error }
 type channelResetDoneMsg struct{ err error }
+type channelInitDoneMsg struct{ err error }
 
 var mentionPattern = regexp.MustCompile(`@([A-Za-z0-9_-]+)`)
 
 type channelModel struct {
-	messages       []brokerMessage
-	members        []channelMember
-	pending        *channelInterview
-	lastID         string
-	input          []rune
-	inputPos       int
-	width          int
-	height         int
-	scroll         int
-	posting        bool
-	selectedOption int
+	messages        []brokerMessage
+	members         []channelMember
+	pending         *channelInterview
+	lastID          string
+	replyToID       string
+	expandedThreads map[string]bool
+	input           []rune
+	inputPos        int
+	width           int
+	height          int
+	scroll          int
+	posting         bool
+	selectedOption  int
+	notice          string
+	initFlow        tui.InitFlowModel
+	picker          tui.PickerModel
 }
 
 func newChannelModel() channelModel {
-	return channelModel{}
+	return channelModel{
+		expandedThreads: make(map[string]bool),
+		initFlow:        tui.NewInitFlow(),
+	}
 }
 
 func (m channelModel) Init() tea.Cmd {
@@ -103,6 +113,22 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tea.KeyMsg:
+		if m.picker.IsActive() {
+			if msg.String() == "esc" {
+				m.picker.SetActive(false)
+				m.initFlow = tui.NewInitFlow()
+				m.notice = "Setup canceled."
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.picker, cmd = m.picker.Update(msg)
+			return m, cmd
+		}
+		if m.initFlow.Phase() == tui.InitAPIKey {
+			var cmd tea.Cmd
+			m.initFlow, cmd = m.initFlow.Update(msg)
+			return m, cmd
+		}
 		switch msg.String() {
 		case "ctrl+c":
 			killTeamSession()
@@ -110,25 +136,113 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if len(m.input) > 0 {
 				text := string(m.input)
-				m.input = nil
-				m.inputPos = 0
-
-				// Handle /quit and /exit commands
 				trimmed := strings.TrimSpace(text)
 				if trimmed == "/quit" || trimmed == "/exit" || trimmed == "/q" {
 					killTeamSession()
 					return m, tea.Quit
 				}
 				if trimmed == "/reset" {
+					m.input = nil
+					m.inputPos = 0
+					m.notice = ""
 					m.posting = true
 					return m, resetTeamSession()
 				}
+				if trimmed == "/init" {
+					m.input = nil
+					m.inputPos = 0
+					m.notice = "Starting setup..."
+					var cmd tea.Cmd
+					m.initFlow, cmd = m.initFlow.Start()
+					return m, cmd
+				}
+				if trimmed == "/cancel" {
+					m.input = nil
+					m.inputPos = 0
+					if m.replyToID != "" {
+						m.replyToID = ""
+						m.notice = "Reply mode cleared."
+					} else if m.initFlow.IsActive() || m.initFlow.Phase() == tui.InitDone || m.picker.IsActive() {
+						m.initFlow = tui.NewInitFlow()
+						m.picker.SetActive(false)
+						m.notice = "Setup canceled."
+					} else {
+						m.notice = "Nothing to cancel."
+					}
+					return m, nil
+				}
+				if strings.HasPrefix(trimmed, "/reply") {
+					m.input = nil
+					m.inputPos = 0
+					target := strings.TrimSpace(strings.TrimPrefix(trimmed, "/reply"))
+					if target == "" {
+						m.notice = "Usage: /reply <message-id>"
+						return m, nil
+					}
+					if _, ok := findMessageByID(m.messages, target); !ok {
+						m.notice = fmt.Sprintf("Message %s not found.", target)
+						return m, nil
+					}
+					m.replyToID = target
+					m.notice = fmt.Sprintf("Replying in thread %s.", target)
+					return m, nil
+				}
+				if strings.HasPrefix(trimmed, "/expand") {
+					m.input = nil
+					m.inputPos = 0
+					target := strings.TrimSpace(strings.TrimPrefix(trimmed, "/expand"))
+					if target == "" {
+						m.notice = "Usage: /expand <message-id|all>"
+						return m, nil
+					}
+					if target == "all" {
+						for _, msg := range m.messages {
+							if hasThreadReplies(m.messages, msg.ID) {
+								m.expandedThreads[msg.ID] = true
+							}
+						}
+						m.notice = "Expanded all threads."
+						return m, nil
+					}
+					if _, ok := findMessageByID(m.messages, target); !ok {
+						m.notice = fmt.Sprintf("Message %s not found.", target)
+						return m, nil
+					}
+					m.expandedThreads[target] = true
+					m.notice = fmt.Sprintf("Expanded thread %s.", target)
+					return m, nil
+				}
+				if strings.HasPrefix(trimmed, "/collapse") {
+					m.input = nil
+					m.inputPos = 0
+					target := strings.TrimSpace(strings.TrimPrefix(trimmed, "/collapse"))
+					if target == "" {
+						m.notice = "Usage: /collapse <message-id|all>"
+						return m, nil
+					}
+					if target == "all" {
+						m.expandedThreads = make(map[string]bool)
+						m.notice = "Collapsed all threads."
+						return m, nil
+					}
+					if _, ok := findMessageByID(m.messages, target); !ok {
+						m.notice = fmt.Sprintf("Message %s not found.", target)
+						return m, nil
+					}
+					delete(m.expandedThreads, target)
+					m.notice = fmt.Sprintf("Collapsed thread %s.", target)
+					return m, nil
+				}
+
+				m.input = nil
+				m.inputPos = 0
+				m.notice = ""
 
 				m.posting = true
 				if m.pending != nil {
 					return m, postInterviewAnswer(*m.pending, "", "", text)
 				}
-				return m, postToChannel(text)
+				return m, postToChannel(text, m.replyToID)
 			} else if m.pending != nil {
 				opt := m.selectedInterviewOption()
 				if opt != nil {
@@ -162,6 +276,8 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.scroll++
 			}
+		case "k":
+			m.scroll++
 		case "down":
 			if m.pending != nil && m.selectedOption < len(m.pending.Options)-1 {
 				m.selectedOption++
@@ -171,10 +287,19 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.scroll = 0
 				}
 			}
+		case "j":
+			m.scroll--
+			if m.scroll < 0 {
+				m.scroll = 0
+			}
+		case "home":
+			m.scroll = 1 << 30
+		case "end":
+			m.scroll = 0
 		case "pgup":
-			m.scroll += 10
+			m.scroll += maxInt(10, m.height/2)
 		case "pgdown":
-			m.scroll -= 10
+			m.scroll -= maxInt(10, m.height/2)
 			if m.scroll < 0 {
 				m.scroll = 0
 			}
@@ -193,6 +318,9 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case channelPostDoneMsg:
 		m.posting = false
+		if msg.err == nil && m.replyToID != "" {
+			m.notice = fmt.Sprintf("Reply sent to %s. Use /cancel to leave the thread.", m.replyToID)
+		}
 
 	case channelInterviewAnswerDoneMsg:
 		m.posting = false
@@ -209,22 +337,56 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.members = nil
 			m.pending = nil
 			m.lastID = ""
+			m.replyToID = ""
+			m.expandedThreads = make(map[string]bool)
 			m.input = nil
 			m.inputPos = 0
 			m.scroll = 0
+			m.notice = ""
+			m.initFlow = tui.NewInitFlow()
+			m.picker.SetActive(false)
 		}
+
+	case channelInitDoneMsg:
+		m.posting = false
+		if msg.err != nil {
+			m.notice = "Setup failed: " + msg.err.Error()
+		} else {
+			m.notice = "Setup applied. Team reloaded with the new configuration."
+		}
+		m.initFlow = tui.NewInitFlow()
+		m.picker.SetActive(false)
 
 	case channelMsg:
 		if len(msg.messages) > 0 {
 			m.messages = append(m.messages, msg.messages...)
 			m.lastID = msg.messages[len(msg.messages)-1].ID
-			if m.scroll < 3 {
-				m.scroll = 0
-			}
 		}
 
 	case channelMembersMsg:
 		m.members = msg.members
+
+	case tui.PickerSelectMsg:
+		m.picker.SetActive(false)
+		var cmd tea.Cmd
+		m.initFlow, cmd = m.initFlow.Update(msg)
+		return m, cmd
+
+	case tui.InitFlowMsg:
+		var cmd tea.Cmd
+		m.initFlow, cmd = m.initFlow.Update(msg)
+		switch m.initFlow.Phase() {
+		case tui.InitProviderChoice:
+			m.picker = tui.NewPicker("Choose LLM Provider", tui.ProviderOptions())
+			m.picker.SetActive(true)
+		case tui.InitPackChoice:
+			m.picker = tui.NewPicker("Choose Agent Pack", tui.PackOptions())
+			m.picker.SetActive(true)
+		case tui.InitDone:
+			m.posting = true
+			return m, tea.Batch(cmd, reconfigureTeamAgents())
+		}
+		return m, cmd
 
 	case channelInterviewMsg:
 		prevID := ""
@@ -302,11 +464,11 @@ func (m channelModel) View() string {
 		memberPills = append(memberPills, pillBase.Render(fmt.Sprintf("+%d", len(m.members)-5)))
 	}
 	headerLine1 := lipgloss.JoinHorizontal(lipgloss.Top,
-		titleStyle.Render("# ai-notetaker-company"),
+		titleStyle.Render("The Nex Office"),
 		"  ",
 		headerMetaStyle.Render("Founding Team channel"),
 	)
-	headerLine2 := headerMetaStyle.Render("Organic company chat. CEO decides, teammates debate, channel stays ephemeral.")
+	headerLine2 := headerMetaStyle.Render("Shared office chat. CEO decides, teammates debate, and the office state persists.")
 	if len(memberPills) > 0 {
 		headerLine2 = lipgloss.JoinHorizontal(lipgloss.Top, headerLine2, "   ", strings.Join(memberPills, " "))
 	}
@@ -325,9 +487,11 @@ func (m channelModel) View() string {
 	var inputStr string
 	if len(m.input) == 0 {
 		cursorStyle := lipgloss.NewStyle().Reverse(true)
-		placeholder := " Type a message to the team... (/reset to start fresh, /quit to exit)"
+		placeholder := " Type a message to the team... (/init, /reply, /expand, /collapse, /reset, /quit)"
 		if m.pending != nil {
 			placeholder = " Type a custom answer, or press Enter to accept the selected option"
+		} else if m.replyToID != "" {
+			placeholder = fmt.Sprintf(" Replying in thread %s... (/cancel to go back to main channel)", m.replyToID)
 		}
 		inputStr = cursorStyle.Render(" ") + mutedStyle.Render(placeholder)
 	} else {
@@ -354,11 +518,23 @@ func (m channelModel) View() string {
 	composerLabel := "Message #ai-notetaker-company"
 	if m.pending != nil {
 		composerLabel = fmt.Sprintf("Answer @%s's question", m.pending.From)
+	} else if m.replyToID != "" {
+		if parent, ok := findMessageByID(m.messages, m.replyToID); ok {
+			composerLabel = fmt.Sprintf("Reply in thread %s · @%s", m.replyToID, parent.From)
+		} else {
+			composerLabel = fmt.Sprintf("Reply in thread %s", m.replyToID)
+		}
 	}
 	composerTitle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#93C5FD")).
 		Bold(true).
 		Render(composerLabel)
+	initPanel := ""
+	if m.picker.IsActive() {
+		initPanel = "\n" + m.picker.View()
+	} else if m.initFlow.IsActive() || m.initFlow.Phase() == tui.InitDone {
+		initPanel = "\n" + m.initFlow.View()
+	}
 
 	// Messages
 	viewHeight := m.height - 9 // header + composer + status
@@ -379,7 +555,8 @@ func (m channelModel) View() string {
 		lines = append(lines, mutedStyle.Render("  Suggested prompt: Let's build an AI notetaking app company for busy professionals."))
 	} else {
 		lines = append(lines, renderDateSeparator(contentWidth, "Today"))
-		for _, msg := range m.messages {
+		for _, tm := range flattenThreadMessages(m.messages, m.expandedThreads) {
+			msg := tm.Message
 			ts := msg.Timestamp
 			if len(ts) > 19 {
 				ts = ts[11:19]
@@ -396,27 +573,44 @@ func (m channelModel) View() string {
 
 			if strings.HasPrefix(msg.Content, "[STATUS]") {
 				status := strings.TrimPrefix(msg.Content, "[STATUS] ")
-				lines = appendWrapped(lines, contentWidth, fmt.Sprintf("  %s  %s %s",
+				statusPrefix := "  " + strings.Repeat("  ", tm.Depth)
+				if tm.Depth > 0 {
+					statusPrefix += "↳ "
+				}
+				lines = appendWrapped(lines, contentWidth, fmt.Sprintf("%s%s  %s %s",
+					statusPrefix,
 					mutedStyle.Render(ts),
 					nameStyle.Render("@"+msg.From),
 					statusStyle.Render("is "+status),
 				))
 			} else {
 				mood := inferMood(msg.Content)
-				meta := roleLabel(msg.From)
+				meta := roleLabel(msg.From) + " · " + msg.ID
 				if mood != "" {
 					meta += " · " + mood
+				}
+				if tm.Depth > 0 {
+					meta += fmt.Sprintf(" · thread reply to %s", tm.ParentLabel)
 				}
 				metaStyle := mutedStyle
 				if mood != "" {
 					metaStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(color))
 				}
 				lines = append(lines, "")
+				headerPrefix := "  " + strings.Repeat("  ", tm.Depth)
+				if tm.Depth > 0 {
+					headerPrefix += "↳ "
+				}
 				lines = appendWrapped(lines, contentWidth,
-					fmt.Sprintf("  %s  %s  %s", nameStyle.Render(displayName(msg.From)), mutedStyle.Render(ts), metaStyle.Render(meta)),
+					fmt.Sprintf("%s%s  %s  %s", headerPrefix, nameStyle.Render(displayName(msg.From)), mutedStyle.Render(ts), metaStyle.Render(meta)),
 				)
 
-				prefix := "  " + ruleStyle.Render("│") + " "
+				prefix := "  " + strings.Repeat("  ", tm.Depth)
+				if tm.Depth > 0 {
+					prefix += ruleStyle.Render("┆") + " "
+				} else {
+					prefix += ruleStyle.Render("│") + " "
+				}
 
 				// Check for A2UI JSON blocks and render them as visual components
 				textPart, a2uiRendered := renderA2UIBlocks(msg.Content, contentWidth-4)
@@ -429,6 +623,20 @@ func (m channelModel) View() string {
 					for _, renderedLine := range strings.Split(a2uiRendered, "\n") {
 						lines = append(lines, prefix+renderedLine)
 					}
+				}
+				if tm.Collapsed && tm.HiddenReplies > 0 {
+					participants := ""
+					if len(tm.ThreadParticipants) > 0 {
+						participants = " · " + strings.Join(tm.ThreadParticipants, ", ")
+					}
+					lines = appendWrapped(lines, contentWidth, "  "+mutedStyle.Render(
+						fmt.Sprintf("… %d hidden repl%s in thread%s (/expand %s)",
+							tm.HiddenReplies,
+							pluralSuffix(tm.HiddenReplies),
+							participants,
+							msg.ID,
+						),
+					))
 				}
 			}
 		}
@@ -481,11 +689,18 @@ func (m channelModel) View() string {
 		statusBar = lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Render(
 			" Interview pending │ team paused until you answer │ ↑/↓ choose option │ Enter submit",
 		)
+	} else if m.notice != "" {
+		statusBar = lipgloss.NewStyle().Foreground(lipgloss.Color("#93C5FD")).Render(" " + m.notice)
+	} else if m.replyToID != "" {
+		statusBar = lipgloss.NewStyle().Foreground(lipgloss.Color("#93C5FD")).Render(
+			fmt.Sprintf(" Reply mode │ thread %s │ /cancel to return to main channel", m.replyToID),
+		)
 	}
 
 	return titleBar + "\n" +
 		body + "\n" +
 		interviewCard +
+		initPanel +
 		composerTitle + "\n" +
 		inputBox + "\n" +
 		statusBar
@@ -530,6 +745,130 @@ func appendWrapped(lines []string, width int, text string) []string {
 	}
 	wrapped := ansi.Wrap(text, width, "")
 	return append(lines, strings.Split(wrapped, "\n")...)
+}
+
+type threadedMessage struct {
+	Message            brokerMessage
+	Depth              int
+	ParentLabel        string
+	Collapsed          bool
+	HiddenReplies      int
+	ThreadParticipants []string
+}
+
+func flattenThreadMessages(messages []brokerMessage, expanded map[string]bool) []threadedMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+	byID := make(map[string]brokerMessage, len(messages))
+	children := make(map[string][]brokerMessage)
+	var roots []brokerMessage
+
+	for _, msg := range messages {
+		byID[msg.ID] = msg
+	}
+	for _, msg := range messages {
+		if msg.ReplyTo != "" {
+			if _, ok := byID[msg.ReplyTo]; ok {
+				children[msg.ReplyTo] = append(children[msg.ReplyTo], msg)
+				continue
+			}
+		}
+		roots = append(roots, msg)
+	}
+
+	var out []threadedMessage
+	var walk func(msg brokerMessage, depth int)
+	walk = func(msg brokerMessage, depth int) {
+		parentLabel := ""
+		if msg.ReplyTo != "" {
+			parentLabel = msg.ReplyTo
+			if parent, ok := byID[msg.ReplyTo]; ok {
+				parentLabel = "@" + parent.From
+			}
+		}
+		tm := threadedMessage{
+			Message:     msg,
+			Depth:       depth,
+			ParentLabel: parentLabel,
+		}
+		if len(children[msg.ID]) > 0 && !expanded[msg.ID] {
+			tm.Collapsed = true
+			tm.HiddenReplies = countThreadReplies(children, msg.ID)
+			tm.ThreadParticipants = threadParticipants(children, msg.ID)
+		}
+		out = append(out, tm)
+		if tm.Collapsed {
+			return
+		}
+		for _, child := range children[msg.ID] {
+			walk(child, depth+1)
+		}
+	}
+
+	for _, root := range roots {
+		walk(root, 0)
+	}
+	return out
+}
+
+func countThreadReplies(children map[string][]brokerMessage, rootID string) int {
+	count := 0
+	for _, child := range children[rootID] {
+		count++
+		count += countThreadReplies(children, child.ID)
+	}
+	return count
+}
+
+func threadParticipants(children map[string][]brokerMessage, rootID string) []string {
+	seen := make(map[string]bool)
+	var participants []string
+	var walk func(id string)
+	walk = func(id string) {
+		for _, child := range children[id] {
+			name := displayName(child.From)
+			if !seen[name] {
+				seen[name] = true
+				participants = append(participants, name)
+			}
+			walk(child.ID)
+		}
+	}
+	walk(rootID)
+	return participants
+}
+
+func findMessageByID(messages []brokerMessage, id string) (brokerMessage, bool) {
+	for _, msg := range messages {
+		if msg.ID == id {
+			return msg, true
+		}
+	}
+	return brokerMessage{}, false
+}
+
+func hasThreadReplies(messages []brokerMessage, id string) bool {
+	for _, msg := range messages {
+		if msg.ReplyTo == id {
+			return true
+		}
+	}
+	return false
+}
+
+func pluralSuffix(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func clampScroll(total, viewHeight, scroll int) int {
@@ -689,12 +1028,13 @@ func highlightMentions(text string, agentColors map[string]string) string {
 	})
 }
 
-func postToChannel(text string) tea.Cmd {
+func postToChannel(text string, replyTo string) tea.Cmd {
 	return func() tea.Msg {
 		body, _ := json.Marshal(map[string]any{
-			"from":    "you",
-			"content": text,
-			"tagged":  extractTagsFromText(text),
+			"from":     "you",
+			"content":  text,
+			"tagged":   extractTagsFromText(text),
+			"reply_to": strings.TrimSpace(replyTo),
 		})
 		resp, err := http.Post(
 			"http://127.0.0.1:7890/messages",
@@ -827,6 +1167,19 @@ func resetTeamSession() tea.Cmd {
 			return channelResetDoneMsg{err: err}
 		}
 		return channelResetDoneMsg{}
+	}
+}
+
+func reconfigureTeamAgents() tea.Cmd {
+	return func() tea.Msg {
+		l, err := team.NewLauncher("")
+		if err != nil {
+			return channelInitDoneMsg{err: err}
+		}
+		if err := l.ReconfigureSession(); err != nil {
+			return channelInitDoneMsg{err: err}
+		}
+		return channelInitDoneMsg{}
 	}
 }
 

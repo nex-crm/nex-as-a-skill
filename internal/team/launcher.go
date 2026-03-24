@@ -196,8 +196,8 @@ func (l *Launcher) notifyAgentsLoop() {
 
 				// Build a single-line prompt for Claude (no newlines — send-keys types literally)
 				notification := fmt.Sprintf(
-					"[Channel update from @%s]: %s — Please call team_poll with my_slug \"%s\" to read the channel, then respond with team_broadcast if relevant.",
-					msg.From, truncate(msg.Content, 150), slug,
+					"[Channel update %s from @%s]: %s — Please call team_poll with my_slug \"%s\" to read the channel. If you're directly responding to this message, reply in-thread with team_broadcast reply_to_id \"%s\".",
+					msg.ID, msg.From, truncate(msg.Content, 150), slug, msg.ID,
 				)
 
 				paneTarget := fmt.Sprintf("%s:team.%d", l.sessionName, i+1)
@@ -286,6 +286,20 @@ func (l *Launcher) Kill() error {
 }
 
 func (l *Launcher) ResetSession() error {
+	if err := l.reconfigureVisibleAgents(); err != nil {
+		return err
+	}
+	if err := ResetBrokerState(); err != nil {
+		return fmt.Errorf("reset broker state: %w", err)
+	}
+	return nil
+}
+
+func (l *Launcher) ReconfigureSession() error {
+	return l.reconfigureVisibleAgents()
+}
+
+func (l *Launcher) reconfigureVisibleAgents() error {
 	if err := l.ensureMCPRuntime(); err != nil {
 		return fmt.Errorf("prepare mcp runtime: %w", err)
 	}
@@ -297,9 +311,6 @@ func (l *Launcher) ResetSession() error {
 
 	if err := provider.ResetClaudeSessions(); err != nil {
 		return fmt.Errorf("reset Claude sessions: %w", err)
-	}
-	if err := ResetBrokerState(); err != nil {
-		return fmt.Errorf("reset broker state: %w", err)
 	}
 	if err := l.clearAgentPanes(); err != nil {
 		return fmt.Errorf("clear agent panes: %w", err)
@@ -456,6 +467,11 @@ func (l *Launcher) buildPrompt(slug string) string {
 		sb.WriteString("- human_interview: Ask the human a blocking decision question only when the team cannot proceed responsibly without an answer\n\n")
 		sb.WriteString("Tag agents with @slug in your message (e.g., '@fe can you handle this?').\n")
 		sb.WriteString("Tagged agents are expected to respond.\n\n")
+		sb.WriteString("THREADING:\n")
+		sb.WriteString("- Default to replying in an existing relevant thread. Do NOT start a new top-level thread unless the topic truly changes.\n")
+		sb.WriteString("- Use the main channel only for genuinely new topics, broad pivots, or fresh human directives.\n")
+		sb.WriteString("- If you're reacting to a specific message or tagged ask, reply in-thread with team_broadcast reply_to_id.\n")
+		sb.WriteString("- Keep narrow implementation debates inside the relevant thread so the main channel stays readable.\n\n")
 		sb.WriteString("YOUR ROLE AS LEADER:\n")
 		sb.WriteString("1. On company strategy, product direction, or anything that sounds like prior decisions might matter, call query_context early\n")
 		sb.WriteString("2. When the user gives a directive, use team_broadcast to share your plan\n")
@@ -512,6 +528,11 @@ func (l *Launcher) buildPrompt(slug string) string {
 		sb.WriteString("- human_interview: Ask the human only for blocking clarifications you cannot responsibly guess\n\n")
 		sb.WriteString("Tag agents with @slug in your message (e.g., '@ceo I finished the API').\n")
 		sb.WriteString("Tagged agents are expected to respond.\n\n")
+		sb.WriteString("THREADING:\n")
+		sb.WriteString("- Default to replying in an existing relevant thread. Do NOT start a new top-level thread unless the topic genuinely changes.\n")
+		sb.WriteString("- Start a new top-level channel message only for a genuinely new angle, insight, or blocker the whole team should see.\n")
+		sb.WriteString("- If you're answering a tagged question, reacting to a specific proposal, or debating a narrow topic, reply in-thread with team_broadcast reply_to_id.\n")
+		sb.WriteString("- Natural team behavior beats formality: use threads for back-and-forth, not every single sentence.\n\n")
 		sb.WriteString("YOUR ROLE AS SPECIALIST:\n")
 		sb.WriteString("1. Call team_poll regularly to see what the team is discussing\n")
 		sb.WriteString("2. If @tagged by anyone, you MUST respond via team_broadcast\n")

@@ -2,9 +2,12 @@ package team
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,11 +16,14 @@ import (
 
 const BrokerPort = 7890
 
+var brokerStatePath = defaultBrokerStatePath
+
 type channelMessage struct {
 	ID        string   `json:"id"`
 	From      string   `json:"from"`
 	Content   string   `json:"content"`
 	Tagged    []string `json:"tagged"`
+	ReplyTo   string   `json:"reply_to,omitempty"`
 	Timestamp string   `json:"timestamp"`
 }
 
@@ -45,6 +51,12 @@ type humanInterview struct {
 	Answered      *interviewAnswer  `json:"answered,omitempty"`
 }
 
+type brokerState struct {
+	Messages         []channelMessage `json:"messages"`
+	Counter          int              `json:"counter"`
+	PendingInterview *humanInterview  `json:"pending_interview,omitempty"`
+}
+
 // Broker is a lightweight HTTP message broker for the team channel.
 // All agent MCP instances connect to this shared broker.
 type Broker struct {
@@ -57,7 +69,9 @@ type Broker struct {
 
 // NewBroker creates a new channel broker.
 func NewBroker() *Broker {
-	return &Broker{}
+	b := &Broker{}
+	_ = b.loadState()
+	return b
 }
 
 // Start launches the broker on localhost:7890.
@@ -113,10 +127,65 @@ func (b *Broker) HasPendingInterview() bool {
 
 func (b *Broker) Reset() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.messages = nil
 	b.pendingInterview = nil
 	b.counter = 0
+	_ = b.saveLocked()
+	b.mu.Unlock()
+}
+
+func defaultBrokerStatePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".nex-cli", "team", "broker-state.json")
+	}
+	return filepath.Join(home, ".nex-cli", "team", "broker-state.json")
+}
+
+func (b *Broker) loadState() error {
+	path := brokerStatePath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	var state brokerState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return err
+	}
+	b.messages = state.Messages
+	b.counter = state.Counter
+	b.pendingInterview = state.PendingInterview
+	return nil
+}
+
+func (b *Broker) saveLocked() error {
+	path := brokerStatePath()
+	if len(b.messages) == 0 && b.pendingInterview == nil && b.counter == 0 {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	state := brokerState{
+		Messages:         b.messages,
+		Counter:          b.counter,
+		PendingInterview: b.pendingInterview,
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func (b *Broker) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -150,6 +219,7 @@ func (b *Broker) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 		From    string   `json:"from"`
 		Content string   `json:"content"`
 		Tagged  []string `json:"tagged"`
+		ReplyTo string   `json:"reply_to"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -169,10 +239,16 @@ func (b *Broker) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 		From:      body.From,
 		Content:   body.Content,
 		Tagged:    body.Tagged,
+		ReplyTo:   strings.TrimSpace(body.ReplyTo),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 	b.messages = append(b.messages, msg)
 	total := len(b.messages)
+	if err := b.saveLocked(); err != nil {
+		b.mu.Unlock()
+		http.Error(w, "failed to persist broker state", http.StatusInternalServerError)
+		return
+	}
 	b.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -307,6 +383,11 @@ func (b *Broker) handlePostInterview(w http.ResponseWriter, r *http.Request) {
 		RecommendedID: body.RecommendedID,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 	}
+	if err := b.saveLocked(); err != nil {
+		b.mu.Unlock()
+		http.Error(w, "failed to persist broker state", http.StatusInternalServerError)
+		return
+	}
 	b.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -381,6 +462,7 @@ func (b *Broker) handlePostInterviewAnswer(w http.ResponseWriter, r *http.Reques
 		Tagged: []string{
 			b.pendingInterview.From,
 		},
+		ReplyTo:   "",
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 	switch {
@@ -392,6 +474,11 @@ func (b *Broker) handlePostInterviewAnswer(w http.ResponseWriter, r *http.Reques
 		msg.Content = fmt.Sprintf("Answered @%s's question.", b.pendingInterview.From)
 	}
 	b.messages = append(b.messages, msg)
+	if err := b.saveLocked(); err != nil {
+		b.mu.Unlock()
+		http.Error(w, "failed to persist broker state", http.StatusInternalServerError)
+		return
+	}
 	b.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
@@ -415,7 +502,11 @@ func FormatChannelView(messages []channelMessage) string {
 		if strings.HasPrefix(m.Content, "[STATUS]") {
 			sb.WriteString(fmt.Sprintf("  %s  @%s %s\n", ts, prefix, m.Content))
 		} else {
-			sb.WriteString(fmt.Sprintf("  %s  @%s: %s\n", ts, prefix, m.Content))
+			thread := ""
+			if m.ReplyTo != "" {
+				thread = fmt.Sprintf(" ↳ %s", m.ReplyTo)
+			}
+			sb.WriteString(fmt.Sprintf("  %s%s  @%s: %s\n", ts, thread, prefix, m.Content))
 		}
 	}
 	return sb.String()
