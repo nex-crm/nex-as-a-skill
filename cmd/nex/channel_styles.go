@@ -4,16 +4,16 @@ import "github.com/charmbracelet/lipgloss"
 
 // ── Slack dark-theme palette ────────────────────────────────────────
 const (
-	slackSidebarBg   = "#1A1D21"
-	slackMainBg      = "#222529"
-	slackThreadBg    = "#1E2024"
-	slackBorder      = "#383A3F"
+	slackSidebarBg   = "#19171D"
+	slackMainBg      = "#1F1D24"
+	slackThreadBg    = "#18171D"
+	slackBorder      = "#2A2830"
 	slackActive      = "#1264A3"
-	slackHover       = "#2C2D31"
-	slackText        = "#D1D2D3"
-	slackMuted       = "#ABABAD"
-	slackTimestamp    = "#616164"
-	slackDivider     = "#35373B"
+	slackHover       = "#2B2931"
+	slackText        = "#E8E8EA"
+	slackMuted       = "#A6A6AC"
+	slackTimestamp   = "#616164"
+	slackDivider     = "#34313B"
 	slackMentionBg   = "#E8912D"
 	slackMentionText = "#F2C744"
 	slackOnline      = "#2BAC76"
@@ -33,6 +33,7 @@ var agentColorMap = map[string]string{
 	"designer": "#EC4899",
 	"cmo":      "#F97316",
 	"cro":      "#06B6D4",
+	"nex":      "#7C3AED",
 	"you":      "#FFFFFF",
 }
 
@@ -86,7 +87,7 @@ func channelHeaderStyle(width int) lipgloss.Style {
 		Background(lipgloss.Color(slackMainBg)).
 		Foreground(lipgloss.Color(slackText)).
 		Bold(true).
-		Padding(0, 1).
+		Padding(0, 2, 1, 2).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderBottom(true).
 		BorderForeground(lipgloss.Color(slackBorder))
@@ -101,6 +102,7 @@ func composerBorderStyle(width int, focused bool) lipgloss.Style {
 		Width(width).
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color(borderColor)).
+		Background(lipgloss.Color("#17161C")).
 		Padding(0, 1)
 }
 

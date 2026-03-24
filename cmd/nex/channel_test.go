@@ -244,7 +244,7 @@ func TestChannelViewUsesOfficeHeaderAndComposer(t *testing.T) {
 	m.height = 30
 
 	view := stripANSI(m.View())
-	if !strings.Contains(view, "The Nex Office") || !strings.Contains(view, "Message #office") {
+	if !strings.Contains(view, "The Nex Office") || !strings.Contains(view, "Message #general") {
 		t.Fatalf("expected office chrome, got %q", view)
 	}
 }
@@ -473,6 +473,66 @@ func TestChannelMsgKeepsScrollWhenReadingHistory(t *testing.T) {
 
 	if got.scroll != 4 {
 		t.Fatalf("expected scroll to preserve reader position, got %d", got.scroll)
+	}
+	if got.unreadCount != 1 {
+		t.Fatalf("expected unread count to increase, got %d", got.unreadCount)
+	}
+}
+
+func TestMouseClickJumpLatestClearsUnread(t *testing.T) {
+	m := newChannelModel(false)
+	m.width = 120
+	m.height = 32
+	m.scroll = 3
+	m.unreadCount = 2
+	m.messages = []brokerMessage{
+		{ID: "msg-1", From: "ceo", Content: "Root", Timestamp: "2026-03-24T10:00:00Z"},
+		{ID: "msg-2", From: "fe", Content: "Reply", Timestamp: "2026-03-24T10:01:00Z"},
+		{ID: "msg-3", From: "be", Content: "Reply", Timestamp: "2026-03-24T10:02:00Z"},
+		{ID: "msg-4", From: "pm", Content: "Reply", Timestamp: "2026-03-24T10:03:00Z"},
+		{ID: "msg-5", From: "cmo", Content: "Reply", Timestamp: "2026-03-24T10:04:00Z"},
+	}
+
+	layout := computeLayout(m.width, m.height, m.threadPanelOpen, m.sidebarCollapsed)
+	mainX := layout.SidebarW + 1
+	headerH, _, _ := m.mainPanelGeometry(layout.MainW, layout.ContentH)
+
+	next, _ := m.Update(tea.MouseMsg{Type: tea.MouseLeft, Button: tea.MouseButtonLeft, X: mainX + 4, Y: headerH})
+	got := next.(channelModel)
+	if got.scroll != 0 || got.unreadCount != 0 {
+		t.Fatalf("expected jump latest to clear unread and scroll, got scroll=%d unread=%d", got.scroll, got.unreadCount)
+	}
+}
+
+func TestMouseClickCollapsedThreadOpensThreadPanel(t *testing.T) {
+	m := newChannelModel(true)
+	m.width = 120
+	m.height = 32
+	m.messages = []brokerMessage{
+		{ID: "msg-1", From: "ceo", Content: "Root topic", Timestamp: "2026-03-24T10:00:00Z"},
+		{ID: "msg-2", From: "fe", Content: "Reply one", ReplyTo: "msg-1", Timestamp: "2026-03-24T10:01:00Z"},
+	}
+
+	layout := computeLayout(m.width, m.height, m.threadPanelOpen, m.sidebarCollapsed)
+	headerH, msgH, _ := m.mainPanelGeometry(layout.MainW, layout.ContentH)
+	contentWidth := layout.MainW - 2
+	lines := buildOfficeMessageLines(m.messages, m.expandedThreads, contentWidth, m.threadsDefaultExpand)
+	visible, _, _, _ := sliceRenderedLines(lines, msgH, m.scroll)
+	row := -1
+	for i, line := range visible {
+		if line.ThreadID == "msg-1" {
+			row = i
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatal("expected collapsed thread summary row")
+	}
+
+	next, _ := m.Update(tea.MouseMsg{Type: tea.MouseLeft, Button: tea.MouseButtonLeft, X: layout.SidebarW + 5, Y: headerH + row})
+	got := next.(channelModel)
+	if !got.threadPanelOpen || got.threadPanelID != "msg-1" {
+		t.Fatalf("expected click to open thread panel for msg-1, got open=%v id=%q", got.threadPanelOpen, got.threadPanelID)
 	}
 }
 

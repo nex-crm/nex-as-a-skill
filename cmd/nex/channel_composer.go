@@ -12,8 +12,7 @@ import (
 // label, rounded border, cursor, @mention popup, and interview options.
 func renderComposer(width int, input []rune, inputPos int, channelName string,
 	replyToID string, typingAgents []string, pending *channelInterview,
-	selectedOption int, mentionPopup bool, mentionFilter string,
-	mentionIdx int, members []channelMember, focused bool) string {
+	selectedOption int, focused bool) string {
 
 	if width < 10 {
 		width = 10
@@ -39,22 +38,6 @@ func renderComposer(width int, input []rune, inputPos int, channelName string,
 		parts = append(parts, "  "+typingStyle.Render(typing))
 	}
 
-	// ── @mention popup (above input) ──────────────────────────────────
-	if mentionPopup && len(members) > 0 {
-		var filtered []channelMember
-		filter := strings.ToLower(mentionFilter)
-		for _, m := range members {
-			if filter == "" || strings.Contains(strings.ToLower(m.Slug), filter) ||
-				strings.Contains(strings.ToLower(sidebarName(m.Slug)), filter) {
-				filtered = append(filtered, m)
-			}
-		}
-		if len(filtered) > 0 {
-			popupLines := renderMentionPopup(filtered, mentionIdx, width-4)
-			parts = append(parts, popupLines)
-		}
-	}
-
 	// ── Composer label ────────────────────────────────────────────────
 	label := fmt.Sprintf("Message #%s", channelName)
 	if pending != nil {
@@ -65,7 +48,8 @@ func renderComposer(width int, input []rune, inputPos int, channelName string,
 	labelStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(slackActive)).
 		Bold(true)
-	parts = append(parts, "  "+labelStyle.Render(label))
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(slackMuted))
+	parts = append(parts, "  "+labelStyle.Render(label)+"  "+hintStyle.Render("Use / for commands · @ to mention"))
 
 	// ── Input field with rounded border ───────────────────────────────
 	innerW := width - 6 // border (2) + padding (2) + outer margin (2)
@@ -108,25 +92,28 @@ func renderComposer(width int, input []rune, inputPos int, channelName string,
 	return strings.Join(parts, "\n")
 }
 
-// renderMentionPopup renders the filtered member list for @mention selection.
-func renderMentionPopup(members []channelMember, selectedIdx int, width int) string {
-	if len(members) == 0 {
+type composerPopupOption struct {
+	Label string
+	Meta  string
+}
+
+func renderComposerPopup(options []composerPopupOption, selectedIdx int, width int, accent string) string {
+	if len(options) == 0 {
 		return ""
 	}
 
-	maxShow := 6
-	if len(members) < maxShow {
-		maxShow = len(members)
-	}
+	maxShow := len(options)
 
 	popupStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(slackHover)).
+		Background(lipgloss.Color("#111218")).
 		Foreground(lipgloss.Color(slackText)).
 		Width(width).
-		Padding(0, 1)
+		Padding(0, 1).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(slackBorder))
 
 	selectedStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(slackActive)).
+		Background(lipgloss.Color(accent)).
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Bold(true)
 
@@ -135,23 +122,15 @@ func renderMentionPopup(members []channelMember, selectedIdx int, width int) str
 
 	var lines []string
 	for i := 0; i < maxShow; i++ {
-		m := members[i]
-		name := "@" + m.Slug
-		displayLabel := sidebarName(m.Slug)
-
-		entry := fmt.Sprintf("  %-12s %s", name, displayLabel)
+		option := options[i]
+		entry := fmt.Sprintf("  %-18s %s", option.Label, option.Meta)
 		if i == selectedIdx {
 			lines = append(lines, selectedStyle.Render(entry))
 		} else {
 			lines = append(lines, normalStyle.Render(entry))
 		}
 	}
-	if len(members) > maxShow {
-		lines = append(lines, lipgloss.NewStyle().
-			Foreground(lipgloss.Color(slackMuted)).
-			Render(fmt.Sprintf("  +%d more", len(members)-maxShow)))
-	}
-
+	lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(slackMuted)).Render("  Enter submit • Tab complete • Esc close"))
 	return popupStyle.Render(strings.Join(lines, "\n"))
 }
 

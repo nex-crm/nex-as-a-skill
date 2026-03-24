@@ -166,19 +166,35 @@ func renderMessageGroups(
 // countReplies counts replies for a given parentID from the full message list,
 // returning the count and the formatted time of the last reply.
 func countReplies(messages []brokerMessage, parentID string) (count int, lastReplyTime string) {
+	children := buildReplyChildren(messages)
 	var lastTS time.Time
 
-	for _, msg := range messages {
-		if msg.ReplyTo == parentID {
+	var walk func(id string)
+	walk = func(id string) {
+		for _, msg := range children[id] {
 			count++
 			ts := parseTimestamp(msg.Timestamp)
 			if ts.After(lastTS) {
 				lastTS = ts
 				lastReplyTime = formatShortTime(msg.Timestamp)
 			}
+			walk(msg.ID)
 		}
 	}
+
+	walk(parentID)
 	return count, lastReplyTime
+}
+
+func buildReplyChildren(messages []brokerMessage) map[string][]brokerMessage {
+	children := make(map[string][]brokerMessage)
+	for _, msg := range messages {
+		if strings.TrimSpace(msg.ReplyTo) == "" {
+			continue
+		}
+		children[msg.ReplyTo] = append(children[msg.ReplyTo], msg)
+	}
+	return children
 }
 
 // parseTimestamp parses an RFC3339 timestamp string, returning zero time on failure.

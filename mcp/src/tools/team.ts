@@ -1,12 +1,18 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 
 const brokerBaseUrl = (process.env.NEX_TEAM_BROKER_URL ?? "http://127.0.0.1:7890").replace(/\/+$/, "");
-const brokerToken = process.env.NEX_BROKER_TOKEN ?? "";
+const brokerTokenPath = process.env.NEX_BROKER_TOKEN_FILE ?? "/tmp/nex-broker-token";
 
 type BrokerMessage = {
   id: string;
   from: string;
+  kind?: string;
+  source?: string;
+  source_label?: string;
+  event_id?: string;
+  title?: string;
   content: string;
   tagged?: string[];
   reply_to?: string;
@@ -35,8 +41,17 @@ function resolveSlug(input?: string): string {
 }
 
 function authHeaders(): Record<string, string> {
-  if (!brokerToken) return {};
-  return { Authorization: `Bearer ${brokerToken}` };
+  const token = (process.env.NEX_BROKER_TOKEN ?? "").trim() || readBrokerTokenFile();
+  if (!token) return {};
+  return { Authorization: `Bearer ${token}` };
+}
+
+function readBrokerTokenFile(): string {
+  try {
+    return readFileSync(brokerTokenPath, "utf8").trim();
+  } catch {
+    return "";
+  }
 }
 
 async function brokerGet(path: string): Promise<unknown> {
@@ -77,6 +92,12 @@ function formatMessages(messages: BrokerMessage[], mySlug?: string): string {
     const mentionsMe = !!mySlug && (message.tagged ?? []).includes(mySlug);
     const tagNote = mentionsMe ? " [tagged you]" : "";
     const threadNote = message.reply_to ? ` ↳ ${message.reply_to}` : "";
+    if (message.kind === "automation" || message.from === "nex") {
+      const source = message.source ?? "context_graph";
+      const label = message.source_label ?? "Nex";
+      const title = message.title ? `${message.title}: ` : "";
+      return `${ts} ${message.id}${threadNote} [${label}/${source}]: ${title}${message.content}${tagNote}`;
+    }
     return `${ts} ${message.id}${threadNote} @${message.from}: ${message.content}${tagNote}`;
   });
   return lines.join("\n");

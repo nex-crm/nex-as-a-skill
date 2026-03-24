@@ -184,28 +184,29 @@ const (
 )
 
 type channelModel struct {
-	messages         []brokerMessage
-	members          []channelMember
-	pending          *channelInterview
-	lastID           string
-	replyToID        string
-	expandedThreads  map[string]bool
+	messages             []brokerMessage
+	members              []channelMember
+	pending              *channelInterview
+	lastID               string
+	replyToID            string
+	expandedThreads      map[string]bool
 	clickableThreads     map[int]string // rendered line index → message ID for click-to-expand
-	threadsDefaultExpand bool            // true = expand threads by default
-	autocomplete     tui.AutocompleteModel
-	mention          tui.MentionModel
-	input            []rune
-	inputPos         int
-	width            int
-	height           int
-	scroll           int
-	posting          bool
-	selectedOption   int
-	notice           string
-	snoozedInterview string
-	initFlow         tui.InitFlowModel
-	picker           tui.PickerModel
-	pickerMode       channelPickerMode
+	threadsDefaultExpand bool           // true = expand threads by default
+	autocomplete         tui.AutocompleteModel
+	mention              tui.MentionModel
+	input                []rune
+	inputPos             int
+	width                int
+	height               int
+	scroll               int
+	unreadCount          int
+	posting              bool
+	selectedOption       int
+	notice               string
+	snoozedInterview     string
+	initFlow             tui.InitFlowModel
+	picker               tui.PickerModel
+	pickerMode           channelPickerMode
 
 	// 3-column layout state
 	focus            focusArea
@@ -222,9 +223,9 @@ func newChannelModel(threadsCollapsed bool) channelModel {
 	m := channelModel{
 		expandedThreads:      make(map[string]bool),
 		threadsDefaultExpand: !threadsCollapsed,
-		autocomplete:    tui.NewAutocomplete(channelSlashCommands),
-		mention:         tui.NewMention(channelMentionAgents(nil)),
-		initFlow:        tui.NewInitFlow(),
+		autocomplete:         tui.NewAutocomplete(channelSlashCommands),
+		mention:              tui.NewMention(channelMentionAgents(nil)),
+		initFlow:             tui.NewInitFlow(),
 	}
 	if config.ResolveAPIKey("") == "" {
 		m.notice = "No Nex API key configured. Starting setup..."
@@ -265,19 +266,56 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				if m.scroll > 0 {
 					m.scroll--
+					if m.scroll == 0 {
+						m.unreadCount = 0
+					}
 				}
 			}
 		case tea.MouseButtonLeft:
-			// Check if clicked on a thread expand/collapse indicator
-			if m.clickableThreads != nil {
-				if msgID, ok := m.clickableThreads[msg.Y]; ok {
-					if m.expandedThreads[msgID] {
-						delete(m.expandedThreads, msgID)
-					} else {
-						m.expandedThreads[msgID] = true
+			if action, ok := m.mouseActionAt(msg.X, msg.Y); ok {
+				switch action.Kind {
+				case "focus":
+					switch action.Value {
+					case "sidebar":
+						m.focus = focusSidebar
+					case "thread":
+						m.focus = focusThread
+					default:
+						m.focus = focusMain
 					}
-					// Reset clickable map — will be rebuilt on next render
-					m.clickableThreads = nil
+					m.updateOverlaysForCurrentInput()
+					return m, nil
+				case "thread":
+					m.threadPanelOpen = true
+					m.threadPanelID = action.Value
+					m.replyToID = action.Value
+					m.focus = focusThread
+					m.threadScroll = 0
+					m.notice = fmt.Sprintf("Replying in thread %s", action.Value)
+					return m, nil
+				case "jump-latest":
+					m.scroll = 0
+					m.unreadCount = 0
+					return m, nil
+				case "autocomplete":
+					if idx, ok := popupActionIndex(action.Value); ok {
+						for m.autocomplete.SelectedIndex() != idx {
+							m.autocomplete.Next()
+						}
+						if name := m.autocomplete.Accept(); name != "" {
+							return m.runActiveCommand("/" + name)
+						}
+					}
+					return m, nil
+				case "mention":
+					if idx, ok := popupActionIndex(action.Value); ok {
+						for m.mention.SelectedIndex() != idx {
+							m.mention.Next()
+						}
+						if mention := m.mention.Accept(); mention != "" {
+							m.insertAcceptedMention(mention)
+						}
+					}
 					return m, nil
 				}
 			}
@@ -478,12 +516,16 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scroll = 1 << 30
 		case "end":
 			m.scroll = 0
+			m.unreadCount = 0
 		case "pgup":
 			m.scroll += maxInt(10, m.height/2)
 		case "pgdown":
 			m.scroll -= maxInt(10, m.height/2)
 			if m.scroll < 0 {
 				m.scroll = 0
+			}
+			if m.scroll == 0 {
+				m.unreadCount = 0
 			}
 		default:
 			// Type character
@@ -536,6 +578,7 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input = nil
 			m.inputPos = 0
 			m.scroll = 0
+			m.unreadCount = 0
 			m.notice = ""
 			m.initFlow = tui.NewInitFlow()
 			m.picker.SetActive(false)
@@ -578,6 +621,7 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg.messages) > 0 {
 			if m.scroll > 0 {
 				m.scroll += len(msg.messages)
+				m.unreadCount += len(msg.messages)
 			}
 			m.messages = append(m.messages, msg.messages...)
 			m.lastID = msg.messages[len(msg.messages)-1].ID
@@ -701,9 +745,6 @@ func (m channelModel) View() string {
 		return "Loading..."
 	}
 
-	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(slackMuted))
-	statusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#CBD5E1")).Italic(true)
-
 	layout := computeLayout(m.width, m.height, m.threadPanelOpen, m.sidebarCollapsed)
 
 	// ── Sidebar ──────────────────────────────────────────────────────
@@ -734,13 +775,21 @@ func (m channelModel) View() string {
 	// Channel header (2 lines)
 	headerStyle := channelHeaderStyle(mainW)
 	headerLine1 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F8FAFC")).
-		Render("The Nex Office")
+		Render("# general")
 	headerMeta := lipgloss.NewStyle().Foreground(lipgloss.Color(slackMuted)).
-		Render("  Founding Team")
+		Render("  The Nex Office · Founding Team building together")
 	if m.usage.Total.TotalTokens > 0 || m.usage.Total.CostUsd > 0 {
 		headerMeta += "  " + lipgloss.NewStyle().
 			Foreground(lipgloss.Color(slackActive)).
 			Render(fmt.Sprintf("Spend to date %s · %s", formatUsd(m.usage.Total.CostUsd), formatTokenCount(m.usage.Total.TotalTokens)))
+	}
+	if m.unreadCount > 0 && m.scroll > 0 {
+		headerMeta += "  " + lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color(slackActive)).
+			Padding(0, 1).
+			Bold(true).
+			Render(fmt.Sprintf("%d new", m.unreadCount))
 	}
 	if m.pending != nil {
 		headerMeta += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Bold(true).Render("Interview pending")
@@ -781,191 +830,27 @@ func (m channelModel) View() string {
 		msgH = 1
 	}
 
-	m.clickableThreads = make(map[int]string)
 	contentWidth := mainW - 2
 	if contentWidth < 32 {
 		contentWidth = 32
 	}
-
-	// Build message lines
-	var lines []string
-	if len(m.messages) == 0 {
-		lines = append(lines, "")
-		lines = append(lines, mutedStyle.Render("  Welcome to the channel."))
-		lines = append(lines, mutedStyle.Render("  Drop a company-building thought here."))
-		lines = append(lines, "")
-		lines = append(lines, mutedStyle.Render("  Suggested: Let's build an AI notetaking app."))
-	} else {
-		lines = append(lines, renderDateSeparator(contentWidth, "Today"))
-		// Auto-expand new threads if default is expanded
-		if m.threadsDefaultExpand {
-			for _, msg := range m.messages {
-				if msg.ReplyTo == "" && hasThreadReplies(m.messages, msg.ID) {
-					if _, explicit := m.expandedThreads[msg.ID]; !explicit {
-						m.expandedThreads[msg.ID] = true
-					}
-				}
-			}
-		}
-		for _, tm := range flattenThreadMessages(m.messages, m.expandedThreads) {
-			msg := tm.Message
-			ts := msg.Timestamp
-			if len(ts) > 19 {
-				ts = ts[11:19]
-			}
-
-			color := agentColorMap[msg.From]
-			if color == "" {
-				color = "#9CA3AF"
-			}
-			nameStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(color)).
-				Bold(true)
-			ruleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-
-			if msg.Kind == "automation" || msg.From == "nex" {
-				lines = append(lines, "")
-				headerPrefix := "  " + strings.Repeat("  ", tm.Depth)
-				if tm.Depth > 0 {
-					headerPrefix += "↳ "
-				}
-				source := msg.Source
-				if source == "" {
-					source = "context graph"
-				} else {
-					source = strings.ReplaceAll(source, "_", " ")
-				}
-				meta := fmt.Sprintf("%s · automated · %s", source, msg.ID)
-				if tm.Depth > 0 {
-					meta += fmt.Sprintf(" · thread reply to %s", tm.ParentLabel)
-				}
-				lines = appendWrapped(lines, contentWidth,
-					fmt.Sprintf("%s%s  %s  %s", headerPrefix, nameStyle.Render(displayName(msg.From)), mutedStyle.Render(ts), mutedStyle.Render(meta)),
-				)
-
-				prefix := "  " + strings.Repeat("  ", tm.Depth)
-				if tm.Depth > 0 {
-					prefix += ruleStyle.Render("┆") + " "
-				} else {
-					prefix += ruleStyle.Render("│") + " "
-				}
-				if msg.Title != "" {
-					lines = appendWrapped(lines, contentWidth, prefix+lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Render(msg.Title))
-				}
-				textPart, a2uiRendered := renderA2UIBlocks(msg.Content, contentWidth-4)
-				for _, paragraph := range strings.Split(textPart, "\n") {
-					lines = appendWrapped(lines, contentWidth, prefix+paragraph)
-				}
-				if a2uiRendered != "" {
-					for _, renderedLine := range strings.Split(a2uiRendered, "\n") {
-						lines = append(lines, prefix+renderedLine)
-					}
-				}
-			} else if strings.HasPrefix(msg.Content, "[STATUS]") {
-				status := strings.TrimPrefix(msg.Content, "[STATUS] ")
-				statusPrefix := "  " + strings.Repeat("  ", tm.Depth)
-				if tm.Depth > 0 {
-					statusPrefix += "↳ "
-				}
-				lines = appendWrapped(lines, contentWidth, fmt.Sprintf("%s%s  %s %s",
-					statusPrefix,
-					mutedStyle.Render(ts),
-					nameStyle.Render("@"+msg.From),
-					statusStyle.Render("is "+status),
-				))
-			} else {
-				mood := inferMood(msg.Content)
-				meta := roleLabel(msg.From) + " · " + msg.ID
-				if mood != "" {
-					meta += " · " + mood
-				}
-				if tm.Depth > 0 {
-					meta += fmt.Sprintf(" · thread reply to %s", tm.ParentLabel)
-				}
-				metaStyle := mutedStyle
-				if mood != "" {
-					metaStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-				}
-				lines = append(lines, "")
-				headerPrefix := "  " + strings.Repeat("  ", tm.Depth)
-				if tm.Depth > 0 {
-					headerPrefix += "↳ "
-				}
-				lines = appendWrapped(lines, contentWidth,
-					fmt.Sprintf("%s%s  %s  %s", headerPrefix, nameStyle.Render(displayName(msg.From)), mutedStyle.Render(ts), metaStyle.Render(meta)),
-				)
-
-				prefix := "  " + strings.Repeat("  ", tm.Depth)
-				if tm.Depth > 0 {
-					prefix += ruleStyle.Render("┆") + " "
-				} else {
-					prefix += ruleStyle.Render("│") + " "
-				}
-
-				textPart, a2uiRendered := renderA2UIBlocks(msg.Content, contentWidth-4)
-				for _, paragraph := range strings.Split(textPart, "\n") {
-					paragraph = highlightMentions(paragraph, agentColorMap)
-					lines = appendWrapped(lines, contentWidth, prefix+paragraph)
-				}
-				if a2uiRendered != "" {
-					for _, renderedLine := range strings.Split(a2uiRendered, "\n") {
-						lines = append(lines, prefix+renderedLine)
-					}
-				}
-				if tm.Collapsed && tm.HiddenReplies > 0 {
-					// Build colored participant names
-					var coloredNames []string
-					for _, p := range tm.ThreadParticipants {
-						pColor := agentColorMap[p]
-						if pColor == "" {
-							pColor = "#ABABAD"
-						}
-						coloredNames = append(coloredNames,
-							lipgloss.NewStyle().Foreground(lipgloss.Color(pColor)).Bold(true).Render(displayName(p)))
-					}
-					participantStr := ""
-					if len(coloredNames) > 0 {
-						participantStr = "  " + strings.Join(coloredNames, ", ")
-					}
-
-					threadLine := fmt.Sprintf("  ↩ %d repl%s%s",
-						tm.HiddenReplies,
-						pluralSuffix(tm.HiddenReplies),
-						participantStr,
-					)
-					lineIdx := len(lines)
-					lines = append(lines, threadLine)
-					// Track this line for click-to-expand
-					if m.clickableThreads == nil {
-						m.clickableThreads = make(map[int]string)
-					}
-					m.clickableThreads[lineIdx] = msg.ID
-				}
-			}
-		}
-	}
-
-	// Scroll messages
-	total := len(lines)
-	scroll := clampScroll(total, msgH, m.scroll)
-	end := total - scroll
-	if end > total {
-		end = total
-	}
-	if end < 1 && total > 0 {
-		end = 1
-	}
-	start := end - msgH
-	if start < 0 {
-		start = 0
-	}
-
+	allLines := buildOfficeMessageLines(m.messages, m.expandedThreads, contentWidth, m.threadsDefaultExpand)
+	visibleRows, scroll, _, _ := sliceRenderedLines(allLines, msgH, m.scroll)
 	var visible []string
-	if total > 0 {
-		visible = lines[start:end]
+	for _, row := range visibleRows {
+		visible = append(visible, row.Text)
 	}
 	for len(visible) < msgH {
 		visible = append(visible, "")
+	}
+	if m.unreadCount > 0 && scroll > 0 && len(visible) > 0 {
+		jumpLabel := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color(slackActive)).
+			Padding(0, 1).
+			Bold(true).
+			Render(fmt.Sprintf("Jump to latest · %d new", m.unreadCount))
+		visible[0] = "  " + jumpLabel
 	}
 	if popup := m.renderActivePopup(contentWidth); popup != "" && m.focus == focusMain {
 		visible = overlayBottomLines(visible, strings.Split(popup, "\n"))
@@ -1002,7 +887,7 @@ func (m channelModel) View() string {
 	onlineCount := len(m.members)
 	scrollHint := "PgUp/PgDn"
 	if scroll > 0 {
-		scrollHint = fmt.Sprintf("scroll +%d", scroll)
+		scrollHint = fmt.Sprintf("%d above", scroll)
 	}
 	focusLabel := "main"
 	if m.focus == focusSidebar {
@@ -1040,6 +925,147 @@ func (m channelModel) View() string {
 	}
 
 	return content + "\n" + statusBar
+}
+
+type mouseAction struct {
+	Kind  string
+	Value string
+}
+
+func popupActionIndex(raw string) (int, bool) {
+	var idx int
+	if _, err := fmt.Sscanf(raw, "%d", &idx); err != nil || idx < 0 {
+		return 0, false
+	}
+	return idx, true
+}
+
+func (m channelModel) mouseActionAt(x, y int) (mouseAction, bool) {
+	if m.width == 0 || m.height == 0 || y >= m.height-1 {
+		return mouseAction{}, false
+	}
+
+	layout := computeLayout(m.width, m.height, m.threadPanelOpen, m.sidebarCollapsed)
+	sidebarW := 0
+	if layout.ShowSidebar {
+		sidebarW = layout.SidebarW
+		if x < sidebarW {
+			return mouseAction{Kind: "focus", Value: "sidebar"}, true
+		}
+		x -= sidebarW + 1
+	}
+
+	mainW := layout.MainW
+	if mainW < 1 {
+		mainW = 1
+	}
+	if x >= 0 && x < mainW {
+		if action, ok := m.mainPanelMouseAction(x, y, mainW, layout.ContentH); ok {
+			return action, true
+		}
+		return mouseAction{Kind: "focus", Value: "main"}, true
+	}
+
+	if layout.ShowThread {
+		threadStart := mainW + 1
+		if x >= threadStart {
+			return mouseAction{Kind: "focus", Value: "thread"}, true
+		}
+	}
+
+	return mouseAction{}, false
+}
+
+func (m channelModel) mainPanelMouseAction(x, y, mainW, contentH int) (mouseAction, bool) {
+	headerH, msgH, popupRows := m.mainPanelGeometry(mainW, contentH)
+	if y < headerH {
+		return mouseAction{}, false
+	}
+
+	msgTop := headerH
+	msgBottom := headerH + msgH
+	if y >= msgTop && y < msgBottom {
+		row := y - msgTop
+		if m.unreadCount > 0 && m.scroll > 0 && row == 0 {
+			return mouseAction{Kind: "jump-latest"}, true
+		}
+		if len(popupRows) > 0 {
+			popupStart := msgBottom - len(popupRows)
+			if y >= popupStart {
+				idx := y - popupStart
+				if m.autocomplete.IsVisible() {
+					if idx < 0 || idx >= len(m.autocomplete.Matches()) {
+						return mouseAction{}, false
+					}
+					return mouseAction{Kind: "autocomplete", Value: fmt.Sprintf("%d", idx)}, true
+				}
+				if m.mention.IsVisible() {
+					if idx < 0 || idx >= len(m.mention.Matches()) {
+						return mouseAction{}, false
+					}
+					return mouseAction{Kind: "mention", Value: fmt.Sprintf("%d", idx)}, true
+				}
+			}
+		}
+
+		contentWidth := mainW - 2
+		if contentWidth < 32 {
+			contentWidth = 32
+		}
+		allLines := buildOfficeMessageLines(m.messages, m.expandedThreads, contentWidth, m.threadsDefaultExpand)
+		visibleRows, _, _, _ := sliceRenderedLines(allLines, msgH, m.scroll)
+		if row >= 0 && row < len(visibleRows) && visibleRows[row].ThreadID != "" {
+			return mouseAction{Kind: "thread", Value: visibleRows[row].ThreadID}, true
+		}
+	}
+
+	return mouseAction{}, false
+}
+
+func (m channelModel) mainPanelGeometry(mainW, contentH int) (headerH, msgH int, popupRows []string) {
+	headerStyle := channelHeaderStyle(mainW)
+	headerLine1 := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F8FAFC")).
+		Render("# general")
+	headerMeta := lipgloss.NewStyle().Foreground(lipgloss.Color(slackMuted)).
+		Render("  The Nex Office · Founding Team building together")
+	if m.usage.Total.TotalTokens > 0 || m.usage.Total.CostUsd > 0 {
+		headerMeta += "  " + lipgloss.NewStyle().
+			Foreground(lipgloss.Color(slackActive)).
+			Render(fmt.Sprintf("Spend to date %s · %s", formatUsd(m.usage.Total.CostUsd), formatTokenCount(m.usage.Total.TotalTokens)))
+	}
+	channelHeader := headerStyle.Render(headerLine1 + headerMeta)
+	if usageLine := renderUsageStrip(m.usage, m.members, mainW); usageLine != "" {
+		channelHeader += "\n" + usageLine
+	}
+	headerH = lipgloss.Height(channelHeader)
+
+	typingAgents := typingAgentsFromMembers(m.members)
+	composerStr := renderComposer(mainW, m.input, m.inputPos, "general",
+		m.replyToID, typingAgents, m.pending, m.selectedOption,
+		m.focus == focusMain)
+	interviewCard := ""
+	if m.pending != nil && m.pending.ID != m.snoozedInterview {
+		interviewCard = renderInterviewCard(*m.pending, m.selectedOption, mainW-4)
+	}
+	initPanel := ""
+	if m.picker.IsActive() {
+		initPanel = m.picker.View()
+	} else if m.initFlow.IsActive() || m.initFlow.Phase() == tui.InitDone {
+		initPanel = m.initFlow.View()
+	}
+	msgH = contentH - headerH - lipgloss.Height(composerStr) - lipgloss.Height(interviewCard) - lipgloss.Height(initPanel) - 1
+	if msgH < 1 {
+		msgH = 1
+	}
+
+	contentWidth := mainW - 2
+	if contentWidth < 32 {
+		contentWidth = 32
+	}
+	if popup := m.renderActivePopup(contentWidth); popup != "" && m.focus == focusMain {
+		popupRows = strings.Split(popup, "\n")
+	}
+	return headerH, msgH, popupRows
 }
 
 func (m channelModel) recommendedOptionIndex() int {
@@ -1514,7 +1540,7 @@ func roleLabel(slug string) string {
 	case "be":
 		return "backend"
 	case "ai":
-		return "ai"
+		return "AI Engineer"
 	case "designer":
 		return "design"
 	case "cmo":

@@ -106,49 +106,51 @@ func renderSidebar(members []channelMember, activeChannel string, width, height 
 	bg := lipgloss.Color(sidebarBG)
 	innerW := width - 2 // 1 char padding each side
 
-	// --- Channels section ---
 	headerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(sidebarMuted)).
+		Bold(true).
+		PaddingLeft(1)
+	workspaceStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
 		Bold(true)
+	workspaceMetaStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(sidebarMuted))
+	activeRowStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color(sidebarActive)).
+		Bold(true).
+		Padding(0, 1)
+	channelRowStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(sidebarMuted)).
+		Padding(0, 1)
+	memberMetaStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(sidebarMuted))
 
 	var lines []string
-	lines = append(lines, "") // top padding
-	lines = append(lines, " "+headerStyle.Render("Channels"))
+	lines = append(lines, "")
+	lines = append(lines, " "+workspaceStyle.Render("Nex"))
+	lines = append(lines, " "+workspaceMetaStyle.Render("The Nex Office"))
+	lines = append(lines, "")
+	lines = append(lines, " "+headerStyle.Render("Channel"))
 
-	// Channel entry: active = white text + blue left bar; inactive = muted.
-	chName := "# general"
+	activeName := "# general"
 	if activeChannel == "" || activeChannel == "general" {
-		activeBar := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(sidebarActive)).
-			Render("\u2588\u2588")
-		chText := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true).
-			Render(chName)
-		lines = append(lines, activeBar+chText)
+		lines = append(lines, " "+activeRowStyle.Width(innerW-1).Render(activeName))
 	} else {
-		lines = append(lines, "  "+lipgloss.NewStyle().
-			Foreground(lipgloss.Color(sidebarMuted)).
-			Render(chName))
+		lines = append(lines, " "+channelRowStyle.Render(activeName))
 	}
 
-	// --- Divider ---
 	dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(sidebarDivider))
 	divider := dividerStyle.Render(strings.Repeat("\u2500", innerW))
 	lines = append(lines, " "+divider)
 
-	// --- Team section ---
-	lines = append(lines, " "+headerStyle.Render("Team"))
+	lines = append(lines, " "+headerStyle.Render("People"))
 
-	// Calculate how many member rows we can fit.
-	// Reserve 1 line for possible "+N more" overflow indicator.
 	usedLines := len(lines)
-	maxMembers := height - usedLines - 1 // -1 for potential overflow line
+	maxMembers := height - usedLines - 1
 	if maxMembers < 0 {
 		maxMembers = 0
 	}
-
-	activityStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(sidebarMuted))
 
 	visibleCount := len(members)
 	overflow := 0
@@ -161,41 +163,31 @@ func renderSidebar(members []channelMember, activeChannel string, width, height 
 		m := members[i]
 		act := classifyActivity(m)
 
-		// Status dot.
 		dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(act.Color))
 		dot := dotStyle.Render(act.Dot)
 
-		// Agent name in agent color.
 		agentColor := sidebarAgentColors[m.Slug]
 		if agentColor == "" {
 			agentColor = "#64748B"
 		}
-		name := truncateLabel(sidebarName(m.Slug), innerW/2)
+		name := truncateLabel(sidebarName(m.Slug), innerW-8)
 		nameStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(agentColor)).
 			Bold(true)
 		nameRendered := nameStyle.Render(name)
-
-		// Activity label.
-		labelRendered := activityStyle.Render(act.Label)
-
-		// Compose line: " dot name   activity" — right-align activity within innerW.
-		// We need to calculate visible widths to pad correctly.
+		role := truncateLabel(roleLabel(m.Slug), innerW-8)
+		roleRendered := memberMetaStyle.Render(role)
 		leftPart := dot + " " + nameRendered
-		leftVisible := ansi.StringWidth(leftPart)
-		rightVisible := ansi.StringWidth(act.Label)
-
-		pad := innerW - leftVisible - rightVisible
+		pad := innerW - ansi.StringWidth(leftPart) - ansi.StringWidth(act.Label)
 		if pad < 1 {
 			pad = 1
 		}
-
-		line := " " + leftPart + strings.Repeat(" ", pad) + labelRendered
-		lines = append(lines, line)
+		lines = append(lines, " "+leftPart+strings.Repeat(" ", pad)+memberMetaStyle.Render(act.Label))
+		lines = append(lines, "   "+roleRendered)
 	}
 
 	if overflow > 0 {
-		more := activityStyle.Render(fmt.Sprintf("\u22EF +%d more", overflow))
+		more := memberMetaStyle.Render(fmt.Sprintf("\u22EF +%d more", overflow))
 		lines = append(lines, " "+more)
 	}
 

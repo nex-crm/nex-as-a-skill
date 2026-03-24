@@ -25,13 +25,13 @@ type layoutDimensions struct {
 //	Narrow(<80)  : no sidebar, thread overlays main
 func computeLayout(width, height int, threadOpen, sidebarCollapsed bool) layoutDimensions {
 	const (
-		statusBarH   = 1
-		borderW      = 1 // vertical border between panels
-		wideBreak    = 120
-		mediumBreak  = 80
-		wideSidebar  = 22
-		medSidebar   = 20
-		wideThread   = 35
+		statusBarH  = 1
+		borderW     = 1 // vertical border between panels
+		wideBreak   = 126
+		mediumBreak = 88
+		wideSidebar = 28
+		medSidebar  = 24
+		wideThread  = 40
 	)
 
 	ld := layoutDimensions{

@@ -119,6 +119,19 @@ func (a AutocompleteModel) Selected() (SlashCommand, bool) {
 	return a.matches[a.selected], true
 }
 
+func (a AutocompleteModel) Matches() []SlashCommand {
+	if len(a.matches) == 0 {
+		return nil
+	}
+	out := make([]SlashCommand, len(a.matches))
+	copy(out, a.matches)
+	return out
+}
+
+func (a AutocompleteModel) SelectedIndex() int {
+	return a.selected
+}
+
 func (a *AutocompleteModel) Accept() string {
 	if len(a.matches) == 0 {
 		return ""

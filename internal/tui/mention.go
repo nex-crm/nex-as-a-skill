@@ -84,6 +84,26 @@ func (m *MentionModel) Accept() string {
 	return "@" + slug
 }
 
+func (m MentionModel) Matches() []AgentMention {
+	if len(m.matches) == 0 {
+		return nil
+	}
+	out := make([]AgentMention, len(m.matches))
+	copy(out, m.matches)
+	return out
+}
+
+func (m MentionModel) Selected() (AgentMention, bool) {
+	if !m.visible || len(m.matches) == 0 {
+		return AgentMention{}, false
+	}
+	return m.matches[m.selected], true
+}
+
+func (m MentionModel) SelectedIndex() int {
+	return m.selected
+}
+
 func (m *MentionModel) Dismiss() {
 	m.visible = false
 	m.selected = 0
