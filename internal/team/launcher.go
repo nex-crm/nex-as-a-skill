@@ -102,7 +102,7 @@ func (l *Launcher) Launch() error {
 
 	// Split right: first agent (leader) gets right 60%
 	leaderPrompt := l.buildPrompt(l.pack.LeadSlug)
-	leaderCmd := l.claudeCommand(leaderPrompt)
+	leaderCmd := l.claudeCommand(l.pack.LeadSlug, leaderPrompt)
 
 	exec.Command("tmux", "-L", "nex", "split-window", "-h",
 		"-t", l.sessionName+":team",
@@ -122,7 +122,7 @@ func (l *Launcher) Launch() error {
 		}
 
 		prompt := l.buildPrompt(agentCfg.Slug)
-		agentCmd := l.claudeCommand(prompt)
+		agentCmd := l.claudeCommand(agentCfg.Slug, prompt)
 
 		// Split within the right side
 		exec.Command("tmux", "-L", "nex", "split-window",
@@ -143,7 +143,7 @@ func (l *Launcher) Launch() error {
 	// Create individual full-screen windows for ALL agents (including those not in tiled view)
 	for _, agentCfg := range l.pack.Agents {
 		prompt := l.buildPrompt(agentCfg.Slug)
-		agentCmd := l.claudeCommand(prompt)
+		agentCmd := l.claudeCommand(agentCfg.Slug, prompt)
 
 		exec.Command("tmux", "-L", "nex", "new-window", "-d",
 			"-t", l.sessionName,
@@ -380,11 +380,10 @@ func (l *Launcher) buildPrompt(slug string) string {
 }
 
 // claudeCommand builds the shell command string for spawning a claude session.
-func (l *Launcher) claudeCommand(systemPrompt string) string {
-	// Escape single quotes in the prompt for shell
+// Sets NEX_AGENT_SLUG so the Nex MCP knows which agent this session serves.
+func (l *Launcher) claudeCommand(slug, systemPrompt string) string {
 	escaped := strings.ReplaceAll(systemPrompt, "'", "'\\''")
-
-	return fmt.Sprintf("claude --append-system-prompt '%s'", escaped)
+	return fmt.Sprintf("NEX_AGENT_SLUG=%s claude --append-system-prompt '%s'", slug, escaped)
 }
 
 // PackName returns the display name of the pack.
