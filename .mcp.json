@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "nex": {
+      "command": "nex-mcp",
+      "env": {}
+    }
+  }
+}
