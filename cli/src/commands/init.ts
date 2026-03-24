@@ -107,6 +107,18 @@ export async function registerUser(
     workspace_slug: workspaceSlug,
   });
 
+  // Enable all notification types by default (3-hour frequency)
+  try {
+    const authedClient = new NexClient(apiKey);
+    await authedClient.patch("/v1/notifications/preferences", {
+      frequency_minutes: 180,
+      enabled_types: ["daily_digest", "meeting_summary", "task_reminder", "task_assigned", "context_alert"],
+      digest_enabled: true,
+    });
+  } catch {
+    // Non-fatal — preferences will use server defaults
+  }
+
   return { apiKey, workspaceId, workspaceSlug };
 }
 
