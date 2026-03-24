@@ -424,8 +424,6 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.scroll++
 			}
-		case "k":
-			m.scroll++
 		case "down":
 			if m.pending != nil && m.selectedOption < m.interviewOptionCount()-1 {
 				m.selectedOption++
@@ -434,11 +432,6 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.scroll < 0 {
 					m.scroll = 0
 				}
-			}
-		case "j":
-			m.scroll--
-			if m.scroll < 0 {
-				m.scroll = 0
 			}
 		case "home":
 			m.scroll = 1 << 30

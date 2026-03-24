@@ -128,8 +128,9 @@ func (l *Launcher) Launch() error {
 		return fmt.Errorf("create tmux session: %w", err)
 	}
 
-	// Enable mouse passthrough so scroll events reach Bubbletea apps inside panes
-	exec.Command("tmux", "-L", "nex", "set-option", "-g", "mouse", "on").Run()
+	// Don't enable tmux mouse globally — it prevents native text selection.
+	// The channel pane uses Bubbletea's tea.WithMouseCellMotion() for scroll.
+	// Agent panes (Claude Code) handle their own mouse internally.
 
 	visibleSlugs, err := l.spawnVisibleAgents()
 	if err != nil {
