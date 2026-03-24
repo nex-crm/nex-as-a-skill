@@ -41,12 +41,17 @@ type channelUsageMsg struct {
 }
 
 type brokerMessage struct {
-	ID        string   `json:"id"`
-	From      string   `json:"from"`
-	Content   string   `json:"content"`
-	Tagged    []string `json:"tagged"`
-	ReplyTo   string   `json:"reply_to"`
-	Timestamp string   `json:"timestamp"`
+	ID          string   `json:"id"`
+	From        string   `json:"from"`
+	Kind        string   `json:"kind,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	SourceLabel string   `json:"source_label,omitempty"`
+	EventID     string   `json:"event_id,omitempty"`
+	Title       string   `json:"title,omitempty"`
+	Content     string   `json:"content"`
+	Tagged      []string `json:"tagged"`
+	ReplyTo     string   `json:"reply_to"`
+	Timestamp   string   `json:"timestamp"`
 }
 
 type channelMember struct {
@@ -99,8 +104,18 @@ type channelIntegrationDoneMsg struct {
 
 var mentionPattern = regexp.MustCompile(`@([A-Za-z0-9_-]+)`)
 
-// brokerAuthToken reads the shared secret from the environment.
-var brokerAuthToken = os.Getenv("NEX_BROKER_TOKEN")
+var brokerTokenPath = "/tmp/nex-broker-token"
+
+func currentBrokerAuthToken() string {
+	if token := strings.TrimSpace(os.Getenv("NEX_BROKER_TOKEN")); token != "" {
+		return token
+	}
+	data, err := os.ReadFile(brokerTokenPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
 
 // newBrokerRequest creates an HTTP request with the broker auth header.
 func newBrokerRequest(method, url string, body io.Reader) (*http.Request, error) {
@@ -108,7 +123,7 @@ func newBrokerRequest(method, url string, body io.Reader) (*http.Request, error)
 	if err != nil {
 		return nil, err
 	}
-	if brokerAuthToken != "" {
+	if brokerAuthToken := currentBrokerAuthToken(); brokerAuthToken != "" {
 		req.Header.Set("Authorization", "Bearer "+brokerAuthToken)
 	}
 	if method == http.MethodPost {
@@ -595,11 +610,10 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pickerMode = channelPickerNone
 			selectedMsgID := msg.Value
 			actions := []tui.PickerOption{
-				{Label: "Reply in thread", Value: "reply:" + selectedMsgID, Description: "Start typing a reply"},
-				{Label: "Open thread panel", Value: "open:" + selectedMsgID, Description: "View full thread in side panel"},
+				{Label: "Reply in thread", Value: "reply:" + selectedMsgID, Description: "Set reply mode for this thread"},
 			}
 			if m.expandedThreads[selectedMsgID] {
-				actions = append(actions, tui.PickerOption{Label: "Collapse thread", Value: "collapse:" + selectedMsgID, Description: "Hide replies"})
+				actions = append(actions, tui.PickerOption{Label: "Collapse thread", Value: "collapse:" + selectedMsgID, Description: "Hide replies inline"})
 			} else {
 				actions = append(actions, tui.PickerOption{Label: "Expand thread", Value: "expand:" + selectedMsgID, Description: "Show replies inline"})
 			}
@@ -618,14 +632,8 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch action {
 			case "reply":
 				m.replyToID = msgID
-				m.threadPanelOpen = true
-				m.threadPanelID = msgID
-				m.focus = focusThread
-				m.notice = fmt.Sprintf("Replying in thread %s", msgID)
-			case "open":
-				m.threadPanelOpen = true
-				m.threadPanelID = msgID
-				m.focus = focusThread
+				m.expandedThreads[msgID] = true // auto-expand so you see the thread
+				m.notice = fmt.Sprintf("Replying in thread %s — type your reply and press Enter", msgID)
 			case "expand":
 				m.expandedThreads[msgID] = true
 			case "collapse":
@@ -699,7 +707,7 @@ func (m channelModel) View() string {
 	// ── Sidebar ──────────────────────────────────────────────────────
 	sidebar := ""
 	if layout.ShowSidebar {
-		sidebar = renderSidebar(mergePackMembers(m.members), "general", layout.SidebarW, layout.ContentH)
+		sidebar = renderSidebar(mergePackMembers(m.members), "office", layout.SidebarW, layout.ContentH)
 	}
 
 	// ── Thread panel ─────────────────────────────────────────────────
@@ -743,7 +751,7 @@ func (m channelModel) View() string {
 
 	// Composer
 	typingAgents := typingAgentsFromMembers(m.members)
-	composerStr := renderComposer(mainW, m.input, m.inputPos, "general",
+	composerStr := renderComposer(mainW, m.input, m.inputPos, "office",
 		m.replyToID, typingAgents, m.pending, m.selectedOption,
 		m.focus == focusMain)
 
@@ -803,7 +811,45 @@ func (m channelModel) View() string {
 				Bold(true)
 			ruleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
 
-			if strings.HasPrefix(msg.Content, "[STATUS]") {
+			if msg.Kind == "automation" || msg.From == "nex" {
+				lines = append(lines, "")
+				headerPrefix := "  " + strings.Repeat("  ", tm.Depth)
+				if tm.Depth > 0 {
+					headerPrefix += "↳ "
+				}
+				source := msg.Source
+				if source == "" {
+					source = "context graph"
+				} else {
+					source = strings.ReplaceAll(source, "_", " ")
+				}
+				meta := fmt.Sprintf("%s · automated · %s", source, msg.ID)
+				if tm.Depth > 0 {
+					meta += fmt.Sprintf(" · thread reply to %s", tm.ParentLabel)
+				}
+				lines = appendWrapped(lines, contentWidth,
+					fmt.Sprintf("%s%s  %s  %s", headerPrefix, nameStyle.Render(displayName(msg.From)), mutedStyle.Render(ts), mutedStyle.Render(meta)),
+				)
+
+				prefix := "  " + strings.Repeat("  ", tm.Depth)
+				if tm.Depth > 0 {
+					prefix += ruleStyle.Render("┆") + " "
+				} else {
+					prefix += ruleStyle.Render("│") + " "
+				}
+				if msg.Title != "" {
+					lines = appendWrapped(lines, contentWidth, prefix+lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(color)).Render(msg.Title))
+				}
+				textPart, a2uiRendered := renderA2UIBlocks(msg.Content, contentWidth-4)
+				for _, paragraph := range strings.Split(textPart, "\n") {
+					lines = appendWrapped(lines, contentWidth, prefix+paragraph)
+				}
+				if a2uiRendered != "" {
+					for _, renderedLine := range strings.Split(a2uiRendered, "\n") {
+						lines = append(lines, prefix+renderedLine)
+					}
+				}
+			} else if strings.HasPrefix(msg.Content, "[STATUS]") {
 				status := strings.TrimPrefix(msg.Content, "[STATUS] ")
 				statusPrefix := "  " + strings.Repeat("  ", tm.Depth)
 				if tm.Depth > 0 {
@@ -1022,7 +1068,7 @@ func (m channelModel) selectedInterviewOption() *channelInterviewOption {
 func countUniqueAgents(messages []brokerMessage) int {
 	seen := make(map[string]bool)
 	for _, m := range messages {
-		if m.From == "you" {
+		if m.From == "you" || m.From == "nex" || m.Kind == "automation" {
 			continue
 		}
 		seen[m.From] = true
@@ -1436,6 +1482,8 @@ func displayName(slug string) string {
 		return "CMO"
 	case "cro":
 		return "CRO"
+	case "nex":
+		return "Nex"
 	case "you":
 		return "You"
 	default:
@@ -1461,6 +1509,8 @@ func roleLabel(slug string) string {
 		return "marketing"
 	case "cro":
 		return "revenue"
+	case "nex":
+		return "context graph"
 	case "you":
 		return "human"
 	default:
