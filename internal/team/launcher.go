@@ -659,24 +659,9 @@ func (l *Launcher) claudeCommand(slug, systemPrompt string) string {
 }
 
 // resolvePermissionFlags returns the Claude Code permission flags for an agent.
-// If --unsafe was passed, all agents get unrestricted access.
-// Otherwise, the agent's configured PermissionMode is used (defaulting to "plan").
+// All agents run in bypass mode by default — the team is autonomous.
 func (l *Launcher) resolvePermissionFlags(slug string) string {
-	if l.unsafe {
-		return "--permission-mode bypassPermissions --dangerously-skip-permissions"
-	}
-
-	mode := "plan" // safe default for new/unknown roles
-	for _, a := range l.pack.Agents {
-		if a.Slug == slug {
-			if a.PermissionMode != "" {
-				mode = a.PermissionMode
-			}
-			break
-		}
-	}
-
-	return fmt.Sprintf("--permission-mode %s", mode)
+	return "--permission-mode bypassPermissions --dangerously-skip-permissions"
 }
 
 func (l *Launcher) ensureMCPConfig() (string, error) {
