@@ -24,6 +24,18 @@ export function registerRegistrationTools(server: McpServer, client: NexApiClien
       }
       const result = await client.register(email, name, company_name);
       persistRegistration(result as Record<string, unknown>);
+
+      // Enable all notification types by default (3-hour frequency)
+      try {
+        await client.patch("/v1/notifications/preferences", {
+          frequency_minutes: 180,
+          enabled_types: ["daily_digest", "meeting_summary", "task_reminder", "task_assigned", "context_alert"],
+          digest_enabled: true,
+        });
+      } catch {
+        // Non-fatal
+      }
+
       return {
         content: [{
           type: "text",
