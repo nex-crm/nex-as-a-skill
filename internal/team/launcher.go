@@ -132,6 +132,11 @@ func (l *Launcher) Launch() error {
 	// The channel pane uses Bubbletea's tea.WithMouseCellMotion() for scroll.
 	// Agent panes (Claude Code) handle their own mouse internally.
 
+	// Hide tmux's default status bar — our channel TUI has its own.
+	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
+		"status", "off",
+	).Run()
+
 	visibleSlugs, err := l.spawnVisibleAgents()
 	if err != nil {
 		return err
