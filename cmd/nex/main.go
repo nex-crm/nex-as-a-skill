@@ -25,6 +25,7 @@ func main() {
 	soloMode := flag.Bool("solo", false, "Single-agent TUI (no team)")
 	packFlag := flag.String("pack", "", "Agent pack (founding-team, coding-team, lead-gen-agency)")
 	channelView := flag.Bool("channel-view", false, "Run as channel view (internal)")
+	threadsCollapsed := flag.Bool("threads-collapsed", false, "Start with threads collapsed (default: expanded)")
 	unsafeMode := flag.Bool("unsafe", false, "Bypass all agent permission checks (use for local dev only)")
 
 	flag.Usage = func() {
@@ -47,7 +48,7 @@ func main() {
 
 	// Channel view mode (launched by nex team as tmux window 0)
 	if *channelView {
-		runChannelView()
+		runChannelView(*threadsCollapsed)
 		return
 	}
 

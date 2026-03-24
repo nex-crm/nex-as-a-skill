@@ -16,6 +16,60 @@ func stripANSI(s string) string {
 	return ansiPattern.ReplaceAllString(s, "")
 }
 
+func TestNewBrokerRequestUsesEnvTokenAtRequestTime(t *testing.T) {
+	oldEnv := os.Getenv("NEX_BROKER_TOKEN")
+	oldPath := brokerTokenPath
+	t.Cleanup(func() {
+		_ = os.Setenv("NEX_BROKER_TOKEN", oldEnv)
+		brokerTokenPath = oldPath
+	})
+
+	brokerTokenPath = "/tmp/non-existent-nex-broker-token"
+	if err := os.Setenv("NEX_BROKER_TOKEN", "token-from-env"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+
+	req, err := newBrokerRequest("GET", "http://127.0.0.1:7890/messages", nil)
+	if err != nil {
+		t.Fatalf("newBrokerRequest: %v", err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer token-from-env" {
+		t.Fatalf("expected env auth token, got %q", got)
+	}
+}
+
+func TestNewBrokerRequestFallsBackToTokenFile(t *testing.T) {
+	oldEnv := os.Getenv("NEX_BROKER_TOKEN")
+	oldPath := brokerTokenPath
+	t.Cleanup(func() {
+		_ = os.Setenv("NEX_BROKER_TOKEN", oldEnv)
+		brokerTokenPath = oldPath
+	})
+
+	if err := os.Unsetenv("NEX_BROKER_TOKEN"); err != nil {
+		t.Fatalf("unset env: %v", err)
+	}
+	tokenFile, err := os.CreateTemp(t.TempDir(), "broker-token")
+	if err != nil {
+		t.Fatalf("create temp token file: %v", err)
+	}
+	if _, err := tokenFile.WriteString("token-from-file\n"); err != nil {
+		t.Fatalf("write token file: %v", err)
+	}
+	if err := tokenFile.Close(); err != nil {
+		t.Fatalf("close token file: %v", err)
+	}
+	brokerTokenPath = tokenFile.Name()
+
+	req, err := newBrokerRequest("GET", "http://127.0.0.1:7890/messages", nil)
+	if err != nil {
+		t.Fatalf("newBrokerRequest: %v", err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer token-from-file" {
+		t.Fatalf("expected file auth token, got %q", got)
+	}
+}
+
 func TestRenderA2UIBlocksPromptExampleRendersListItems(t *testing.T) {
 	content := "```a2ui\n" +
 		`{"type":"card","props":{"title":"Sprint Plan"},"children":[{"type":"list","props":{"items":["Build auth","Design UI"]}}]}` +
@@ -115,7 +169,7 @@ func TestFlattenThreadMessagesNestsRepliesUnderParent(t *testing.T) {
 }
 
 func TestChannelViewShowsThreadReplyLabel(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.width = 120
 	m.height = 30
 	m.expandedThreads["msg-1"] = true
@@ -134,7 +188,7 @@ func TestChannelViewShowsThreadReplyLabel(t *testing.T) {
 }
 
 func TestThreadsStartCollapsedByDefault(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(true) // explicit collapsed mode
 	m.width = 120
 	m.height = 30
 	m.messages = []brokerMessage{
@@ -144,7 +198,7 @@ func TestThreadsStartCollapsedByDefault(t *testing.T) {
 	}
 
 	view := stripANSI(m.View())
-	if !strings.Contains(view, "2 hidden replies in thread") {
+	if !strings.Contains(view, "↩ 2 replies") {
 		t.Fatalf("expected collapsed-thread summary, got %q", view)
 	}
 	if strings.Contains(view, "Reply one") || strings.Contains(view, "Reply two") {
@@ -185,18 +239,41 @@ func TestRenderThreadPanelShowsNestedReplies(t *testing.T) {
 }
 
 func TestChannelViewUsesOfficeHeaderAndComposer(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.width = 120
 	m.height = 30
 
 	view := stripANSI(m.View())
-	if !strings.Contains(view, "general") {
-		t.Fatalf("expected general channel reference, got %q", view)
+	if !strings.Contains(view, "The Nex Office") || !strings.Contains(view, "Message #office") {
+		t.Fatalf("expected office chrome, got %q", view)
+	}
+}
+
+func TestChannelViewRendersNexAutomationMessage(t *testing.T) {
+	m := newChannelModel(false)
+	m.width = 120
+	m.height = 30
+	m.messages = []brokerMessage{
+		{
+			ID:          "msg-1",
+			From:        "nex",
+			Kind:        "automation",
+			Source:      "context_graph",
+			SourceLabel: "Nex",
+			Title:       "Context alert",
+			Content:     "Important: Acme mentioned budget pressure",
+			Timestamp:   "2026-03-24T10:00:00Z",
+		},
+	}
+
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "Nex") || !strings.Contains(view, "automated") || !strings.Contains(view, "Context alert") {
+		t.Fatalf("expected Nex automation rendering, got %q", view)
 	}
 }
 
 func TestReplyCommandEntersReplyMode(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.messages = []brokerMessage{
 		{ID: "msg-1", From: "ceo", Content: "Root topic"},
 	}
@@ -215,7 +292,7 @@ func TestReplyCommandEntersReplyMode(t *testing.T) {
 }
 
 func TestExpandCommandExpandsThread(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.messages = []brokerMessage{
 		{ID: "msg-1", From: "ceo", Content: "Root topic"},
 		{ID: "msg-2", From: "fe", Content: "Reply", ReplyTo: "msg-1"},
@@ -232,7 +309,7 @@ func TestExpandCommandExpandsThread(t *testing.T) {
 }
 
 func TestCancelCommandClearsReplyMode(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.replyToID = "msg-1"
 	m.input = []rune("/cancel")
 	m.inputPos = len(m.input)
@@ -249,7 +326,7 @@ func TestCancelCommandClearsReplyMode(t *testing.T) {
 }
 
 func TestInitCommandStartsSetupFlow(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.input = []rune("/init")
 	m.inputPos = len(m.input)
 
@@ -270,7 +347,7 @@ func TestNewChannelModelAutoStartsInitWithoutAPIKey(t *testing.T) {
 	t.Setenv("NEX_API_KEY", "")
 	defer os.Setenv("HOME", origHome)
 
-	m := newChannelModel()
+	m := newChannelModel(false)
 
 	if !m.initFlow.IsActive() && m.initFlow.Phase() != "api_key" {
 		t.Fatalf("expected init flow to auto-start without API key, got phase %q", m.initFlow.Phase())
@@ -281,7 +358,7 @@ func TestNewChannelModelAutoStartsInitWithoutAPIKey(t *testing.T) {
 }
 
 func TestSlashAutocompleteShowsAllCommandsOnSlash(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.input = []rune("/")
 	m.inputPos = len(m.input)
 	m.updateInputOverlays()
@@ -296,7 +373,7 @@ func TestSlashAutocompleteShowsAllCommandsOnSlash(t *testing.T) {
 }
 
 func TestSlashAutocompleteEnterSubmitsSelectedCommand(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.input = []rune("/in")
 	m.inputPos = len(m.input)
 	m.updateInputOverlays()
@@ -313,7 +390,7 @@ func TestSlashAutocompleteEnterSubmitsSelectedCommand(t *testing.T) {
 }
 
 func TestThreadSlashAutocompleteEnterSubmitsSelectedCommand(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.threadPanelOpen = true
 	m.threadPanelID = "msg-1"
 	m.focus = focusThread
@@ -333,7 +410,7 @@ func TestThreadSlashAutocompleteEnterSubmitsSelectedCommand(t *testing.T) {
 }
 
 func TestSlashAutocompleteEnterSubmitsQuitCommand(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.input = []rune("/qui")
 	m.inputPos = len(m.input)
 	m.updateInputOverlays()
@@ -348,7 +425,7 @@ func TestSlashAutocompleteEnterSubmitsQuitCommand(t *testing.T) {
 }
 
 func TestMentionAutocompleteFiltersAgents(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.members = []channelMember{{Slug: "designer"}, {Slug: "cmo"}}
 	m.input = []rune("@de")
 	m.inputPos = len(m.input)
@@ -367,7 +444,7 @@ func TestMentionAutocompleteFiltersAgents(t *testing.T) {
 }
 
 func TestIntegrateCommandOpensPicker(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.notice = ""
 	t.Setenv("NEX_API_KEY", "test-key")
 	m.input = []rune("/integrate")
@@ -388,7 +465,7 @@ func TestIntegrateCommandOpensPicker(t *testing.T) {
 }
 
 func TestChannelMsgKeepsScrollWhenReadingHistory(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.scroll = 3
 
 	next, _ := m.Update(channelMsg{messages: []brokerMessage{{ID: "msg-1", From: "ceo", Content: "new"}}})
@@ -400,7 +477,7 @@ func TestChannelMsgKeepsScrollWhenReadingHistory(t *testing.T) {
 }
 
 func TestChannelErrorsSurfaceInNotice(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	errBoom := errors.New("boom")
 
 	next, _ := m.Update(channelResetDoneMsg{err: errBoom})
@@ -417,7 +494,7 @@ func TestChannelErrorsSurfaceInNotice(t *testing.T) {
 }
 
 func TestChannelViewShowsMessageIDInMeta(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.width = 120
 	m.height = 30
 	m.messages = []brokerMessage{
@@ -431,7 +508,7 @@ func TestChannelViewShowsMessageIDInMeta(t *testing.T) {
 }
 
 func TestChannelViewShowsUsageTotals(t *testing.T) {
-	m := newChannelModel()
+	m := newChannelModel(false)
 	m.width = 120
 	m.height = 30
 	m.usage = channelUsageState{
@@ -466,10 +543,65 @@ func TestRenderInterviewCardShowsCustomAnswerAsFinalOption(t *testing.T) {
 	}, 2, 60)
 
 	plain := stripANSI(card)
-	if !strings.Contains(plain, "Custom answer") {
+	if !strings.Contains(plain, "Something else") {
 		t.Fatalf("expected custom answer option in card, got %q", plain)
 	}
-	if strings.LastIndex(plain, "Custom answer") <= strings.LastIndex(plain, "Higher polish") {
-		t.Fatalf("expected custom answer to appear after predefined options, got %q", plain)
+	if strings.LastIndex(plain, "Something else") <= strings.LastIndex(plain, "Higher polish") {
+		t.Fatalf("expected Something else to appear after predefined options, got %q", plain)
+	}
+}
+
+func TestEscSnoozesPendingInterviewWithoutAnswering(t *testing.T) {
+	m := newChannelModel(false)
+	m.width = 120
+	m.height = 30
+	m.pending = &channelInterview{
+		ID:       "interview-1",
+		From:     "ceo",
+		Question: "Which segment should we prioritize?",
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got := next.(channelModel)
+
+	if got.snoozedInterview != "interview-1" {
+		t.Fatalf("expected interview to be snoozed, got %q", got.snoozedInterview)
+	}
+	if !strings.Contains(got.notice, "Interview snoozed") {
+		t.Fatalf("expected snooze notice, got %q", got.notice)
+	}
+	view := stripANSI(got.View())
+	if strings.Contains(view, "Human Interview") {
+		t.Fatalf("expected interview card to be hidden after snooze, got %q", view)
+	}
+	if !strings.Contains(view, "Interview paused") {
+		t.Fatalf("expected paused status bar after snooze, got %q", view)
+	}
+}
+
+func TestNewInterviewUnsnoozesCard(t *testing.T) {
+	m := newChannelModel(false)
+	m.width = 120
+	m.height = 30
+	m.snoozedInterview = "interview-1"
+	m.pending = &channelInterview{
+		ID:       "interview-1",
+		From:     "ceo",
+		Question: "Old question",
+	}
+
+	next, _ := m.Update(channelInterviewMsg{pending: &channelInterview{
+		ID:       "interview-2",
+		From:     "pm",
+		Question: "New question",
+	}})
+	got := next.(channelModel)
+
+	if got.snoozedInterview != "" {
+		t.Fatalf("expected new interview to clear snoozed state, got %q", got.snoozedInterview)
+	}
+	view := stripANSI(got.View())
+	if !strings.Contains(view, "Human Interview") {
+		t.Fatalf("expected new interview card to be visible, got %q", view)
 	}
 }

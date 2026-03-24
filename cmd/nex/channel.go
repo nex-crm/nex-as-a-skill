@@ -190,7 +190,8 @@ type channelModel struct {
 	lastID           string
 	replyToID        string
 	expandedThreads  map[string]bool
-	clickableThreads map[int]string // rendered line index → message ID for click-to-expand
+	clickableThreads     map[int]string // rendered line index → message ID for click-to-expand
+	threadsDefaultExpand bool            // true = expand threads by default
 	autocomplete     tui.AutocompleteModel
 	mention          tui.MentionModel
 	input            []rune
@@ -217,9 +218,10 @@ type channelModel struct {
 	usage            channelUsageState
 }
 
-func newChannelModel() channelModel {
+func newChannelModel(threadsCollapsed bool) channelModel {
 	m := channelModel{
-		expandedThreads: make(map[string]bool),
+		expandedThreads:      make(map[string]bool),
+		threadsDefaultExpand: !threadsCollapsed,
 		autocomplete:    tui.NewAutocomplete(channelSlashCommands),
 		mention:         tui.NewMention(channelMentionAgents(nil)),
 		initFlow:        tui.NewInitFlow(),
@@ -795,6 +797,16 @@ func (m channelModel) View() string {
 		lines = append(lines, mutedStyle.Render("  Suggested: Let's build an AI notetaking app."))
 	} else {
 		lines = append(lines, renderDateSeparator(contentWidth, "Today"))
+		// Auto-expand new threads if default is expanded
+		if m.threadsDefaultExpand {
+			for _, msg := range m.messages {
+				if msg.ReplyTo == "" && hasThreadReplies(m.messages, msg.ID) {
+					if _, explicit := m.expandedThreads[msg.ID]; !explicit {
+						m.expandedThreads[msg.ID] = true
+					}
+				}
+			}
+		}
 		for _, tm := range flattenThreadMessages(m.messages, m.expandedThreads) {
 			msg := tm.Message
 			ts := msg.Timestamp
@@ -2381,8 +2393,8 @@ func isA2UIType(t string) bool {
 	return false
 }
 
-func runChannelView() {
-	p := tea.NewProgram(newChannelModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
+func runChannelView(threadsCollapsed bool) {
+	p := tea.NewProgram(newChannelModel(threadsCollapsed), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "channel view error: %v\n", err)
 		os.Exit(1)
