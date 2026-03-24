@@ -166,25 +166,26 @@ const (
 )
 
 type channelModel struct {
-	messages        []brokerMessage
-	members         []channelMember
-	pending         *channelInterview
-	lastID          string
-	replyToID       string
-	expandedThreads map[string]bool
-	autocomplete    tui.AutocompleteModel
-	mention         tui.MentionModel
-	input           []rune
-	inputPos        int
-	width           int
-	height          int
-	scroll          int
-	posting         bool
-	selectedOption  int
-	notice          string
-	initFlow        tui.InitFlowModel
-	picker          tui.PickerModel
-	pickerMode      channelPickerMode
+	messages         []brokerMessage
+	members          []channelMember
+	pending          *channelInterview
+	lastID           string
+	replyToID        string
+	expandedThreads  map[string]bool
+	clickableThreads map[int]string // rendered line index → message ID for click-to-expand
+	autocomplete     tui.AutocompleteModel
+	mention          tui.MentionModel
+	input            []rune
+	inputPos         int
+	width            int
+	height           int
+	scroll           int
+	posting          bool
+	selectedOption   int
+	notice           string
+	initFlow         tui.InitFlowModel
+	picker           tui.PickerModel
+	pickerMode       channelPickerMode
 
 	// 3-column layout state
 	focus            focusArea
@@ -243,6 +244,20 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				if m.scroll > 0 {
 					m.scroll--
+				}
+			}
+		case tea.MouseButtonLeft:
+			// Check if clicked on a thread expand/collapse indicator
+			if m.clickableThreads != nil {
+				if msgID, ok := m.clickableThreads[msg.Y]; ok {
+					if m.expandedThreads[msgID] {
+						delete(m.expandedThreads, msgID)
+					} else {
+						m.expandedThreads[msgID] = true
+					}
+					// Reset clickable map — will be rebuilt on next render
+					m.clickableThreads = nil
+					return m, nil
 				}
 			}
 		}
@@ -699,6 +714,7 @@ func (m channelModel) View() string {
 		msgH = 1
 	}
 
+	m.clickableThreads = make(map[int]string)
 	contentWidth := mainW - 2
 	if contentWidth < 32 {
 		contentWidth = 32
@@ -782,18 +798,33 @@ func (m channelModel) View() string {
 					}
 				}
 				if tm.Collapsed && tm.HiddenReplies > 0 {
-					participants := ""
-					if len(tm.ThreadParticipants) > 0 {
-						participants = " · " + strings.Join(tm.ThreadParticipants, ", ")
+					// Build colored participant names
+					var coloredNames []string
+					for _, p := range tm.ThreadParticipants {
+						pColor := agentColorMap[p]
+						if pColor == "" {
+							pColor = "#ABABAD"
+						}
+						coloredNames = append(coloredNames,
+							lipgloss.NewStyle().Foreground(lipgloss.Color(pColor)).Bold(true).Render(displayName(p)))
 					}
-					lines = appendWrapped(lines, contentWidth, "  "+mutedStyle.Render(
-						fmt.Sprintf("… %d hidden repl%s in thread%s (/expand %s)",
-							tm.HiddenReplies,
-							pluralSuffix(tm.HiddenReplies),
-							participants,
-							msg.ID,
-						),
-					))
+					participantStr := ""
+					if len(coloredNames) > 0 {
+						participantStr = "  " + strings.Join(coloredNames, ", ")
+					}
+
+					threadLine := fmt.Sprintf("  ↩ %d repl%s%s",
+						tm.HiddenReplies,
+						pluralSuffix(tm.HiddenReplies),
+						participantStr,
+					)
+					lineIdx := len(lines)
+					lines = append(lines, threadLine)
+					// Track this line for click-to-expand
+					if m.clickableThreads == nil {
+						m.clickableThreads = make(map[int]string)
+					}
+					m.clickableThreads[lineIdx] = msg.ID
 				}
 			}
 		}
@@ -1411,8 +1442,11 @@ func renderInterviewCard(interview channelInterview, selected int, width int) st
 	if selected >= len(interview.Options) {
 		customPrefix = lipgloss.NewStyle().Foreground(lipgloss.Color("#60A5FA")).Bold(true).Render("→ ")
 	}
-	lines = append(lines, customPrefix+titleStyle.Render("Custom answer"))
-	lines = append(lines, "    "+muted.Width(cardWidth-8).Render("Type your own answer in the composer below."))
+	customLine := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(slackMuted)).
+		Render("Something else")
+	lines = append(lines, customPrefix+customLine)
+	lines = append(lines, "    "+muted.Width(cardWidth-8).Render("Type your own answer directly in the composer below."))
 	lines = append(lines, "", muted.Render("Press Enter to accept the selected option, or type your own answer below."))
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
