@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.command' | grep -qE '(^|\\s|&&|\\|\\||;|\\|)\\s*(npm|npx|pnpm|yarn)\\b' && echo '{\"decision\":\"block\",\"reason\":\"Use bun/bunx instead of npm/npx/pnpm/yarn. This project uses bun as its package manager.\"}' || true"
+            "command": "cmd=$(jq -r '.tool_input.command // empty'); if [ -z \"$cmd\" ]; then echo '{\"decision\":\"block\",\"reason\":\"Unable to inspect command.\"}'; elif printf '%s' \"$cmd\" | grep -qE '(^|\\s|&&|\\|\\||;|\\|)\\s*(npm|npx|pnpm|yarn)\\b'; then echo '{\"decision\":\"block\",\"reason\":\"Use bun/bunx instead of npm/npx/pnpm/yarn. This project uses bun as its package manager.\"}'; fi"
           }
         ]
       }
