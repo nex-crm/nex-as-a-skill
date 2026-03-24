@@ -10,9 +10,11 @@
 package team
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,6 +33,7 @@ type Launcher struct {
 	sessionName string
 	cwd         string
 	broker      *Broker
+	mcpConfig   string
 }
 
 // NewLauncher creates a launcher for the given pack.
@@ -69,13 +72,25 @@ func (l *Launcher) Preflight() error {
 	if _, err := exec.LookPath("claude"); err != nil {
 		return fmt.Errorf("claude not found. Install: npm install -g @anthropic-ai/claude-code")
 	}
+	if _, err := exec.LookPath("bun"); err != nil {
+		return fmt.Errorf("bun not found. Install: curl -fsSL https://bun.sh/install | bash")
+	}
 	return nil
 }
 
 // Launch creates the tmux session with:
-//   - Window 0 "team": Channel on left (40%), agent panes tiled on right (60%)
-//   - Windows 1-7: Individual agent full-screen sessions (same processes)
+//   - Window 0 "team": Channel on left, agent panes on the right
+//   - No extra windows: all team activity is visible in one place
 func (l *Launcher) Launch() error {
+	if err := l.ensureMCPRuntime(); err != nil {
+		return fmt.Errorf("prepare mcp runtime: %w", err)
+	}
+	mcpConfig, err := l.ensureMCPConfig()
+	if err != nil {
+		return fmt.Errorf("prepare mcp config: %w", err)
+	}
+	l.mcpConfig = mcpConfig
+
 	// Start the shared channel broker
 	l.broker = NewBroker()
 	if err := l.broker.Start(); err != nil {
@@ -88,11 +103,11 @@ func (l *Launcher) Launch() error {
 	// Resolve nex binary path for the channel view
 	nexBinary, _ := os.Executable()
 
-	// Window 0 "channel": full-screen channel view (the conversation feed)
+	// Window 0 "team": channel on the left
 	channelCmd := fmt.Sprintf("%s --channel-view", nexBinary)
-	err := exec.Command("tmux", "-L", "nex", "new-session", "-d",
+	err = exec.Command("tmux", "-L", "nex", "new-session", "-d",
 		"-s", l.sessionName,
-		"-n", "channel",
+		"-n", "team",
 		"-c", l.cwd,
 		channelCmd,
 	).Run()
@@ -100,41 +115,47 @@ func (l *Launcher) Launch() error {
 		return fmt.Errorf("create tmux session: %w", err)
 	}
 
-	// Window 1 "agents": all agents in tiled panes
-	// First agent creates the window
+	// Split right: leader gets the main visible agent pane.
 	leaderPrompt := l.buildPrompt(l.pack.LeadSlug)
 	leaderCmd := l.claudeCommand(l.pack.LeadSlug, leaderPrompt)
 
-	exec.Command("tmux", "-L", "nex", "new-window",
-		"-t", l.sessionName,
-		"-n", "agents",
+	exec.Command("tmux", "-L", "nex", "split-window", "-h",
+		"-t", l.sessionName+":team",
+		"-p", "58",
 		"-c", l.cwd,
 		leaderCmd,
 	).Run()
 
-	// Remaining agents split into panes
+	// Add a few key specialists in visible panes so the channel stays readable.
+	visibleSlugs := []string{l.pack.LeadSlug}
+	specialists := 0
 	for _, agentCfg := range l.pack.Agents {
 		if agentCfg.Slug == l.pack.LeadSlug {
 			continue
+		}
+		if specialists >= 4 {
+			break
 		}
 
 		prompt := l.buildPrompt(agentCfg.Slug)
 		agentCmd := l.claudeCommand(agentCfg.Slug, prompt)
 
 		exec.Command("tmux", "-L", "nex", "split-window",
-			"-t", l.sessionName+":agents",
+			"-t", l.sessionName+":team.1",
 			"-c", l.cwd,
 			agentCmd,
 		).Run()
 
-		// Re-tile after each split
 		exec.Command("tmux", "-L", "nex", "select-layout",
-			"-t", l.sessionName+":agents",
-			"tiled",
+			"-t", l.sessionName+":team",
+			"main-vertical",
 		).Run()
+
+		visibleSlugs = append(visibleSlugs, agentCfg.Slug)
+		specialists++
 	}
 
-	// Enable pane borders with agent names
+	// Enable pane borders with stable labels.
 	exec.Command("tmux", "-L", "nex", "set-option", "-t", l.sessionName,
 		"pane-border-status", "top",
 	).Run()
@@ -142,17 +163,29 @@ func (l *Launcher) Launch() error {
 		"pane-border-format", " #{pane_title} ",
 	).Run()
 
-	// Set pane titles
-	for i, agentCfg := range l.pack.Agents {
+	exec.Command("tmux", "-L", "nex", "select-pane",
+		"-t", l.sessionName+":team.0",
+		"-T", "📢 channel",
+	).Run()
+	for i, slug := range visibleSlugs {
+		if i == 0 {
+			i = 1
+		} else {
+			i++
+		}
+		name := l.getAgentName(slug)
 		exec.Command("tmux", "-L", "nex", "select-pane",
-			"-t", fmt.Sprintf("%s:agents.%d", l.sessionName, i),
-			"-T", fmt.Sprintf("🤖 %s (@%s)", agentCfg.Name, agentCfg.Slug),
+			"-t", fmt.Sprintf("%s:team.%d", l.sessionName, i),
+			"-T", fmt.Sprintf("🤖 %s (@%s)", name, slug),
 		).Run()
 	}
 
-	// Focus on channel window (user starts here)
+	// Focus on the channel pane.
 	exec.Command("tmux", "-L", "nex", "select-window",
-		"-t", l.sessionName+":channel",
+		"-t", l.sessionName+":team",
+	).Run()
+	exec.Command("tmux", "-L", "nex", "select-pane",
+		"-t", l.sessionName+":team.0",
 	).Run()
 
 	// Start the notification loop that pushes new messages to agent panes
@@ -165,6 +198,7 @@ func (l *Launcher) Launch() error {
 // to agent Claude Code panes via tmux send-keys, prompting them to check the channel.
 func (l *Launcher) notifyAgentsLoop() {
 	lastCount := 0
+
 	for {
 		time.Sleep(3 * time.Second)
 
@@ -173,30 +207,48 @@ func (l *Launcher) notifyAgentsLoop() {
 			continue
 		}
 
-		// New messages arrived — notify agents
 		newMsgs := msgs[lastCount:]
 		lastCount = len(msgs)
 
 		for _, msg := range newMsgs {
-			// Notify all agent panes about new channel activity
-			for i, agentCfg := range l.pack.Agents {
-				if agentCfg.Slug == msg.From {
+			for i, slug := range l.agentPaneSlugs() {
+				if slug == msg.From {
 					continue
 				}
 
+				// Build a single-line prompt for Claude (no newlines — send-keys types literally)
 				notification := fmt.Sprintf(
-					"[Channel update from @%s]: %s\n\nPlease call team_poll with my_slug \"%s\" to see the full channel, then respond with team_broadcast if relevant.",
-					msg.From, truncate(msg.Content, 200), agentCfg.Slug,
+					"[Channel update from @%s]: %s — Please call team_poll with my_slug \"%s\" to read the channel, then respond with team_broadcast if relevant.",
+					msg.From, truncate(msg.Content, 150), slug,
 				)
 
-				paneTarget := fmt.Sprintf("%s:agents.%d", l.sessionName, i)
+				paneTarget := fmt.Sprintf("%s:team.%d", l.sessionName, i+1)
 				exec.Command("tmux", "-L", "nex", "send-keys",
 					"-t", paneTarget,
-					notification, "Enter",
+					"-l",
+					notification,
+				).Run()
+				exec.Command("tmux", "-L", "nex", "send-keys",
+					"-t", paneTarget,
+					"Enter",
 				).Run()
 			}
 		}
 	}
+}
+
+func (l *Launcher) agentPaneSlugs() []string {
+	slugs := []string{l.pack.LeadSlug}
+	for _, a := range l.pack.Agents {
+		if a.Slug == l.pack.LeadSlug {
+			continue
+		}
+		if len(slugs) >= 5 {
+			break
+		}
+		slugs = append(slugs, a.Slug)
+	}
+	return slugs
 }
 
 func truncate(s string, max int) string {
@@ -317,7 +369,57 @@ func (l *Launcher) buildPrompt(slug string) string {
 // Sets NEX_AGENT_SLUG so the Nex MCP knows which agent this session serves.
 func (l *Launcher) claudeCommand(slug, systemPrompt string) string {
 	escaped := strings.ReplaceAll(systemPrompt, "'", "'\\''")
-	return fmt.Sprintf("NEX_AGENT_SLUG=%s claude --append-system-prompt '%s'", slug, escaped)
+	mcpConfig := strings.ReplaceAll(l.mcpConfig, "'", "'\\''")
+	name := strings.ReplaceAll(l.getAgentName(slug), "'", "'\\''")
+	return fmt.Sprintf(
+		"NEX_AGENT_SLUG=%s claude --permission-mode bypassPermissions --dangerously-skip-permissions --append-system-prompt '%s' --mcp-config '%s' --strict-mcp-config -n '%s'",
+		slug,
+		escaped,
+		mcpConfig,
+		name,
+	)
+}
+
+func (l *Launcher) ensureMCPConfig() (string, error) {
+	root := l.cwd
+	apiKey := config.ResolveAPIKey("")
+
+	entry := map[string]any{
+		"command": "bun",
+		"args":    []string{filepath.Join(root, "mcp", "src", "index.ts")},
+	}
+	if apiKey != "" {
+		entry["env"] = map[string]string{
+			"NEX_API_KEY": apiKey,
+		}
+	}
+
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"nex": entry,
+		},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+
+	path := filepath.Join(os.TempDir(), "nex-team-mcp.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (l *Launcher) ensureMCPRuntime() error {
+	if _, err := os.Stat(filepath.Join(l.cwd, "mcp", "node_modules", "zod", "package.json")); err == nil {
+		return nil
+	}
+	cmd := exec.Command("bun", "install")
+	cmd.Dir = filepath.Join(l.cwd, "mcp")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // PackName returns the display name of the pack.
