@@ -639,9 +639,12 @@ func (l *Launcher) claudeCommand(slug, systemPrompt string) string {
 	}
 
 	return fmt.Sprintf(
-		"NEX_AGENT_SLUG=%s NEX_BROKER_TOKEN=%s claude %s --append-system-prompt '%s' --mcp-config '%s' --strict-mcp-config -n '%s'",
+		"NEX_AGENT_SLUG=%s NEX_BROKER_TOKEN=%s CLAUDE_CODE_ENABLE_TELEMETRY=1 OTEL_METRICS_EXPORTER=none OTEL_LOGS_EXPORTER=otlp OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/json OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://127.0.0.1:%d/v1/logs OTEL_EXPORTER_OTLP_HEADERS='Authorization=Bearer %s' OTEL_RESOURCE_ATTRIBUTES='agent.slug=%s,nex.channel=office' claude %s --append-system-prompt '%s' --mcp-config '%s' --strict-mcp-config -n '%s'",
 		slug,
 		brokerToken,
+		BrokerPort,
+		brokerToken,
+		slug,
 		permFlags,
 		escaped,
 		mcpConfig,

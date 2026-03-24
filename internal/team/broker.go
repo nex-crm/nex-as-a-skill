@@ -57,6 +57,22 @@ type brokerState struct {
 	Messages         []channelMessage `json:"messages"`
 	Counter          int              `json:"counter"`
 	PendingInterview *humanInterview  `json:"pending_interview,omitempty"`
+	Usage            teamUsageState   `json:"usage,omitempty"`
+}
+
+type usageTotals struct {
+	InputTokens         int     `json:"input_tokens"`
+	OutputTokens        int     `json:"output_tokens"`
+	CacheReadTokens     int     `json:"cache_read_tokens"`
+	CacheCreationTokens int     `json:"cache_creation_tokens"`
+	TotalTokens         int     `json:"total_tokens"`
+	CostUsd             float64 `json:"cost_usd"`
+	Requests            int     `json:"requests"`
+}
+
+type teamUsageState struct {
+	Total  usageTotals            `json:"total"`
+	Agents map[string]usageTotals `json:"agents,omitempty"`
 }
 
 // Broker is a lightweight HTTP message broker for the team channel.
@@ -65,6 +81,7 @@ type Broker struct {
 	messages         []channelMessage
 	counter          int
 	pendingInterview *humanInterview
+	usage            teamUsageState
 	mu               sync.Mutex
 	server           *http.Server
 	token            string // shared secret for authenticating requests
@@ -127,6 +144,8 @@ func (b *Broker) StartOnPort(port int) error {
 	mux.HandleFunc("/interview", b.requireAuth(b.handleInterview))
 	mux.HandleFunc("/interview/answer", b.requireAuth(b.handleInterviewAnswer))
 	mux.HandleFunc("/reset", b.requireAuth(b.handleReset))
+	mux.HandleFunc("/usage", b.requireAuth(b.handleUsage))
+	mux.HandleFunc("/v1/logs", b.requireAuth(b.handleOTLPLogs))
 
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	ln, err := net.Listen("tcp", addr)
@@ -175,6 +194,7 @@ func (b *Broker) Reset() {
 	b.messages = nil
 	b.pendingInterview = nil
 	b.counter = 0
+	b.usage = teamUsageState{Agents: make(map[string]usageTotals)}
 	_ = b.saveLocked()
 	b.mu.Unlock()
 }
@@ -203,12 +223,16 @@ func (b *Broker) loadState() error {
 	b.messages = state.Messages
 	b.counter = state.Counter
 	b.pendingInterview = state.PendingInterview
+	b.usage = state.Usage
+	if b.usage.Agents == nil {
+		b.usage.Agents = make(map[string]usageTotals)
+	}
 	return nil
 }
 
 func (b *Broker) saveLocked() error {
 	path := brokerStatePath()
-	if len(b.messages) == 0 && b.pendingInterview == nil && b.counter == 0 {
+	if len(b.messages) == 0 && b.pendingInterview == nil && b.counter == 0 && usageStateIsZero(b.usage) {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -221,6 +245,7 @@ func (b *Broker) saveLocked() error {
 		Messages:         b.messages,
 		Counter:          b.counter,
 		PendingInterview: b.pendingInterview,
+		Usage:            b.usage,
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -231,6 +256,18 @@ func (b *Broker) saveLocked() error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+func usageStateIsZero(state teamUsageState) bool {
+	if state.Total.TotalTokens > 0 || state.Total.CostUsd > 0 || state.Total.Requests > 0 {
+		return false
+	}
+	for _, totals := range state.Agents {
+		if totals.TotalTokens > 0 || totals.CostUsd > 0 || totals.Requests > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *Broker) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -248,6 +285,22 @@ func (b *Broker) handleReset(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
+func (b *Broker) handleUsage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	b.mu.Lock()
+	usage := b.usage
+	if usage.Agents == nil {
+		usage.Agents = make(map[string]usageTotals)
+	}
+	b.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(usage)
+}
+
 func (b *Broker) handleMessages(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -257,6 +310,161 @@ func (b *Broker) handleMessages(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (b *Broker) handleOTLPLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	events := parseOTLPUsageEvents(payload)
+	b.mu.Lock()
+	for _, event := range events {
+		if strings.TrimSpace(event.AgentSlug) == "" {
+			continue
+		}
+		b.recordUsageLocked(event)
+	}
+	if err := b.saveLocked(); err != nil {
+		b.mu.Unlock()
+		http.Error(w, "failed to persist broker state", http.StatusInternalServerError)
+		return
+	}
+	b.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"accepted": len(events)})
+}
+
+type usageEvent struct {
+	AgentSlug           string
+	InputTokens         int
+	OutputTokens        int
+	CacheReadTokens     int
+	CacheCreationTokens int
+	CostUsd             float64
+}
+
+func (b *Broker) recordUsageLocked(event usageEvent) {
+	if b.usage.Agents == nil {
+		b.usage.Agents = make(map[string]usageTotals)
+	}
+	agentTotal := b.usage.Agents[event.AgentSlug]
+	applyUsageEvent(&agentTotal, event)
+	b.usage.Agents[event.AgentSlug] = agentTotal
+
+	total := b.usage.Total
+	applyUsageEvent(&total, event)
+	b.usage.Total = total
+}
+
+func applyUsageEvent(dst *usageTotals, event usageEvent) {
+	dst.InputTokens += event.InputTokens
+	dst.OutputTokens += event.OutputTokens
+	dst.CacheReadTokens += event.CacheReadTokens
+	dst.CacheCreationTokens += event.CacheCreationTokens
+	dst.TotalTokens += event.InputTokens + event.OutputTokens + event.CacheReadTokens + event.CacheCreationTokens
+	dst.CostUsd += event.CostUsd
+	dst.Requests++
+}
+
+func parseOTLPUsageEvents(payload map[string]any) []usageEvent {
+	resourceLogs, _ := payload["resourceLogs"].([]any)
+	var events []usageEvent
+	for _, resourceLog := range resourceLogs {
+		resourceMap, _ := resourceLog.(map[string]any)
+		resourceAttrs := otlpAttributesMap(nestedMap(resourceMap, "resource"))
+		scopeLogs, _ := resourceMap["scopeLogs"].([]any)
+		for _, scopeLog := range scopeLogs {
+			scopeMap, _ := scopeLog.(map[string]any)
+			logRecords, _ := scopeMap["logRecords"].([]any)
+			for _, logRecord := range logRecords {
+				recordMap, _ := logRecord.(map[string]any)
+				attrs := otlpAttributesMap(recordMap)
+				for k, v := range resourceAttrs {
+					if _, exists := attrs[k]; !exists {
+						attrs[k] = v
+					}
+				}
+				if attrs["event.name"] != "api_request" && attrs["event_name"] != "api_request" {
+					continue
+				}
+				slug := attrs["agent.slug"]
+				if slug == "" {
+					slug = attrs["agent_slug"]
+				}
+				if slug == "" {
+					continue
+				}
+				events = append(events, usageEvent{
+					AgentSlug:           slug,
+					InputTokens:         otlpIntValue(attrs["input_tokens"]),
+					OutputTokens:        otlpIntValue(attrs["output_tokens"]),
+					CacheReadTokens:     otlpIntValue(attrs["cache_read_tokens"]),
+					CacheCreationTokens: otlpIntValue(attrs["cache_creation_tokens"]),
+					CostUsd:             otlpFloatValue(attrs["cost_usd"]),
+				})
+			}
+		}
+	}
+	return events
+}
+
+func nestedMap(m map[string]any, key string) map[string]any {
+	if m == nil {
+		return nil
+	}
+	child, _ := m[key].(map[string]any)
+	return child
+}
+
+func otlpAttributesMap(record map[string]any) map[string]string {
+	out := make(map[string]string)
+	if record == nil {
+		return out
+	}
+	attrs, _ := record["attributes"].([]any)
+	for _, attr := range attrs {
+		attrMap, _ := attr.(map[string]any)
+		key, _ := attrMap["key"].(string)
+		if key == "" {
+			continue
+		}
+		out[key] = otlpAnyValue(attrMap["value"])
+	}
+	return out
+}
+
+func otlpAnyValue(raw any) string {
+	valMap, _ := raw.(map[string]any)
+	for _, key := range []string{"stringValue", "intValue", "doubleValue", "boolValue"} {
+		if value, ok := valMap[key]; ok {
+			return fmt.Sprintf("%v", value)
+		}
+	}
+	return ""
+}
+
+func otlpIntValue(raw string) int {
+	if raw == "" {
+		return 0
+	}
+	n, _ := strconv.Atoi(raw)
+	return n
+}
+
+func otlpFloatValue(raw string) float64 {
+	if raw == "" {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(raw, 64)
+	return v
 }
 
 func (b *Broker) handlePostMessage(w http.ResponseWriter, r *http.Request) {

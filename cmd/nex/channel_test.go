@@ -335,6 +335,30 @@ func TestChannelViewShowsMessageIDInMeta(t *testing.T) {
 	}
 }
 
+func TestChannelViewShowsUsageTotals(t *testing.T) {
+	m := newChannelModel()
+	m.width = 120
+	m.height = 30
+	m.usage = channelUsageState{
+		Total: channelUsageTotals{TotalTokens: 12500, CostUsd: 1.23},
+		Agents: map[string]channelUsageTotals{
+			"ceo": {TotalTokens: 5000, CostUsd: 0.62},
+			"fe":  {TotalTokens: 7500, CostUsd: 0.61},
+		},
+	}
+
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "Spend to date $1.23") {
+		t.Fatalf("expected overall spend summary, got %q", view)
+	}
+	if !strings.Contains(view, "CEO 5.0k tok · $0.62") {
+		t.Fatalf("expected per-agent usage pill, got %q", view)
+	}
+	if !strings.Contains(view, "Frontend Engineer 7.5k tok · $0.61") {
+		t.Fatalf("expected frontend usage pill, got %q", view)
+	}
+}
+
 func TestRenderInterviewCardShowsCustomAnswerAsFinalOption(t *testing.T) {
 	card := renderInterviewCard(channelInterview{
 		From:     "ceo",

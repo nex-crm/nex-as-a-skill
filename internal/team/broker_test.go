@@ -1,6 +1,8 @@
 package team
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -109,5 +111,119 @@ func TestBrokerAuthRejectsUnauthenticated(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 on /messages with wrong token, got %d", resp.StatusCode)
+	}
+}
+
+func TestParseOTLPUsageEvents(t *testing.T) {
+	payload := map[string]any{
+		"resourceLogs": []any{
+			map[string]any{
+				"resource": map[string]any{
+					"attributes": []any{
+						map[string]any{"key": "agent.slug", "value": map[string]any{"stringValue": "fe"}},
+					},
+				},
+				"scopeLogs": []any{
+					map[string]any{
+						"logRecords": []any{
+							map[string]any{
+								"attributes": []any{
+									map[string]any{"key": "event.name", "value": map[string]any{"stringValue": "api_request"}},
+									map[string]any{"key": "input_tokens", "value": map[string]any{"intValue": "1200"}},
+									map[string]any{"key": "output_tokens", "value": map[string]any{"intValue": "300"}},
+									map[string]any{"key": "cache_read_tokens", "value": map[string]any{"intValue": "50"}},
+									map[string]any{"key": "cache_creation_tokens", "value": map[string]any{"intValue": "25"}},
+									map[string]any{"key": "cost_usd", "value": map[string]any{"doubleValue": 0.42}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	events := parseOTLPUsageEvents(payload)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 usage event, got %d", len(events))
+	}
+	if events[0].AgentSlug != "fe" {
+		t.Fatalf("expected fe slug, got %q", events[0].AgentSlug)
+	}
+	if events[0].InputTokens != 1200 || events[0].OutputTokens != 300 {
+		t.Fatalf("unexpected token counts: %+v", events[0])
+	}
+	if events[0].CostUsd != 0.42 {
+		t.Fatalf("unexpected cost: %+v", events[0])
+	}
+}
+
+func TestBrokerUsageEndpointAggregatesTelemetry(t *testing.T) {
+	oldPathFn := brokerStatePath
+	tmpDir := t.TempDir()
+	brokerStatePath = func() string { return filepath.Join(tmpDir, "broker-state.json") }
+	defer func() { brokerStatePath = oldPathFn }()
+
+	b := NewBroker()
+	if err := b.StartOnPort(0); err != nil {
+		t.Fatalf("failed to start broker: %v", err)
+	}
+	defer b.Stop()
+
+	base := fmt.Sprintf("http://%s", b.Addr())
+	payload := map[string]any{
+		"resourceLogs": []any{
+			map[string]any{
+				"resource": map[string]any{
+					"attributes": []any{
+						map[string]any{"key": "agent.slug", "value": map[string]any{"stringValue": "be"}},
+					},
+				},
+				"scopeLogs": []any{
+					map[string]any{
+						"logRecords": []any{
+							map[string]any{
+								"attributes": []any{
+									map[string]any{"key": "event.name", "value": map[string]any{"stringValue": "api_request"}},
+									map[string]any{"key": "input_tokens", "value": map[string]any{"intValue": "800"}},
+									map[string]any{"key": "output_tokens", "value": map[string]any{"intValue": "200"}},
+									map[string]any{"key": "cost_usd", "value": map[string]any{"doubleValue": 0.18}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest(http.MethodPost, base+"/v1/logs", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+b.Token())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("telemetry post failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from usage ingest, got %d", resp.StatusCode)
+	}
+
+	req, _ = http.NewRequest(http.MethodGet, base+"/usage", nil)
+	req.Header.Set("Authorization", "Bearer "+b.Token())
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("usage request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	var usage teamUsageState
+	if err := json.NewDecoder(resp.Body).Decode(&usage); err != nil {
+		t.Fatalf("decode usage response: %v", err)
+	}
+	if usage.Total.TotalTokens != 1000 {
+		t.Fatalf("expected 1000 total tokens, got %d", usage.Total.TotalTokens)
+	}
+	if usage.Agents["be"].CostUsd != 0.18 {
+		t.Fatalf("expected backend cost 0.18, got %+v", usage.Agents["be"])
 	}
 }

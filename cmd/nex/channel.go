@@ -36,6 +36,10 @@ type channelInterviewMsg struct {
 	pending *channelInterview
 }
 
+type channelUsageMsg struct {
+	usage channelUsageState
+}
+
 type brokerMessage struct {
 	ID        string   `json:"id"`
 	From      string   `json:"from"`
@@ -65,6 +69,21 @@ type channelInterview struct {
 	Options       []channelInterviewOption `json:"options"`
 	RecommendedID string                   `json:"recommended_id"`
 	CreatedAt     string                   `json:"created_at"`
+}
+
+type channelUsageTotals struct {
+	InputTokens         int     `json:"input_tokens"`
+	OutputTokens        int     `json:"output_tokens"`
+	CacheReadTokens     int     `json:"cache_read_tokens"`
+	CacheCreationTokens int     `json:"cache_creation_tokens"`
+	TotalTokens         int     `json:"total_tokens"`
+	CostUsd             float64 `json:"cost_usd"`
+	Requests            int     `json:"requests"`
+}
+
+type channelUsageState struct {
+	Total  channelUsageTotals            `json:"total"`
+	Agents map[string]channelUsageTotals `json:"agents"`
 }
 
 type channelTickMsg time.Time
@@ -175,6 +194,7 @@ type channelModel struct {
 	threadInput      []rune
 	threadInputPos   int
 	threadScroll     int
+	usage            channelUsageState
 }
 
 func newChannelModel() channelModel {
@@ -196,6 +216,7 @@ func (m channelModel) Init() tea.Cmd {
 		pollBroker(""),
 		pollMembers(),
 		pollInterview(),
+
 		tickChannel(),
 	)
 }
@@ -630,6 +651,12 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.members = msg.members
 		m.updateInputOverlays()
 
+	case channelUsageMsg:
+		m.usage = msg.usage
+		if m.usage.Agents == nil {
+			m.usage.Agents = make(map[string]channelUsageTotals)
+		}
+
 	case tui.PickerSelectMsg:
 		switch m.pickerMode {
 		case channelPickerIntegrations:
@@ -685,6 +712,7 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			pollBroker(m.lastID),
 			pollMembers(),
 			pollInterview(),
+
 			tickChannel(),
 		)
 	}
@@ -729,10 +757,18 @@ func (m channelModel) View() string {
 		Render("# general")
 	headerMeta := lipgloss.NewStyle().Foreground(lipgloss.Color(slackMuted)).
 		Render("  Founding Team")
+	if m.usage.Total.TotalTokens > 0 || m.usage.Total.CostUsd > 0 {
+		headerMeta += "  " + lipgloss.NewStyle().
+			Foreground(lipgloss.Color(slackActive)).
+			Render(fmt.Sprintf("Spend to date %s · %s", formatUsd(m.usage.Total.CostUsd), formatTokenCount(m.usage.Total.TotalTokens)))
+	}
 	if m.pending != nil {
 		headerMeta += "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#FBBF24")).Bold(true).Render("Interview pending")
 	}
 	channelHeader := headerStyle.Render(headerLine1 + headerMeta)
+	if usageLine := renderUsageStrip(m.usage, m.members, mainW); usageLine != "" {
+		channelHeader += "\n" + usageLine
+	}
 	headerH := lipgloss.Height(channelHeader)
 
 	// Composer
@@ -948,6 +984,11 @@ func (m channelModel) View() string {
 				" Interview pending │ ↑/↓ choose │ Enter submit",
 			),
 		)
+	} else if m.usage.Total.TotalTokens > 0 || m.usage.Total.CostUsd > 0 {
+		statusBar = statusBarStyle(m.width).Render(fmt.Sprintf(
+			" %s %d online │ bill %s │ tokens %s │ %s │ Tab focus:%s │ /quit",
+			"\u25CF", onlineCount, formatUsd(m.usage.Total.CostUsd), formatTokenCount(m.usage.Total.TotalTokens), scrollHint, focusLabel,
+		))
 	} else if m.notice != "" {
 		statusBar = statusBarStyle(m.width).Render(
 			lipgloss.NewStyle().Foreground(lipgloss.Color(slackActive)).Render(" " + m.notice),
@@ -1007,6 +1048,63 @@ func countUniqueAgents(messages []brokerMessage) int {
 		seen[m.From] = true
 	}
 	return len(seen)
+}
+
+func formatUsd(cost float64) string {
+	return fmt.Sprintf("$%.2f", cost)
+}
+
+func formatTokenCount(tokens int) string {
+	switch {
+	case tokens >= 1_000_000:
+		return fmt.Sprintf("%.1fM tok", float64(tokens)/1_000_000)
+	case tokens >= 1_000:
+		return fmt.Sprintf("%.1fk tok", float64(tokens)/1_000)
+	default:
+		return fmt.Sprintf("%d tok", tokens)
+	}
+}
+
+func renderUsageStrip(usage channelUsageState, members []channelMember, width int) string {
+	if len(usage.Agents) == 0 || width < 40 {
+		return ""
+	}
+
+	var ordered []string
+	seen := make(map[string]bool)
+	for _, member := range members {
+		if _, ok := usage.Agents[member.Slug]; ok && !seen[member.Slug] {
+			ordered = append(ordered, member.Slug)
+			seen[member.Slug] = true
+		}
+	}
+	for _, slug := range []string{"ceo", "pm", "fe", "be", "ai", "designer", "cmo", "cro"} {
+		if _, ok := usage.Agents[slug]; ok && !seen[slug] {
+			ordered = append(ordered, slug)
+			seen[slug] = true
+		}
+	}
+	for slug := range usage.Agents {
+		if !seen[slug] {
+			ordered = append(ordered, slug)
+		}
+	}
+
+	pillStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#CBD5E1")).
+		Background(lipgloss.Color("#111827")).
+		Padding(0, 1)
+
+	var pills []string
+	for _, slug := range ordered {
+		totals := usage.Agents[slug]
+		if totals.TotalTokens == 0 && totals.CostUsd == 0 {
+			continue
+		}
+		label := fmt.Sprintf("%s %s · %s", displayName(slug), formatTokenCount(totals.TotalTokens), formatUsd(totals.CostUsd))
+		pills = append(pills, pillStyle.Render(label))
+	}
+	return strings.Join(pills, " ")
 }
 
 // nextFocus cycles through visible panels: main → sidebar → thread → main.
@@ -1526,6 +1624,35 @@ func pollMembers() tea.Cmd {
 			return channelMembersMsg{}
 		}
 		return channelMembersMsg{members: result.Members}
+	}
+}
+
+func pollUsage() tea.Cmd {
+	return func() tea.Msg {
+		req, err := newBrokerRequest(http.MethodGet, "http://127.0.0.1:7890/usage", nil)
+		if err != nil {
+			return channelUsageMsg{}
+		}
+		client := &http.Client{Timeout: 2 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return channelUsageMsg{}
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return channelUsageMsg{}
+		}
+
+		var result channelUsageState
+		if err := json.Unmarshal(body, &result); err != nil {
+			return channelUsageMsg{}
+		}
+		if result.Agents == nil {
+			result.Agents = make(map[string]channelUsageTotals)
+		}
+		return channelUsageMsg{usage: result}
 	}
 }
 
