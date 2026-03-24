@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.nex-crm/nex",
-  "description": "Organizational context & memory for AI agents. Connect email, CRM, Slack, meetings, and 100+ tools into one knowledge graph with persistent memory across sessions.",
+  "description": "Organizational context & memory for AI agents. Connect 100+ tools into one knowledge graph.",
   "repository": {
     "url": "https://github.com/nex-crm/nex-as-a-skill",
     "source": "github"
