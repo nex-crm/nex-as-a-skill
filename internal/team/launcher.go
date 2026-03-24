@@ -12,6 +12,7 @@ package team
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,8 @@ import (
 
 	"github.com/nex-ai/nex-cli/internal/agent"
 	"github.com/nex-ai/nex-cli/internal/config"
+	"github.com/nex-ai/nex-cli/internal/provider"
+	"github.com/nex-ai/nex-cli/internal/tui"
 )
 
 const (
@@ -115,44 +118,9 @@ func (l *Launcher) Launch() error {
 		return fmt.Errorf("create tmux session: %w", err)
 	}
 
-	// Split right: leader gets the main visible agent pane.
-	leaderPrompt := l.buildPrompt(l.pack.LeadSlug)
-	leaderCmd := l.claudeCommand(l.pack.LeadSlug, leaderPrompt)
-
-	exec.Command("tmux", "-L", "nex", "split-window", "-h",
-		"-t", l.sessionName+":team",
-		"-p", "58",
-		"-c", l.cwd,
-		leaderCmd,
-	).Run()
-
-	// Add a few key specialists in visible panes so the channel stays readable.
-	visibleSlugs := []string{l.pack.LeadSlug}
-	specialists := 0
-	for _, agentCfg := range l.pack.Agents {
-		if agentCfg.Slug == l.pack.LeadSlug {
-			continue
-		}
-		if specialists >= 4 {
-			break
-		}
-
-		prompt := l.buildPrompt(agentCfg.Slug)
-		agentCmd := l.claudeCommand(agentCfg.Slug, prompt)
-
-		exec.Command("tmux", "-L", "nex", "split-window",
-			"-t", l.sessionName+":team.1",
-			"-c", l.cwd,
-			agentCmd,
-		).Run()
-
-		exec.Command("tmux", "-L", "nex", "select-layout",
-			"-t", l.sessionName+":team",
-			"main-vertical",
-		).Run()
-
-		visibleSlugs = append(visibleSlugs, agentCfg.Slug)
-		specialists++
+	visibleSlugs, err := l.spawnVisibleAgents()
+	if err != nil {
+		return err
 	}
 
 	// Enable pane borders with stable labels.
@@ -207,6 +175,9 @@ func (l *Launcher) notifyAgentsLoop() {
 		}
 
 		msgs := l.broker.Messages()
+		if len(msgs) < lastCount {
+			lastCount = len(msgs)
+		}
 		if len(msgs) <= lastCount {
 			continue
 		}
@@ -263,10 +234,17 @@ func truncate(s string, max int) string {
 }
 
 // Attach attaches the user's terminal to the tmux session.
-// Uses a separate tmux server socket to avoid "sessions should be nested" error
-// when running inside an existing tmux (e.g., Claude Code).
+// In iTerm2: uses tmux -CC for native panes (resizable, close buttons, drag).
+// Otherwise: uses regular tmux attach with -L nex to avoid nesting.
 func (l *Launcher) Attach() error {
-	cmd := exec.Command("tmux", "-L", "nex", "attach-session", "-t", l.sessionName)
+	var cmd *exec.Cmd
+	if tui.IsITerm2() {
+		// tmux -CC mode: iTerm2 takes over window management.
+		// Creates native iTerm2 tabs/splits for each tmux window/pane.
+		cmd = exec.Command("tmux", "-L", "nex", "-CC", "attach-session", "-t", l.sessionName)
+	} else {
+		cmd = exec.Command("tmux", "-L", "nex", "attach-session", "-t", l.sessionName)
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -290,6 +268,141 @@ func (l *Launcher) Kill() error {
 		return err
 	}
 	return nil
+}
+
+func (l *Launcher) ResetSession() error {
+	if err := l.ensureMCPRuntime(); err != nil {
+		return fmt.Errorf("prepare mcp runtime: %w", err)
+	}
+	mcpConfig, err := l.ensureMCPConfig()
+	if err != nil {
+		return fmt.Errorf("prepare mcp config: %w", err)
+	}
+	l.mcpConfig = mcpConfig
+
+	if err := provider.ResetClaudeSessions(); err != nil {
+		return fmt.Errorf("reset Claude sessions: %w", err)
+	}
+	if err := ResetBrokerState(); err != nil {
+		return fmt.Errorf("reset broker state: %w", err)
+	}
+	if err := l.clearAgentPanes(); err != nil {
+		return fmt.Errorf("clear agent panes: %w", err)
+	}
+	if _, err := l.spawnVisibleAgents(); err != nil {
+		return fmt.Errorf("respawn agents: %w", err)
+	}
+	return nil
+}
+
+func ResetBrokerState() error {
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/reset", BrokerPort), nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("broker reset failed: %s", resp.Status)
+	}
+	return nil
+}
+
+func (l *Launcher) clearAgentPanes() error {
+	for i := 5; i >= 1; i-- {
+		target := fmt.Sprintf("%s:team.%d", l.sessionName, i)
+		exec.Command("tmux", "-L", "nex", "kill-pane", "-t", target).Run()
+	}
+	return nil
+}
+
+func (l *Launcher) spawnVisibleAgents() ([]string, error) {
+	// Layout: channel (left 35%) | agents in 2-column grid (right 65%)
+	//
+	// ┌─ channel ──┬─ CEO ───┬─ PM ────┐
+	// │            │         │         │
+	// │            ├─ FE ────┼─ BE ────┤
+	// │            │         │         │
+	// └────────────┴─────────┴─────────┘
+
+	// Build ordered agent list: leader first, then specialists
+	var agentOrder []agent.AgentConfig
+	for _, a := range l.pack.Agents {
+		if a.Slug == l.pack.LeadSlug {
+			agentOrder = append([]agent.AgentConfig{a}, agentOrder...)
+		}
+	}
+	for _, a := range l.pack.Agents {
+		if a.Slug != l.pack.LeadSlug {
+			agentOrder = append(agentOrder, a)
+		}
+	}
+
+	// Limit to 4-6 visible agents
+	maxVisible := 6
+	if len(agentOrder) < maxVisible {
+		maxVisible = len(agentOrder)
+	}
+	visible := agentOrder[:maxVisible]
+
+	// First agent: split right from channel (horizontal split)
+	firstCmd := l.claudeCommand(visible[0].Slug, l.buildPrompt(visible[0].Slug))
+	if err := exec.Command("tmux", "-L", "nex", "split-window", "-h",
+		"-t", l.sessionName+":team",
+		"-p", "65",
+		"-c", l.cwd,
+		firstCmd,
+	).Run(); err != nil {
+		return nil, fmt.Errorf("spawn first agent: %w", err)
+	}
+
+	// Remaining agents: split from agent area, then use "tiled" layout
+	for i := 1; i < len(visible); i++ {
+		agentCmd := l.claudeCommand(visible[i].Slug, l.buildPrompt(visible[i].Slug))
+		// Split from the last agent pane
+		exec.Command("tmux", "-L", "nex", "split-window",
+			"-t", l.sessionName+":team.1",
+			"-c", l.cwd,
+			agentCmd,
+		).Run()
+	}
+
+	// Apply tiled layout to agent panes, but keep channel (pane 0) as main-vertical
+	// Use main-vertical first to keep channel on the left
+	exec.Command("tmux", "-L", "nex", "select-layout",
+		"-t", l.sessionName+":team",
+		"main-vertical",
+	).Run()
+
+	// Now set pane titles
+	var visibleSlugs []string
+	exec.Command("tmux", "-L", "nex", "select-pane",
+		"-t", l.sessionName+":team.0",
+		"-T", "📢 channel",
+	).Run()
+	for i, a := range visible {
+		paneIdx := i + 1 // pane 0 is channel
+		name := l.getAgentName(a.Slug)
+		exec.Command("tmux", "-L", "nex", "select-pane",
+			"-t", fmt.Sprintf("%s:team.%d", l.sessionName, paneIdx),
+			"-T", fmt.Sprintf("🤖 %s (@%s)", name, a.Slug),
+		).Run()
+		visibleSlugs = append(visibleSlugs, a.Slug)
+	}
+
+	// Focus channel pane
+	exec.Command("tmux", "-L", "nex", "select-window",
+		"-t", l.sessionName+":team",
+	).Run()
+	exec.Command("tmux", "-L", "nex", "select-pane",
+		"-t", l.sessionName+":team.0",
+	).Run()
+
+	return visibleSlugs, nil
 }
 
 // buildPrompt generates the system prompt for an agent, including
