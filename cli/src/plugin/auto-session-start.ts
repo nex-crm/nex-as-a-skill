@@ -17,7 +17,6 @@ import { NexClient } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { formatNexContext } from "./context-format.js";
 import { SessionStore } from "./session-store.js";
-import { recordRecall } from "./recall-filter.js";
 import { scanAndIngest } from "./file-scanner.js";
 import { ingestContextFiles } from "./context-files.js";
 import { readManifest as readScanManifest, isScanFresh, markScanned, writeManifest as writeScanManifest } from "./file-manifest.js";
@@ -159,9 +158,6 @@ async function main(): Promise<void> {
     if (result.session_id && input.session_id) {
       sessions.set(input.session_id, result.session_id);
     }
-
-    // Record this as a successful recall for debounce
-    recordRecall(result.session_id);
 
     const entityCount = result.entity_references?.length ?? 0;
     const context = formatNexContext({
