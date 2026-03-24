@@ -335,12 +335,37 @@ func (l *Launcher) reconfigureVisibleAgents() error {
 	if err := provider.ResetClaudeSessions(); err != nil {
 		return fmt.Errorf("reset Claude sessions: %w", err)
 	}
-	if err := l.clearAgentPanes(); err != nil {
-		return fmt.Errorf("clear agent panes: %w", err)
+
+	// Use respawn-pane to restart agent processes IN PLACE.
+	// This preserves pane sizes and positions (no layout reset).
+	panes, err := l.listTeamPanes()
+	if err != nil {
+		return err
 	}
-	if _, err := l.spawnVisibleAgents(); err != nil {
-		return fmt.Errorf("respawn agents: %w", err)
+
+	// Build ordered slug list matching pane positions
+	slugs := l.agentPaneSlugs()
+
+	for _, idx := range panes {
+		// Map pane index to agent slug (pane 1 = first agent, etc.)
+		slugIdx := idx - 1 // pane 0 is channel
+		if slugIdx < 0 || slugIdx >= len(slugs) {
+			continue
+		}
+		slug := slugs[slugIdx]
+		prompt := l.buildPrompt(slug)
+		cmd := l.claudeCommand(slug, prompt)
+
+		target := fmt.Sprintf("%s:team.%d", l.sessionName, idx)
+		// respawn-pane -k kills the current process and starts a new one
+		// in the same pane — preserving size and position
+		exec.Command("tmux", "-L", "nex", "respawn-pane", "-k",
+			"-t", target,
+			"-c", l.cwd,
+			cmd,
+		).Run()
 	}
+
 	return nil
 }
 
