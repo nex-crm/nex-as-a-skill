@@ -709,7 +709,7 @@ func (m channelModel) View() string {
 	// ── Sidebar ──────────────────────────────────────────────────────
 	sidebar := ""
 	if layout.ShowSidebar {
-		sidebar = renderSidebar(mergePackMembers(m.members), "office", layout.SidebarW, layout.ContentH)
+		sidebar = renderSidebar(mergePackMembers(m.members), "general", layout.SidebarW, layout.ContentH)
 	}
 
 	// ── Thread panel ─────────────────────────────────────────────────
@@ -753,7 +753,7 @@ func (m channelModel) View() string {
 
 	// Composer
 	typingAgents := typingAgentsFromMembers(m.members)
-	composerStr := renderComposer(mainW, m.input, m.inputPos, "office",
+	composerStr := renderComposer(mainW, m.input, m.inputPos, "general",
 		m.replyToID, typingAgents, m.pending, m.selectedOption,
 		m.focus == focusMain)
 
