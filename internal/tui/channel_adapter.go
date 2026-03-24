@@ -115,6 +115,14 @@ func (ca *ChannelAdapter) displayName(slug string) string {
 	if name, ok := ca.agentNames[slug]; ok {
 		return name
 	}
+	switch slug {
+	case "fe":
+		return "Frontend Engineer"
+	case "be":
+		return "Backend Engineer"
+	case "ai":
+		return "AI Engineer"
+	}
 	if len(slug) == 0 {
 		return "Agent"
 	}

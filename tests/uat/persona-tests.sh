@@ -128,7 +128,7 @@ run_test "/agents shows full founding team"
 send_raw "/agents"
 send_enter
 sleep 1
-assert_text "CEO" "p1-agents" && assert_text "FE Engineer" "p1-agents" && assert_text "CMO" "p1-agents" && pass || fail
+assert_text "CEO" "p1-agents" && assert_text "Frontend Engineer" "p1-agents" && assert_text "AI Engineer" "p1-agents" && pass || fail
 save_screenshot "p1-03-agents"
 
 run_test "/config show displays workspace info"

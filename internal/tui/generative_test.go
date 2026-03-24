@@ -282,6 +282,46 @@ func TestRegistryRenderTableComponent(t *testing.T) {
 	}
 }
 
+func TestRegistryRenderListFromProps(t *testing.T) {
+	reg := NewComponentRegistry()
+	out := reg.Render(A2UIComponent{
+		Type: "list",
+		Props: map[string]any{
+			"items": []any{"alpha", "beta"},
+		},
+	}, nil, 40)
+	if !strings.Contains(out, "alpha") || !strings.Contains(out, "beta") {
+		t.Errorf("list should render direct prop items, got: %s", out)
+	}
+}
+
+func TestRegistryRenderTableFromProps(t *testing.T) {
+	reg := NewComponentRegistry()
+	out := reg.Render(A2UIComponent{
+		Type: "table",
+		Props: map[string]any{
+			"rows": []any{
+				[]any{"Name", "Score"},
+				[]any{"Alice", "100"},
+			},
+		},
+	}, nil, 40)
+	if !strings.Contains(out, "Alice") || !strings.Contains(out, "100") {
+		t.Errorf("table should render direct prop rows, got: %s", out)
+	}
+}
+
+func TestRegistryRenderProgressFromProps(t *testing.T) {
+	reg := NewComponentRegistry()
+	out := reg.Render(A2UIComponent{
+		Type:  "progress",
+		Props: map[string]any{"value": 0.4},
+	}, nil, 40)
+	if !strings.Contains(out, "40%") {
+		t.Errorf("progress should render direct prop value, got: %s", out)
+	}
+}
+
 func TestRegistryRenderUnknownType(t *testing.T) {
 	reg := NewComponentRegistry()
 	out := reg.Render(A2UIComponent{Type: "bogus"}, nil, 40)

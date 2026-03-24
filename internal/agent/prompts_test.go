@@ -8,8 +8,8 @@ import (
 func TestBuildTeamLeadPrompt(t *testing.T) {
 	lead := AgentConfig{Slug: "ceo", Name: "CEO", Expertise: []string{"strategy"}}
 	team := []AgentConfig{
-		{Slug: "fe", Name: "FE Engineer", Expertise: []string{"frontend", "React"}},
-		{Slug: "be", Name: "BE Engineer", Expertise: []string{"backend", "APIs"}},
+		{Slug: "fe", Name: "Frontend Engineer", Expertise: []string{"frontend", "React"}},
+		{Slug: "be", Name: "Backend Engineer", Expertise: []string{"backend", "APIs"}},
 	}
 	prompt := BuildTeamLeadPrompt(lead, team, "Founding Team")
 	if !strings.Contains(prompt, "@fe") {
@@ -33,9 +33,9 @@ func TestBuildTeamLeadPrompt(t *testing.T) {
 }
 
 func TestBuildSpecialistPrompt(t *testing.T) {
-	specialist := AgentConfig{Slug: "fe", Name: "FE Engineer", Expertise: []string{"frontend", "React"}}
+	specialist := AgentConfig{Slug: "fe", Name: "Frontend Engineer", Expertise: []string{"frontend", "React"}}
 	prompt := BuildSpecialistPrompt(specialist)
-	if !strings.Contains(prompt, "FE Engineer") {
+	if !strings.Contains(prompt, "Frontend Engineer") {
 		t.Error("expected specialist name in prompt")
 	}
 	if !strings.Contains(prompt, "frontend") {
@@ -47,8 +47,8 @@ func TestBuildTeamLeadPromptMentionsAllAgents(t *testing.T) {
 	lead := AgentConfig{Slug: "ceo", Name: "CEO"}
 	team := []AgentConfig{
 		{Slug: "pm", Name: "PM", Expertise: []string{"roadmap"}},
-		{Slug: "fe", Name: "FE", Expertise: []string{"frontend"}},
-		{Slug: "be", Name: "BE", Expertise: []string{"backend"}},
+		{Slug: "fe", Name: "Frontend Engineer", Expertise: []string{"frontend"}},
+		{Slug: "be", Name: "Backend Engineer", Expertise: []string{"backend"}},
 	}
 	prompt := BuildTeamLeadPrompt(lead, team, "Founding Team")
 	for _, a := range team {

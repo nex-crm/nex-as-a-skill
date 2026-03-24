@@ -9,8 +9,9 @@ steps:
   # 2. Verify agent roster sidebar shows founding team
   - expectText: {text: "AGENTS", timeoutMs: 3000}
   - expectText: {text: "CEO", timeoutMs: 3000}
-  - expectText: {text: "BE Engineer", timeoutMs: 3000}
-  - expectText: {text: "FE Engineer", timeoutMs: 3000}
+  - expectText: {text: "Backend Engineer", timeoutMs: 3000}
+  - expectText: {text: "Frontend Engineer", timeoutMs: 3000}
+  - expectText: {text: "AI Engineer", timeoutMs: 3000}
   - screenshot: {name: "02-roster-visible"}
 
   # 3. Type "/" via raw and verify autocomplete appears

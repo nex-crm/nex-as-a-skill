@@ -120,9 +120,8 @@ func runTeam(args []string, packSlug string) {
 
 	fmt.Println("Team launched. Attaching...")
 	fmt.Println()
-	fmt.Println("  Ctrl+B 0         channel (conversation feed)")
-	fmt.Println("  Ctrl+B 1         all agents (tiled panes)")
 	fmt.Println("  Ctrl+B arrow     switch between panes")
+	fmt.Println("  Ctrl+B { or }    swap panes left/right")
 	fmt.Println("  Ctrl+B z         zoom a pane full-screen")
 	fmt.Println("  Ctrl+B d         detach (keeps running)")
 	fmt.Println("  /quit            exit everything")

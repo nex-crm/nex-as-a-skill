@@ -297,10 +297,10 @@ assert_quality "maya-boot"
 run_test "M2" "Leader pane visible: [ceo] CEO pane header"
 if assert_pane_header "ceo" "CEO" "m2"; then pass; else fail; fi
 
-run_test "M3" "Specialist panes visible: at least PM, FE, BE visible"
+run_test "M3" "Specialist panes visible: at least PM, Frontend, Backend, or AI visible"
 save_screenshot "maya-03-specialists"
 pane_count=0
-for slug_name in "pm:Product Manager" "fe:FE Engineer" "be:BE Engineer"; do
+for slug_name in "pm:Product Manager" "fe:Frontend Engineer" "be:Backend Engineer" "ai:AI Engineer"; do
   slug="${slug_name%%:*}"
   name="${slug_name#*:}"
   if assert_pane_header "$slug" "$name" "m3-$slug"; then
@@ -320,7 +320,7 @@ if assert_has_borders "m4"; then pass; else fail; fi
 
 run_test "M5" "Overflow indicator: '+N more panes' if agents > visible slots"
 save_screenshot "maya-05-overflow"
-# Founding team has 7 agents; only leader + 3 specialists visible = +3 more
+# Founding team has 8 agents; only a visible subset of the company is pane-rendered
 screen_m5=$(get_screen)
 if echo "$screen_m5" | grep -q "more pane"; then
   echo "    PASS: overflow indicator visible"

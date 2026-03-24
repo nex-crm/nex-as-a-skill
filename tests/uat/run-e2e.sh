@@ -85,8 +85,9 @@ sleep 5
 screenshot "01-boot"
 assert_text "AGENTS"
 assert_text "CEO"
-assert_text "BE Engineer"
-assert_text "FE Engineer"
+assert_text "Backend Engineer"
+assert_text "Frontend Engineer"
+assert_text "AI Engineer"
 assert_text "Type a message"
 echo "  PASS: TUI boot verified"
 pass

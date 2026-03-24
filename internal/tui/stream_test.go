@@ -320,8 +320,8 @@ func TestSubmitImmediatelyKicksOffCollaboratorsForBroadDirective(t *testing.T) {
 
 	for _, cfg := range []agent.AgentConfig{
 		{Slug: "ceo", Name: "CEO", Expertise: []string{"strategy", "delegation"}},
-		{Slug: "fe", Name: "FE Engineer", Expertise: []string{"frontend", "React", "CSS", "UI-UX", "components"}},
-		{Slug: "be", Name: "BE Engineer", Expertise: []string{"backend", "APIs", "databases"}},
+		{Slug: "fe", Name: "Frontend Engineer", Expertise: []string{"frontend", "React", "CSS", "UI-UX", "components"}},
+		{Slug: "be", Name: "Backend Engineer", Expertise: []string{"backend", "APIs", "databases"}},
 		{Slug: "cmo", Name: "CMO", Expertise: []string{"positioning", "messaging", "go-to-market"}},
 	} {
 		_, _ = m.runtime.AgentService.Create(cfg)
@@ -447,7 +447,7 @@ func TestSlashAgentsShowsRuntimeRoster(t *testing.T) {
 	m := newTestStreamModel()
 	for _, cfg := range []agent.AgentConfig{
 		{Slug: "ceo", Name: "CEO", Expertise: []string{"strategy"}},
-		{Slug: "fe", Name: "FE Engineer", Expertise: []string{"frontend"}},
+		{Slug: "fe", Name: "Frontend Engineer", Expertise: []string{"frontend"}},
 	} {
 		_, _ = m.runtime.AgentService.Create(cfg)
 		_ = m.runtime.AgentService.Start(cfg.Slug)
@@ -467,7 +467,7 @@ func TestSlashAgentsShowsRuntimeRoster(t *testing.T) {
 	if !strings.Contains(last, "@ceo CEO [lead]") {
 		t.Fatal("expected /agents output to include lead entry")
 	}
-	if !strings.Contains(last, "@fe FE Engineer [specialist]") {
+	if !strings.Contains(last, "@fe Frontend Engineer [specialist]") {
 		t.Fatal("expected /agents output to include specialist entry")
 	}
 }
@@ -490,13 +490,13 @@ func TestAgentTextMsgUpdatesStreaming(t *testing.T) {
 
 func TestPhaseChangeAddsVisibleProgressMessage(t *testing.T) {
 	m := newTestStreamModel()
-	_, _ = m.runtime.AgentService.Create(agent.AgentConfig{Slug: "fe", Name: "FE Engineer", Expertise: []string{"frontend"}})
+	_, _ = m.runtime.AgentService.Create(agent.AgentConfig{Slug: "fe", Name: "Frontend Engineer", Expertise: []string{"frontend"}})
 
 	m2, _ := m.Update(PhaseChangeMsg{AgentSlug: "fe", From: "idle", To: "build_context"})
 
 	found := false
 	for _, msg := range m2.messages {
-		if msg.Role == "system" && strings.Contains(msg.Content, "FE Engineer is preparing context") {
+		if msg.Role == "system" && strings.Contains(msg.Content, "Frontend Engineer is preparing context") {
 			found = true
 			break
 		}
@@ -507,8 +507,8 @@ func TestPhaseChangeAddsVisibleProgressMessage(t *testing.T) {
 }
 
 func TestProgressPulseTextIncludesTaskSummary(t *testing.T) {
-	got := progressPulseText("FE Engineer", false, agent.PhaseStreamLLM, "Design the CRM landing page hero and pricing section.")
-	if !strings.Contains(got, "FE Engineer is still working on") {
+	got := progressPulseText("Frontend Engineer", false, agent.PhaseStreamLLM, "Design the CRM landing page hero and pricing section.")
+	if !strings.Contains(got, "Frontend Engineer is still working on") {
 		t.Fatal("expected progress pulse to describe ongoing work")
 	}
 	if !strings.Contains(got, "Design the CRM landing page hero") {
@@ -520,7 +520,7 @@ func TestSpinnerLabelSummarizesActiveWork(t *testing.T) {
 	m := newTestStreamModel()
 	for _, cfg := range []agent.AgentConfig{
 		{Slug: "ceo", Name: "CEO", Expertise: []string{"strategy"}},
-		{Slug: "fe", Name: "FE Engineer", Expertise: []string{"frontend"}},
+		{Slug: "fe", Name: "Frontend Engineer", Expertise: []string{"frontend"}},
 	} {
 		_, _ = m.runtime.AgentService.Create(cfg)
 		_ = m.runtime.AgentService.Start(cfg.Slug)
@@ -538,8 +538,8 @@ func TestSpinnerLabelSummarizesActiveWork(t *testing.T) {
 	if !strings.Contains(m.spinner.label, "CEO coordinating") {
 		t.Fatal("expected spinner label to include CEO coordinating")
 	}
-	if !strings.Contains(m.spinner.label, "FE Engineer preparing") {
-		t.Fatal("expected spinner label to include FE Engineer preparing")
+	if !strings.Contains(m.spinner.label, "Frontend Engineer preparing") {
+		t.Fatal("expected spinner label to include Frontend Engineer preparing")
 	}
 }
 
@@ -573,7 +573,7 @@ func TestStartDelegationsQueuesSteerAndFollowUp(t *testing.T) {
 	m, queues := newTestStreamModelWithQueues()
 	_, _ = m.runtime.AgentService.Create(agent.AgentConfig{
 		Slug:      "fe",
-		Name:      "FE Engineer",
+		Name:      "Frontend Engineer",
 		Expertise: []string{"frontend"},
 	})
 	_ = m.runtime.AgentService.Start("fe")
@@ -596,7 +596,7 @@ func TestTeamLeadDoneFallsBackToRoutingHints(t *testing.T) {
 	m.runtime.TeamLeadSlug = "team-lead"
 
 	_, _ = m.runtime.AgentService.Create(agent.AgentConfig{Slug: "team-lead", Name: "Team Lead", Expertise: []string{"strategy"}})
-	_, _ = m.runtime.AgentService.Create(agent.AgentConfig{Slug: "fe", Name: "FE Engineer", Expertise: []string{"frontend"}})
+	_, _ = m.runtime.AgentService.Create(agent.AgentConfig{Slug: "fe", Name: "Frontend Engineer", Expertise: []string{"frontend"}})
 	_ = m.runtime.AgentService.Start("team-lead")
 	_ = m.runtime.AgentService.Start("fe")
 

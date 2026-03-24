@@ -47,6 +47,11 @@ func (g *GenerativeModel) SetData(data map[string]any) {
 	g.data = data
 }
 
+// SetWidth overrides the render width used by View.
+func (g *GenerativeModel) SetWidth(width int) {
+	g.width = width
+}
+
 // SetValue sets a single value at the given JSON Pointer path (RFC 6901).
 func (g *GenerativeModel) SetValue(pointer string, value any) {
 	setPointer(g.data, pointer, value)

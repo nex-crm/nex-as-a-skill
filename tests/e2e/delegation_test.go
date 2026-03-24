@@ -333,7 +333,7 @@ func TestPackBootstrap(t *testing.T) {
 	}
 
 	list := svc.List()
-	if len(list) != 7 {
-		t.Errorf("expected 7 agents from List(), got %d", len(list))
+	if len(list) != 8 {
+		t.Errorf("expected 8 agents from List(), got %d", len(list))
 	}
 }

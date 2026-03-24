@@ -13,8 +13,18 @@ func TestPacksRegistered(t *testing.T) {
 	if founding.LeadSlug != "ceo" {
 		t.Errorf("expected lead slug 'ceo', got '%s'", founding.LeadSlug)
 	}
-	if len(founding.Agents) != 7 {
-		t.Errorf("expected 7 agents in founding team, got %d", len(founding.Agents))
+	if len(founding.Agents) != 8 {
+		t.Errorf("expected 8 agents in founding team, got %d", len(founding.Agents))
+	}
+	foundAI := false
+	for _, a := range founding.Agents {
+		if a.Slug == "ai" && a.Name == "AI Engineer" {
+			foundAI = true
+			break
+		}
+	}
+	if !foundAI {
+		t.Error("expected founding team to include AI Engineer")
 	}
 }
 

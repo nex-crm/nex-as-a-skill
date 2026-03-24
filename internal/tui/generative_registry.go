@@ -219,6 +219,13 @@ func renderListComponent(comp A2UIComponent, data map[string]any, _ int, _ *Comp
 		if resolved, ok := resolvePointer(data, comp.DataRef).([]any); ok {
 			items = resolved
 		}
+	} else if rawItems, ok := comp.Props["items"].([]any); ok {
+		items = rawItems
+	} else if rawStrings, ok := comp.Props["items"].([]string); ok {
+		items = make([]any, len(rawStrings))
+		for i, item := range rawStrings {
+			items[i] = item
+		}
 	}
 	if len(items) == 0 {
 		return ""
@@ -244,6 +251,16 @@ func renderTableComponent(comp A2UIComponent, data map[string]any, _ int, _ *Com
 				}
 			}
 		}
+	} else if rawRows, ok := comp.Props["rows"].([]any); ok {
+		for _, row := range rawRows {
+			if r, ok := row.([]any); ok {
+				cells := make([]string, len(r))
+				for j, cell := range r {
+					cells[j] = fmt.Sprintf("%v", cell)
+				}
+				rows = append(rows, cells)
+			}
+		}
 	}
 	return renderTable(rows)
 }
@@ -252,6 +269,13 @@ func renderProgressComponent(comp A2UIComponent, data map[string]any, width int,
 	var val float64
 	if comp.DataRef != "" {
 		switch v := resolvePointer(data, comp.DataRef).(type) {
+		case float64:
+			val = v
+		case int:
+			val = float64(v)
+		}
+	} else {
+		switch v := comp.Props["value"].(type) {
 		case float64:
 			val = v
 		case int:

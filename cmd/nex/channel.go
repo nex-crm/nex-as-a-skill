@@ -14,7 +14,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
+	"github.com/nex-ai/nex-cli/internal/team"
 	"github.com/nex-ai/nex-cli/internal/tui"
 )
 
@@ -63,6 +65,7 @@ type channelInterview struct {
 type channelTickMsg time.Time
 type channelPostDoneMsg struct{ err error }
 type channelInterviewAnswerDoneMsg struct{ err error }
+type channelResetDoneMsg struct{ err error }
 
 var mentionPattern = regexp.MustCompile(`@([A-Za-z0-9_-]+)`)
 
@@ -115,6 +118,10 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if trimmed == "/quit" || trimmed == "/exit" || trimmed == "/q" {
 					killTeamSession()
 					return m, tea.Quit
+				}
+				if trimmed == "/reset" {
+					m.posting = true
+					return m, resetTeamSession()
 				}
 
 				m.posting = true
@@ -195,6 +202,18 @@ func (m channelModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputPos = 0
 		}
 
+	case channelResetDoneMsg:
+		m.posting = false
+		if msg.err == nil {
+			m.messages = nil
+			m.members = nil
+			m.pending = nil
+			m.lastID = ""
+			m.input = nil
+			m.inputPos = 0
+			m.scroll = 0
+		}
+
 	case channelMsg:
 		if len(msg.messages) > 0 {
 			m.messages = append(m.messages, msg.messages...)
@@ -243,7 +262,7 @@ func (m channelModel) View() string {
 
 	agentColors := map[string]string{
 		"ceo": "#EAB308", "pm": "#22C55E", "fe": "#3B82F6",
-		"be": "#8B5CF6", "designer": "#EC4899", "cmo": "#F97316",
+		"be": "#8B5CF6", "ai": "#14B8A6", "designer": "#EC4899", "cmo": "#F97316",
 		"cro": "#06B6D4", "you": "#FFFFFF",
 	}
 
@@ -306,7 +325,7 @@ func (m channelModel) View() string {
 	var inputStr string
 	if len(m.input) == 0 {
 		cursorStyle := lipgloss.NewStyle().Reverse(true)
-		placeholder := " Type a message to the team... (/quit to exit)"
+		placeholder := " Type a message to the team... (/reset to start fresh, /quit to exit)"
 		if m.pending != nil {
 			placeholder = " Type a custom answer, or press Enter to accept the selected option"
 		}
@@ -421,7 +440,8 @@ func (m channelModel) View() string {
 
 	// Scroll
 	total := len(lines)
-	end := total - m.scroll
+	scroll := clampScroll(total, viewHeight, m.scroll)
+	end := total - scroll
 	if end > total {
 		end = total
 	}
@@ -450,8 +470,8 @@ func (m channelModel) View() string {
 	// Status bar
 	agentCount := countUniqueAgents(m.messages)
 	scrollHint := "PgUp/PgDn scroll"
-	if m.scroll > 0 {
-		scrollHint = fmt.Sprintf("scroll +%d", m.scroll)
+	if scroll > 0 {
+		scrollHint = fmt.Sprintf("scroll +%d", scroll)
 	}
 	statusBar := mutedStyle.Render(fmt.Sprintf(
 		" %d messages │ %d agents active │ %s │ Ctrl+B {/}=swap pane │ Ctrl+B z=zoom pane",
@@ -505,8 +525,25 @@ func countUniqueAgents(messages []brokerMessage) int {
 }
 
 func appendWrapped(lines []string, width int, text string) []string {
-	wrapped := lipgloss.NewStyle().Width(width).Render(text)
+	if width <= 0 {
+		return append(lines, strings.Split(text, "\n")...)
+	}
+	wrapped := ansi.Wrap(text, width, "")
 	return append(lines, strings.Split(wrapped, "\n")...)
+}
+
+func clampScroll(total, viewHeight, scroll int) int {
+	if scroll < 0 {
+		return 0
+	}
+	maxScroll := total - viewHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if scroll > maxScroll {
+		return maxScroll
+	}
+	return scroll
 }
 
 func displayName(slug string) string {
@@ -516,9 +553,11 @@ func displayName(slug string) string {
 	case "pm":
 		return "Product Manager"
 	case "fe":
-		return "FE Engineer"
+		return "Frontend Engineer"
 	case "be":
-		return "BE Engineer"
+		return "Backend Engineer"
+	case "ai":
+		return "AI Engineer"
 	case "designer":
 		return "Designer"
 	case "cmo":
@@ -542,6 +581,8 @@ func roleLabel(slug string) string {
 		return "frontend"
 	case "be":
 		return "backend"
+	case "ai":
+		return "ai"
 	case "designer":
 		return "design"
 	case "cmo":
@@ -776,6 +817,19 @@ func postInterviewAnswer(interview channelInterview, choiceID, choiceText, custo
 	}
 }
 
+func resetTeamSession() tea.Cmd {
+	return func() tea.Msg {
+		l, err := team.NewLauncher("")
+		if err != nil {
+			return channelResetDoneMsg{err: err}
+		}
+		if err := l.ResetSession(); err != nil {
+			return channelResetDoneMsg{err: err}
+		}
+		return channelResetDoneMsg{}
+	}
+}
+
 func tickChannel() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return channelTickMsg(t)
@@ -799,14 +853,22 @@ func renderA2UIBlocks(content string, width int) (textPart string, rendered stri
 	matches := fenceRe.FindAllStringSubmatchIndex(content, -1)
 
 	if len(matches) == 0 {
-		// Also try to detect bare A2UI JSON objects: {"type":"card", ...}
+		// Also try to detect a bare A2UI JSON object embedded in the message.
 		if idx := strings.Index(content, `{"type":"`); idx >= 0 {
-			jsonStart := content[idx:]
+			jsonStart, endIdx := extractJSONObject(content, idx)
+			if jsonStart == "" {
+				return content, ""
+			}
 			var comp tui.A2UIComponent
 			if err := json.Unmarshal([]byte(jsonStart), &comp); err == nil && isA2UIType(comp.Type) {
 				gm := tui.NewGenerativeModel()
+				gm.SetWidth(width)
 				gm.SetSchema(comp)
-				textPart = strings.TrimSpace(content[:idx])
+				if err := gm.Validate(); err != nil {
+					return content, ""
+				}
+				parts := []string{strings.TrimSpace(content[:idx]), strings.TrimSpace(content[endIdx:])}
+				textPart = strings.TrimSpace(strings.Join(parts, "\n"))
 				rendered = gm.View()
 				return
 			}
@@ -830,11 +892,16 @@ func renderA2UIBlocks(content string, width int) (textPart string, rendered stri
 		var comp tui.A2UIComponent
 		if err := json.Unmarshal([]byte(jsonStr), &comp); err == nil && isA2UIType(comp.Type) {
 			gm := tui.NewGenerativeModel()
+			gm.SetWidth(width)
 			gm.SetSchema(comp)
-			renderedParts = append(renderedParts, gm.View())
+			if err := gm.Validate(); err != nil {
+				textParts = append(textParts, "```a2ui\n"+jsonStr+"\n```")
+			} else {
+				renderedParts = append(renderedParts, gm.View())
+			}
 		} else {
 			// Invalid A2UI JSON — show as code block
-			textParts = append(textParts, "```\n"+jsonStr+"```")
+			textParts = append(textParts, "```a2ui\n"+jsonStr+"\n```")
 		}
 
 		lastEnd = match[1]
@@ -848,6 +915,42 @@ func renderA2UIBlocks(content string, width int) (textPart string, rendered stri
 	textPart = strings.TrimSpace(strings.Join(textParts, "\n"))
 	rendered = strings.Join(renderedParts, "\n")
 	return
+}
+
+func extractJSONObject(content string, start int) (string, int) {
+	if start < 0 || start >= len(content) || content[start] != '{' {
+		return "", 0
+	}
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(content); i++ {
+		ch := content[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inString {
+			if ch == '\\' {
+				escaped = true
+			} else if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return content[start : i+1], i + 1
+			}
+		}
+	}
+	return "", 0
 }
 
 // isA2UIType checks if a type string is a valid A2UI component type.
