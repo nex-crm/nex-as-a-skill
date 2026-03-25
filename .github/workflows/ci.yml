@@ -9,22 +9,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  cli:
+  shim:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cli
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - name: Sync plugin into CLI
-        run: |
-          rsync -a ../claude-code-plugin/src/ src/plugin/
-          rsync -a ../claude-code-plugin/commands/ plugin-commands/
-      - run: bun install --frozen-lockfile
-      - run: bun run build
-      - name: Run tests
-        run: bun run test:all
+      - name: Validate shim scripts
+        run: node --check bin/nex.js && node --check bin/nex-mcp.js
 
   openclaw-plugin:
     runs-on: ubuntu-latest
