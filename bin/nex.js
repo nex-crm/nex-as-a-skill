@@ -31,7 +31,10 @@ if (tryExec("nex-cli", args)) {
 }
 
 // 2. Try common install locations
-const commonPaths = ["/usr/local/bin/nex-cli", `${process.env.HOME}/.local/bin/nex-cli`];
+const commonPaths = ["/usr/local/bin/nex-cli"];
+if (process.env.HOME) {
+  commonPaths.push(`${process.env.HOME}/.local/bin/nex-cli`);
+}
 for (const p of commonPaths) {
   if (existsSync(p) && tryExec(p, args)) {
     process.exit(0);
