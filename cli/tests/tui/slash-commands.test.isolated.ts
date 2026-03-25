@@ -97,7 +97,19 @@ describe("slash command registry", () => {
 
 describe("slash command execution", () => {
   it("/help returns output", async () => { const r = await getSlashCommand("help")!.execute("", makeContext()); expect(r.output!.includes("/help")).toBeTruthy(); });
-  it("/agents pushes view", async () => { let p: any; await getSlashCommand("agents")!.execute("", makeContext({ push: (v) => { p = v; } })); expect(p.name).toBe("agent-list"); });
+  it("/agents opens the interactive picker", async () => {
+    let title = "";
+    let options: SelectOption[] = [];
+    await getSlashCommand("agents")!.execute("", makeContext({
+      showPicker: (t, o) => {
+        title = t;
+        options = o;
+      },
+    }));
+    expect(title.includes("Create your first one")).toBeTruthy();
+    expect(options.some((o) => o.value === "create")).toBeTruthy();
+    expect(options.some((o) => o.value === "cancel")).toBeTruthy();
+  });
   it("/ask no args = usage", async () => { const r = await getSlashCommand("ask")!.execute("", makeContext()); expect(r.output!.includes("Usage")).toBeTruthy(); });
   it("/clear sentinel", async () => { const r = await getSlashCommand("clear")!.execute("", makeContext()); expect(r.output).toBe("__CLEAR__"); });
 });

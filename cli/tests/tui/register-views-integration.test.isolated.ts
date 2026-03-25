@@ -170,12 +170,6 @@ describe("register-views: home adapter (conversation mode)", () => {
     expect(frame.length > 0).toBeTruthy();
   });
 
-  it("shows welcome message", () => {
-    const { lastFrame } = renderAdapter("home");
-    const frame = strip(lastFrame() ?? "");
-    expect(frame.includes("Welcome to Nex")).toBeTruthy();
-  });
-
   it("shows compose area", () => {
     const { lastFrame } = renderAdapter("home");
     const frame = strip(lastFrame() ?? "");

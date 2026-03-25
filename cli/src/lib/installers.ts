@@ -269,7 +269,7 @@ export function installClaudeCodePlugin(): {
     {
       event: "UserPromptSubmit",
       script: join(distDir, "auto-recall.js"),
-      timeout: 10000,
+      timeout: 12000,
       statusMessage: "Recalling relevant memories...",
     },
     {

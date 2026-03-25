@@ -54,7 +54,7 @@ Copy the hook entries from `settings.json` into your Claude Code settings at `~/
           {
             "type": "command",
             "command": "node /absolute/path/to/claude-code-plugin/dist/auto-session-start.js",
-            "timeout": 10000,
+            "timeout": 120000,
             "statusMessage": "Loading knowledge context..."
           }
         ]
@@ -67,7 +67,7 @@ Copy the hook entries from `settings.json` into your Claude Code settings at `~/
           {
             "type": "command",
             "command": "node /absolute/path/to/claude-code-plugin/dist/auto-recall.js",
-            "timeout": 10000,
+            "timeout": 12000,
             "statusMessage": "Recalling relevant memories..."
           }
         ]
@@ -80,7 +80,7 @@ Copy the hook entries from `settings.json` into your Claude Code settings at `~/
           {
             "type": "command",
             "command": "node /absolute/path/to/claude-code-plugin/dist/auto-capture.js",
-            "timeout": 5000,
+            "timeout": 10000,
             "async": true
           }
         ]
@@ -114,10 +114,11 @@ Then use:
 ### Auto-Recall (UserPromptSubmit Hook)
 
 1. Reads the user's prompt from stdin (`{ "prompt": "...", "session_id": "..." }`)
-2. Runs prompt through `recall-filter.ts` — skips short directives, tool commands, code-heavy prompts; always recalls on questions and first prompt
-3. If recall needed, queries Nex `/ask` endpoint for relevant context
-4. Returns `{ "additionalContext": "<nex-context>...</nex-context>" }` to inject into the conversation
-5. On any error: returns `{}`, logs to stderr (graceful degradation)
+2. Runs prompt through `recall-filter.ts` and skips only low-signal input such as short messages, slash commands, explicit `!` opt-out prompts, and bare shell commands
+3. If recall is needed, tries a short synchronous `/ask` request so relevant context can land on the same user turn
+4. If the sync budget is missed, falls back to a background `/ask` request and caches the result for the next eligible prompt
+5. Returns `{ "additionalContext": "<nex-context>...</nex-context>" }` when recall is ready to inject into the conversation
+6. On any error: returns `{}`, logs to stderr (graceful degradation)
 
 ### Auto-Capture (Stop Hook)
 
@@ -133,13 +134,15 @@ Then use:
 claude-code-plugin/
 ├── src/
 │   ├── auto-session-start.ts  # SessionStart hook — baseline context load
-│   ├── auto-recall.ts         # UserPromptSubmit hook — selective recall
+│   ├── auto-recall.ts         # UserPromptSubmit hook — fast recall + cache fallback
 │   ├── auto-capture.ts        # Stop hook — conversation capture
-│   ├── recall-filter.ts       # Smart prompt classifier + debounce
+│   ├── auto-recall-worker.ts  # Background recall worker for slow Ask calls
+│   ├── recall-filter.ts       # Smart prompt classifier
 │   ├── nex-client.ts          # HTTP client for Nex API
 │   ├── config.ts              # Environment variable config
 │   ├── context-format.ts      # XML context formatting
 │   ├── capture-filter.ts      # Smart capture filtering
+│   ├── recall-cache.ts        # Session-scoped pending/ready recall cache
 │   ├── rate-limiter.ts        # Sliding window rate limiter
 │   └── session-store.ts       # LRU session ID mapping
 ├── commands/

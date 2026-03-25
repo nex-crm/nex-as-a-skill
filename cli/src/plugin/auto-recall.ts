@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 const sessions = new SessionStore();
 const recallCache = new RecallCache();
 
-const FAST_RECALL_BUDGET_MS = readTimeoutEnv("NEX_RECALL_SYNC_BUDGET_MS", 250);
+const FAST_RECALL_BUDGET_MS = readTimeoutEnv("NEX_RECALL_SYNC_BUDGET_MS", 8_000);
 const BACKGROUND_RECALL_TIMEOUT_MS = readTimeoutEnv(
   "NEX_RECALL_BACKGROUND_TIMEOUT_MS",
   60_000,
