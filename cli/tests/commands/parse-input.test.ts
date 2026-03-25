@@ -1,22 +1,21 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from "bun:test";
 import { parseInput } from "../../src/commands/parse-input.js";
 
 describe("parseInput", () => {
   it("returns empty array for empty string", () => {
-    assert.deepEqual(parseInput(""), []);
+    expect(parseInput("")).toEqual([]);
   });
 
   it("returns empty array for whitespace-only string", () => {
-    assert.deepEqual(parseInput("   "), []);
+    expect(parseInput("   ")).toEqual([]);
   });
 
   it("parses a single command word", () => {
-    assert.deepEqual(parseInput("objects"), ["objects"]);
+    expect(parseInput("objects")).toEqual(["objects"]);
   });
 
   it("parses multiple words", () => {
-    assert.deepEqual(parseInput("record list person --limit 10"), [
+    expect(parseInput("record list person --limit 10")).toEqual([
       "record",
       "list",
       "person",
@@ -26,47 +25,44 @@ describe("parseInput", () => {
   });
 
   it("handles double-quoted strings", () => {
-    assert.deepEqual(parseInput('ask "hello world"'), ["ask", "hello world"]);
+    expect(parseInput('ask "hello world"')).toEqual(["ask", "hello world"]);
   });
 
   it("handles single-quoted strings", () => {
-    assert.deepEqual(parseInput("remember 'this is a note'"), [
+    expect(parseInput("remember 'this is a note'")).toEqual([
       "remember",
       "this is a note",
     ]);
   });
 
   it("handles JSON in single quotes", () => {
-    assert.deepEqual(
+    expect(
       parseInput("record create person --data '{\"name\":\"John\"}'"),
-      ["record", "create", "person", "--data", '{"name":"John"}'],
-    );
+    ).toEqual(["record", "create", "person", "--data", '{"name":"John"}']);
   });
 
   it("handles mixed quotes and plain tokens", () => {
-    assert.deepEqual(
+    expect(
       parseInput('ask "who is the CEO?" --format json'),
-      ["ask", "who is the CEO?", "--format", "json"],
-    );
+    ).toEqual(["ask", "who is the CEO?", "--format", "json"]);
   });
 
   it("handles extra spaces between tokens", () => {
-    assert.deepEqual(parseInput("  ask   hello  "), ["ask", "hello"]);
+    expect(parseInput("  ask   hello  ")).toEqual(["ask", "hello"]);
   });
 
   it("handles empty quoted strings", () => {
-    assert.deepEqual(parseInput('ask ""'), ["ask"]);
+    expect(parseInput('ask ""')).toEqual(["ask"]);
   });
 
   it("handles adjacent tokens without spaces after quotes", () => {
     // Edge case: quotes in the middle of a token
-    assert.deepEqual(parseInput('hello"world"'), ["helloworld"]);
+    expect(parseInput('hello"world"')).toEqual(["helloworld"]);
   });
 
   it("preserves content inside quotes with special characters", () => {
-    assert.deepEqual(
+    expect(
       parseInput('search "O\'Brien & Co."'),
-      ["search", "O'Brien & Co."],
-    );
+    ).toEqual(["search", "O'Brien & Co."]);
   });
 });

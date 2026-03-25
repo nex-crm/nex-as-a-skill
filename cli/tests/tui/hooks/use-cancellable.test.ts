@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from "bun:test";
 import { createCtrlCHandler } from "../../../src/tui/hooks/use-cancellable.js";
 
 // ─── createCtrlCHandler ───
@@ -13,8 +12,8 @@ describe("createCtrlCHandler", () => {
     );
 
     const result = handler.handle();
-    assert.equal(result, "pending_exit");
-    assert.ok(!exitCalled, "should not exit on first idle press");
+    expect(result).toBe("pending_exit");
+    expect(!exitCalled).toBeTruthy();
   });
 
   it("exits on second idle press within window", () => {
@@ -27,13 +26,13 @@ describe("createCtrlCHandler", () => {
 
     // First press: pending
     const first = handler.handle();
-    assert.equal(first, "pending_exit");
-    assert.ok(!exitCalled);
+    expect(first).toBe("pending_exit");
+    expect(!exitCalled).toBeTruthy();
 
     // Second press within window: exit
     const second = handler.handle();
-    assert.equal(second, "exit");
-    assert.ok(exitCalled, "should exit on double-press");
+    expect(second).toBe("exit");
+    expect(exitCalled).toBeTruthy();
   });
 
   it("returns 'cancelled' when cancelFn succeeds", () => {
@@ -44,8 +43,8 @@ describe("createCtrlCHandler", () => {
     );
 
     const result = handler.handle();
-    assert.equal(result, "cancelled");
-    assert.ok(!exitCalled, "should not exit when operation was cancelled");
+    expect(result).toBe("cancelled");
+    expect(!exitCalled).toBeTruthy();
   });
 
   it("exits on press after cancel within window when nothing left to cancel", () => {
@@ -62,13 +61,13 @@ describe("createCtrlCHandler", () => {
 
     // First press: cancels the operation
     const first = handler.handle();
-    assert.equal(first, "cancelled");
-    assert.ok(!exitCalled);
+    expect(first).toBe("cancelled");
+    expect(!exitCalled).toBeTruthy();
 
     // Second press within 1s: nothing to cancel → exit
     const second = handler.handle();
-    assert.equal(second, "exit");
-    assert.ok(exitCalled, "should exit after cancel + idle press within window");
+    expect(second).toBe("exit");
+    expect(exitCalled).toBeTruthy();
   });
 
   it("uses custom window duration", () => {
@@ -84,11 +83,11 @@ describe("createCtrlCHandler", () => {
     );
 
     handler.handle(); // cancel
-    assert.ok(!exitCalled);
+    expect(!exitCalled).toBeTruthy();
 
     // Second press immediately (within 50ms): exit
     handler.handle();
-    assert.ok(exitCalled, "should exit within custom window");
+    expect(exitCalled).toBeTruthy();
   });
 
   it("resets to pending_exit after window expires", async () => {
@@ -101,14 +100,14 @@ describe("createCtrlCHandler", () => {
 
     // First press: pending
     handler.handle();
-    assert.ok(!exitCalled);
+    expect(!exitCalled).toBeTruthy();
 
     // Wait for window to expire
     await new Promise((r) => setTimeout(r, 100));
 
     // Press again after window: should be pending again, not exit
     const result = handler.handle();
-    assert.equal(result, "pending_exit");
-    assert.ok(!exitCalled, "should not exit after window expired");
+    expect(result).toBe("pending_exit");
+    expect(!exitCalled).toBeTruthy();
   });
 });

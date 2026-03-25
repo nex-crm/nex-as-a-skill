@@ -1,5 +1,4 @@
-import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from "bun:test";
 import { streamText, splitIntoWordChunks } from "../../../src/tui/hooks/use-streaming.js";
 
 // ─── splitIntoWordChunks ───
@@ -7,36 +6,36 @@ import { streamText, splitIntoWordChunks } from "../../../src/tui/hooks/use-stre
 describe("splitIntoWordChunks", () => {
   it("splits text into word-level chunks", () => {
     const chunks = splitIntoWordChunks("hello world foo");
-    assert.equal(chunks.length, 3);
-    assert.equal(chunks[0], "hello ");
-    assert.equal(chunks[1], "world ");
-    assert.equal(chunks[2], "foo");
+    expect(chunks.length).toBe(3);
+    expect(chunks[0]).toBe("hello ");
+    expect(chunks[1]).toBe("world ");
+    expect(chunks[2]).toBe("foo");
   });
 
   it("handles single word", () => {
     const chunks = splitIntoWordChunks("hello");
-    assert.equal(chunks.length, 1);
-    assert.equal(chunks[0], "hello");
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]).toBe("hello");
   });
 
   it("handles empty string", () => {
     const chunks = splitIntoWordChunks("");
-    assert.equal(chunks.length, 0);
+    expect(chunks.length).toBe(0);
   });
 
   it("preserves multiple spaces between words", () => {
     const chunks = splitIntoWordChunks("a  b");
     // regex matches "a  " and "b"
-    assert.equal(chunks.length, 2);
-    assert.equal(chunks[0], "a  ");
-    assert.equal(chunks[1], "b");
+    expect(chunks.length).toBe(2);
+    expect(chunks[0]).toBe("a  ");
+    expect(chunks[1]).toBe("b");
   });
 
   it("handles whitespace-only string", () => {
     const chunks = splitIntoWordChunks("   ");
     // No \S+ matches, falls back to single chunk
-    assert.equal(chunks.length, 1);
-    assert.equal(chunks[0], "   ");
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]).toBe("   ");
   });
 });
 
@@ -51,10 +50,10 @@ describe("streamText", () => {
       chunks.push(t);
     }
 
-    assert.equal(chunks.length, 3, `expected 3 chunks, got ${chunks.length}`);
-    assert.equal(chunks[0], "hello ");
-    assert.equal(chunks[1], "hello world ");
-    assert.equal(chunks[2], "hello world foo");
+    expect(chunks.length).toBe(3);
+    expect(chunks[0]).toBe("hello ");
+    expect(chunks[1]).toBe("hello world ");
+    expect(chunks[2]).toBe("hello world foo");
   });
 
   it("marks last chunk as not streaming", async () => {
@@ -65,8 +64,8 @@ describe("streamText", () => {
       lastState = state;
     }
 
-    assert.equal(lastState.text, text);
-    assert.equal(lastState.isStreaming, false);
+    expect(lastState.text).toBe(text);
+    expect(lastState.isStreaming).toBe(false);
   });
 
   it("marks intermediate chunks as streaming", async () => {
@@ -77,9 +76,9 @@ describe("streamText", () => {
       states.push(state);
     }
 
-    assert.equal(states[0].isStreaming, true);
-    assert.equal(states[1].isStreaming, true);
-    assert.equal(states[2].isStreaming, false);
+    expect(states[0].isStreaming).toBe(true);
+    expect(states[1].isStreaming).toBe(true);
+    expect(states[2].isStreaming).toBe(false);
   });
 
   it("handles empty text", async () => {
@@ -89,7 +88,7 @@ describe("streamText", () => {
       chunks.push(text);
     }
 
-    assert.equal(chunks.length, 0, "empty text should yield no chunks");
+    expect(chunks.length).toBe(0);
   });
 
   it("handles single word", async () => {
@@ -99,8 +98,8 @@ describe("streamText", () => {
       chunks.push(text);
     }
 
-    assert.equal(chunks.length, 1);
-    assert.equal(chunks[0], "hello");
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]).toBe("hello");
   });
 
   it("completes immediately when signal is already aborted", async () => {
@@ -113,9 +112,9 @@ describe("streamText", () => {
       chunks.push(state);
     }
 
-    assert.equal(chunks.length, 1);
-    assert.equal(chunks[0].text, "hello world");
-    assert.equal(chunks[0].isStreaming, false);
+    expect(chunks.length).toBe(1);
+    expect(chunks[0].text).toBe("hello world");
+    expect(chunks[0].isStreaming).toBe(false);
   });
 
   it("completes remaining text when signal aborts mid-stream", async () => {
@@ -130,9 +129,9 @@ describe("streamText", () => {
       }
     }
 
-    assert.ok(chunks.length >= 2, `expected >=2 chunks, got ${chunks.length}`);
+    expect(chunks.length >= 2).toBeTruthy();
     const last = chunks[chunks.length - 1];
-    assert.equal(last.text, text);
-    assert.equal(last.isStreaming, false);
+    expect(last.text).toBe(text);
+    expect(last.isStreaming).toBe(false);
   });
 });

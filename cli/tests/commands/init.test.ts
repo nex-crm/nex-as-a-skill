@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, beforeEach, afterEach, expect } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -10,7 +9,7 @@ describe("detectPlatforms", () => {
   it("returns an array", async () => {
     const { detectPlatforms } = await import("../../src/commands/init.js");
     const platforms = detectPlatforms();
-    assert.ok(Array.isArray(platforms));
+    expect(Array.isArray(platforms)).toBeTruthy();
   });
 
   it("each platform has required shape", async () => {
@@ -18,15 +17,15 @@ describe("detectPlatforms", () => {
     const platforms = detectPlatforms();
 
     for (const p of platforms) {
-      assert.ok(typeof p.name === "string" && p.name.length > 0, `name should be non-empty: ${p.name}`);
-      assert.ok(typeof p.slug === "string" && p.slug.length > 0, `slug should be non-empty: ${p.slug}`);
-      assert.equal(typeof p.detected, "boolean", `detected should be boolean for ${p.slug}`);
-      assert.equal(typeof p.nexInstalled, "boolean", `nexInstalled should be boolean for ${p.slug}`);
-      assert.equal(typeof p.capabilities, "object", `capabilities should be object for ${p.slug}`);
-      assert.equal(typeof p.capabilities.hooks, "boolean", `capabilities.hooks should be boolean for ${p.slug}`);
-      assert.equal(typeof p.capabilities.rules, "boolean", `capabilities.rules should be boolean for ${p.slug}`);
-      assert.equal(typeof p.capabilities.mcp, "boolean", `capabilities.mcp should be boolean for ${p.slug}`);
-      assert.equal(typeof p.capabilities.commands, "boolean", `capabilities.commands should be boolean for ${p.slug}`);
+      expect(typeof p.name === "string" && p.name.length > 0).toBeTruthy();
+      expect(typeof p.slug === "string" && p.slug.length > 0).toBeTruthy();
+      expect(typeof p.detected).toBe("boolean");
+      expect(typeof p.nexInstalled).toBe("boolean");
+      expect(typeof p.capabilities).toBe("object");
+      expect(typeof p.capabilities.hooks).toBe("boolean");
+      expect(typeof p.capabilities.rules).toBe("boolean");
+      expect(typeof p.capabilities.mcp).toBe("boolean");
+      expect(typeof p.capabilities.commands).toBe("boolean");
     }
   });
 
@@ -34,28 +33,28 @@ describe("detectPlatforms", () => {
     const { detectPlatforms } = await import("../../src/commands/init.js");
     const platforms = detectPlatforms();
     const claudeCode = platforms.find((p) => p.slug === "claude-code");
-    assert.ok(claudeCode, "should include claude-code");
-    assert.equal(claudeCode!.name, "Claude Code");
-    assert.equal(claudeCode!.capabilities.hooks, true);
-    assert.equal(claudeCode!.capabilities.commands, true);
+    expect(claudeCode).toBeTruthy();
+    expect(claudeCode!.name).toBe("Claude Code");
+    expect(claudeCode!.capabilities.hooks).toBe(true);
+    expect(claudeCode!.capabilities.commands).toBe(true);
   });
 
   it("includes Cursor in the list", async () => {
     const { detectPlatforms } = await import("../../src/commands/init.js");
     const platforms = detectPlatforms();
     const cursor = platforms.find((p) => p.slug === "cursor");
-    assert.ok(cursor, "should include cursor");
-    assert.equal(cursor!.capabilities.rules, true);
-    assert.equal(cursor!.capabilities.hooks, true);
+    expect(cursor).toBeTruthy();
+    expect(cursor!.capabilities.rules).toBe(true);
+    expect(cursor!.capabilities.hooks).toBe(true);
   });
 
   it("includes Zed in the list", async () => {
     const { detectPlatforms } = await import("../../src/commands/init.js");
     const platforms = detectPlatforms();
     const zed = platforms.find((p) => p.slug === "zed");
-    assert.ok(zed, "should include zed");
-    assert.equal(zed!.capabilities.rules, true);
-    assert.equal(zed!.capabilities.hooks, false);
+    expect(zed).toBeTruthy();
+    expect(zed!.capabilities.rules).toBe(true);
+    expect(zed!.capabilities.hooks).toBe(false);
   });
 
   it("has no duplicate slugs", async () => {
@@ -63,7 +62,7 @@ describe("detectPlatforms", () => {
     const platforms = detectPlatforms();
     const slugs = platforms.map((p) => p.slug);
     const unique = new Set(slugs);
-    assert.equal(slugs.length, unique.size, "should have no duplicate slugs");
+    expect(slugs.length).toBe(unique.size);
   });
 });
 
@@ -86,18 +85,17 @@ describe("runInit", () => {
     );
 
     const authStep = progress.find((p) => p.step === "auth");
-    assert.ok(authStep, "should have an auth step");
+    expect(authStep).toBeTruthy();
 
     // If the user's config file has a key, runInit will find it via resolveApiKey()
     // and report "Already authenticated" instead of "no_email". Both are valid.
     const existingKey = resolveApiKey();
     if (existingKey) {
-      assert.ok(
+      expect(
         authStep!.detail!.includes("Already authenticated"),
-        `with existing config key, expected 'Already authenticated', got: ${authStep!.detail}`,
-      );
+      ).toBeTruthy();
     } else {
-      assert.equal(authStep!.error, "no_email");
+      expect(authStep!.error).toBe("no_email");
     }
 
     if (originalKey !== undefined) {
@@ -116,12 +114,12 @@ describe("runInit", () => {
     );
 
     const authStep = progress.find((p) => p.step === "auth");
-    assert.ok(authStep, "should have an auth step");
-    assert.ok(authStep!.detail!.includes("Already authenticated"), `expected 'Already authenticated', got: ${authStep!.detail}`);
+    expect(authStep).toBeTruthy();
+    expect(authStep!.detail!.includes("Already authenticated")).toBeTruthy();
 
     // Should have reached detect step
     const detectStep = progress.find((p) => p.step === "detect");
-    assert.ok(detectStep, "should have a detect step");
+    expect(detectStep).toBeTruthy();
   });
 
   it("reports progress callbacks for detection and completion", async () => {
@@ -134,8 +132,8 @@ describe("runInit", () => {
       { apiKey: "sk-test-progress" },
     );
 
-    assert.ok(steps.includes("auth"), "should report auth step");
-    assert.ok(steps.includes("detect"), "should report detect step");
+    expect(steps.includes("auth")).toBeTruthy();
+    expect(steps.includes("detect")).toBeTruthy();
   });
 });
 
@@ -144,32 +142,32 @@ describe("runInit", () => {
 describe("init via dispatch", () => {
   it("init command is registered", async () => {
     const { commandNames } = await import("../../src/commands/dispatch.js");
-    assert.ok(commandNames.includes("init"), "should include init command");
-    assert.ok(commandNames.includes("detect"), "should include detect command");
+    expect(commandNames.includes("init")).toBeTruthy();
+    expect(commandNames.includes("detect")).toBeTruthy();
   });
 
   it("dispatch('init') runs without crashing", async () => {
     const { dispatch } = await import("../../src/commands/dispatch.js");
     const result = await dispatch("init", { apiKey: "sk-test-dispatch" });
     // Should succeed or at least not crash — exit code 0 means it ran the flow
-    assert.equal(typeof result.exitCode, "number");
-    assert.ok(result.exitCode === 0 || result.exitCode === 1, `unexpected exit code: ${result.exitCode}`);
+    expect(typeof result.exitCode).toBe("number");
+    expect(result.exitCode === 0 || result.exitCode === 1).toBeTruthy();
   });
 
   it("setup alias resolves to init", async () => {
     const { dispatch } = await import("../../src/commands/dispatch.js");
     const result = await dispatch("setup", { apiKey: "sk-test-alias" });
-    assert.equal(typeof result.exitCode, "number");
+    expect(typeof result.exitCode).toBe("number");
     // Should NOT be "unknown command"
     if (result.error) {
-      assert.ok(!/unknown command/i.test(result.error), `'setup' should resolve, got: ${result.error}`);
+      expect(!/unknown command/i.test(result.error)).toBeTruthy();
     }
   });
 
   it("detect command returns platform list", async () => {
     const { dispatch } = await import("../../src/commands/dispatch.js");
     const result = await dispatch("detect", { format: "json" });
-    assert.equal(result.exitCode, 0);
-    assert.ok(Array.isArray(result.data), "detect should return an array");
+    expect(result.exitCode).toBe(0);
+    expect(Array.isArray(result.data)).toBeTruthy();
   });
 });

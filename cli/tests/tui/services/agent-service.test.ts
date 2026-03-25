@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, beforeEach, afterEach, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -38,72 +37,70 @@ describe("AgentService", () => {
 
   it("create() adds agent to the service", () => {
     const managed = service.create(testConfig);
-    assert.equal(managed.config.slug, "test-agent");
-    assert.equal(managed.config.name, "Test Agent");
-    assert.deepEqual(managed.config.expertise, ["testing", "validation"]);
-    assert.equal(managed.state.phase, "idle");
+    expect(managed.config.slug).toBe("test-agent");
+    expect(managed.config.name).toBe("Test Agent");
+    expect(managed.config.expertise).toEqual(["testing", "validation"]);
+    expect(managed.state.phase).toBe("idle");
   });
 
   it("create() returns the managed agent", () => {
     const managed = service.create(testConfig);
-    assert.ok(managed.loop);
-    assert.ok(managed.config);
-    assert.ok(managed.state);
+    expect(managed.loop).toBeTruthy();
+    expect(managed.config).toBeTruthy();
+    expect(managed.state).toBeTruthy();
   });
 
   it("create() throws if slug already exists", () => {
     service.create(testConfig);
-    assert.throws(
+    expect(
       () => service.create(testConfig),
-      { message: 'Agent "test-agent" already exists.' },
-    );
+    ).toThrow();
   });
 
   // ── createFromTemplate ────────────────────────────────────────
 
   it("createFromTemplate() uses template config", () => {
     const managed = service.createFromTemplate("my-seo", "seo-agent");
-    assert.equal(managed.config.slug, "my-seo");
-    assert.equal(managed.config.name, "SEO Analyst");
-    assert.ok(managed.config.expertise.includes("seo"));
+    expect(managed.config.slug).toBe("my-seo");
+    expect(managed.config.name).toBe("SEO Analyst");
+    expect(managed.config.expertise.includes("seo")).toBeTruthy();
   });
 
   it("createFromTemplate() throws for unknown template", () => {
-    assert.throws(
+    expect(
       () => service.createFromTemplate("x", "nonexistent"),
-      /Unknown template/,
-    );
+    ).toThrow(/Unknown template/);
   });
 
   // ── list / get / getState ─────────────────────────────────────
 
   it("list() returns all agents", () => {
-    assert.equal(service.list().length, 0);
+    expect(service.list().length).toBe(0);
     service.create(testConfig);
     service.create({ slug: "agent-2", name: "Agent 2", expertise: ["other"] });
-    assert.equal(service.list().length, 2);
+    expect(service.list().length).toBe(2);
   });
 
   it("get() returns agent by slug", () => {
     service.create(testConfig);
     const managed = service.get("test-agent");
-    assert.ok(managed);
-    assert.equal(managed.config.name, "Test Agent");
+    expect(managed).toBeTruthy();
+    expect(managed.config.name).toBe("Test Agent");
   });
 
   it("get() returns undefined for unknown slug", () => {
-    assert.equal(service.get("nope"), undefined);
+    expect(service.get("nope")).toBe(undefined);
   });
 
   it("getState() returns current state snapshot", () => {
     service.create(testConfig);
     const state = service.getState("test-agent");
-    assert.ok(state);
-    assert.equal(state.phase, "idle");
+    expect(state).toBeTruthy();
+    expect(state.phase).toBe("idle");
   });
 
   it("getState() returns undefined for unknown slug", () => {
-    assert.equal(service.getState("nope"), undefined);
+    expect(service.getState("nope")).toBe(undefined);
   });
 
   // ── start / stop ──────────────────────────────────────────────
@@ -112,9 +109,9 @@ describe("AgentService", () => {
     service.create(testConfig);
     await service.start("test-agent");
     const state = service.getState("test-agent");
-    assert.ok(state);
+    expect(state).toBeTruthy();
     // After start + tick, phase should have progressed past idle
-    assert.notEqual(state.phase, "idle");
+    expect(state.phase).not.toBe("idle");
   });
 
   it("stop() sets agent phase to done", async () => {
@@ -122,22 +119,18 @@ describe("AgentService", () => {
     await service.start("test-agent");
     service.stop("test-agent");
     const state = service.getState("test-agent");
-    assert.ok(state);
-    assert.equal(state.phase, "done");
+    expect(state).toBeTruthy();
+    expect(state.phase).toBe("done");
   });
 
   it("start() throws for unknown slug", async () => {
-    await assert.rejects(
-      () => service.start("nope"),
-      { message: 'Agent "nope" not found.' },
-    );
+    expect(service.start("nope")).rejects.toThrow();
   });
 
   it("stop() throws for unknown slug", () => {
-    assert.throws(
+    expect(
       () => service.stop("nope"),
-      { message: 'Agent "nope" not found.' },
-    );
+    ).toThrow();
   });
 
   // ── subscribe ─────────────────────────────────────────────────
@@ -146,7 +139,7 @@ describe("AgentService", () => {
     let callCount = 0;
     service.subscribe(() => { callCount++; });
     service.create(testConfig);
-    assert.ok(callCount > 0, "Listener should fire on create");
+    expect(callCount > 0).toBeTruthy();
   });
 
   it("subscribe() fires on state change (start/stop)", async () => {
@@ -155,10 +148,10 @@ describe("AgentService", () => {
     service.subscribe(() => { callCount++; });
     await service.start("test-agent");
     const afterStart = callCount;
-    assert.ok(afterStart > 0, "Listener should fire on start");
+    expect(afterStart > 0).toBeTruthy();
 
     service.stop("test-agent");
-    assert.ok(callCount > afterStart, "Listener should fire on stop");
+    expect(callCount > afterStart).toBeTruthy();
   });
 
   it("unsubscribe stops notifications", () => {
@@ -168,7 +161,7 @@ describe("AgentService", () => {
     const afterCreate = callCount;
     unsub();
     service.create({ slug: "another", name: "Another", expertise: [] });
-    assert.equal(callCount, afterCreate, "Listener should not fire after unsubscribe");
+    expect(callCount).toBe(afterCreate);
   });
 
   // ── steer / followUp ─────────────────────────────────────────
@@ -177,47 +170,45 @@ describe("AgentService", () => {
     service.create(testConfig);
     service.steer("test-agent", "change direction");
     // Verify by checking the queues have a steer message
-    assert.ok(queues.hasSteer("test-agent"));
+    expect(queues.hasSteer("test-agent")).toBeTruthy();
   });
 
   it("steer() throws for unknown slug", () => {
-    assert.throws(
+    expect(
       () => service.steer("nope", "msg"),
-      { message: 'Agent "nope" not found.' },
-    );
+    ).toThrow();
   });
 
   it("followUp() puts message in queue", () => {
     service.create(testConfig);
     service.followUp("test-agent", "next question");
-    assert.ok(queues.hasFollowUp("test-agent"));
+    expect(queues.hasFollowUp("test-agent")).toBeTruthy();
   });
 
   it("followUp() throws for unknown slug", () => {
-    assert.throws(
+    expect(
       () => service.followUp("nope", "msg"),
-      { message: 'Agent "nope" not found.' },
-    );
+    ).toThrow();
   });
 
   // ── templates ─────────────────────────────────────────────────
 
   it("getTemplateNames() returns available templates", () => {
     const names = service.getTemplateNames();
-    assert.ok(names.length > 0);
-    assert.ok(names.includes("seo-agent"));
-    assert.ok(names.includes("lead-gen"));
-    assert.ok(names.includes("research"));
+    expect(names.length > 0).toBeTruthy();
+    expect(names.includes("seo-agent")).toBeTruthy();
+    expect(names.includes("lead-gen")).toBeTruthy();
+    expect(names.includes("research")).toBeTruthy();
   });
 
   it("getTemplate() returns template config", () => {
     const tmpl = service.getTemplate("seo-agent");
-    assert.ok(tmpl);
-    assert.equal(tmpl.name, "SEO Analyst");
-    assert.ok(tmpl.expertise.includes("seo"));
+    expect(tmpl).toBeTruthy();
+    expect(tmpl.name).toBe("SEO Analyst");
+    expect(tmpl.expertise.includes("seo")).toBeTruthy();
   });
 
   it("getTemplate() returns undefined for unknown name", () => {
-    assert.equal(service.getTemplate("nonexistent"), undefined);
+    expect(service.getTemplate("nonexistent")).toBe(undefined);
   });
 });

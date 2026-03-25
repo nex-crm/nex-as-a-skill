@@ -6,8 +6,7 @@
  * gossip → chat → orchestration routing.
  */
 
-import { describe, it, beforeEach, afterEach } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, beforeEach, afterEach, expect } from "bun:test";
 import { AgentService, resetAgentService } from "../../src/tui/services/agent-service.js";
 import { ChatService } from "../../src/tui/services/chat-service.js";
 import { MessageQueues } from "../../src/agent/queues.js";
@@ -51,20 +50,20 @@ describe("Multi-Agent Collaboration Simulation", () => {
     const leadGen = agentService.createFromTemplate("lead-gen-1", "lead-gen");
     const enrichment = agentService.createFromTemplate("enrichment-1", "enrichment");
 
-    assert.equal(agentService.list().length, 3);
-    assert.equal(research.config.name, "Research Analyst");
-    assert.equal(leadGen.config.name, "Lead Generator");
-    assert.equal(enrichment.config.name, "Data Enricher");
+    expect(agentService.list().length).toBe(3);
+    expect(research.config.name).toBe("Research Analyst");
+    expect(leadGen.config.name).toBe("Lead Generator");
+    expect(enrichment.config.name).toBe("Data Enricher");
 
     // Verify expertise differentiation
-    assert.ok(research.config.expertise.includes("market-research"));
-    assert.ok(leadGen.config.expertise.includes("prospecting"));
-    assert.ok(enrichment.config.expertise.includes("data-enrichment"));
+    expect(research.config.expertise.includes("market-research")).toBeTruthy();
+    expect(leadGen.config.expertise.includes("prospecting")).toBeTruthy();
+    expect(enrichment.config.expertise.includes("data-enrichment")).toBeTruthy();
 
     // Verify tool differentiation
-    assert.ok(leadGen.config.tools.includes("nex_record_create")); // lead gen creates records
-    assert.ok(!research.config.tools.includes("nex_record_create")); // research doesn't
-    assert.ok(enrichment.config.tools.includes("nex_record_update")); // enrichment updates
+    expect(leadGen.config.tools.includes("nex_record_create")).toBeTruthy(); // lead gen creates records
+    expect(!research.config.tools.includes("nex_record_create")).toBeTruthy(); // research doesn't
+    expect(enrichment.config.tools.includes("nex_record_update")).toBeTruthy(); // enrichment updates
   });
 
   // ── Test 2: Message queues deliver to correct agents ───────────
@@ -79,11 +78,11 @@ describe("Multi-Agent Collaboration Simulation", () => {
     queues.followUp("agent-b", "Generate leads for fintech sector");
 
     // Drain checks isolation
-    assert.equal(queues.drainSteer("agent-a"), "Urgent: research competitor pricing");
-    assert.ok(!queues.drainSteer("agent-b"), "nothing for b");
+    expect(queues.drainSteer("agent-a")).toBe("Urgent: research competitor pricing");
+    expect(!queues.drainSteer("agent-b")).toBeTruthy();
 
-    assert.equal(queues.drainFollowUp("agent-b"), "Generate leads for fintech sector");
-    assert.ok(!queues.drainFollowUp("agent-a"), "nothing for a");
+    expect(queues.drainFollowUp("agent-b")).toBe("Generate leads for fintech sector");
+    expect(!queues.drainFollowUp("agent-a")).toBeTruthy();
   });
 
   // ── Test 3: Agent loop processes steer messages ────────────────
@@ -106,7 +105,7 @@ describe("Multi-Agent Collaboration Simulation", () => {
     // Start and tick
     loop.start();
     const state1 = loop.getState();
-    assert.equal(state1.phase, "idle");
+    expect(state1.phase).toBe("idle");
 
     // Run multiple ticks to advance through the full state machine
     for (let i = 0; i < 5; i++) {
@@ -115,14 +114,13 @@ describe("Multi-Agent Collaboration Simulation", () => {
     const state2 = loop.getState();
 
     // After multiple ticks, should have completed the cycle
-    assert.ok(
+    expect(
       ["idle", "done", "build_context", "stream_llm"].includes(state2.phase),
-      `Expected a valid phase, got ${state2.phase}`,
-    );
+    ).toBeTruthy();
 
     // Session should have entries
     const sessions = sessionStore.listSessions("test-agent");
-    assert.ok(sessions.length > 0, "Session should be created");
+    expect(sessions.length > 0).toBeTruthy();
   });
 
   // ── Test 4: Chat service enables agent DMs ─────────────────────
@@ -132,8 +130,8 @@ describe("Multi-Agent Collaboration Simulation", () => {
 
     // Agent DM channels
     const dm = chatService.ensureChannel("dm-research-1");
-    assert.ok(dm.id);
-    assert.equal(dm.name, "dm-research-1");
+    expect(dm.id).toBeTruthy();
+    expect(dm.name).toBe("dm-research-1");
 
     // Send from human
     chatService.send(dm.id, "What do you know about Meridian?", "human");
@@ -143,11 +141,11 @@ describe("Multi-Agent Collaboration Simulation", () => {
 
     // Verify messages
     const messages = chatService.getMessages(dm.id);
-    assert.equal(messages.length, 2);
-    assert.equal(messages[0].sender, "human");
-    assert.equal(messages[0].senderType, "human");
-    assert.equal(messages[1].sender, "Research Analyst");
-    assert.equal(messages[1].senderType, "agent");
+    expect(messages.length).toBe(2);
+    expect(messages[0].sender).toBe("human");
+    expect(messages[0].senderType).toBe("human");
+    expect(messages[1].sender).toBe("Research Analyst");
+    expect(messages[1].senderType).toBe("agent");
   });
 
   // ── Test 5: Multiple agents, one channel ───────────────────────
@@ -162,11 +160,11 @@ describe("Multi-Agent Collaboration Simulation", () => {
     chatService.send(general.id, "I enriched 8 company profiles with funding data.", "Data Enricher");
 
     const messages = chatService.getMessages(general.id);
-    assert.equal(messages.length, 4);
+    expect(messages.length).toBe(4);
 
     // All messages in chronological order in one channel
     const senders = messages.map((m) => m.sender);
-    assert.deepEqual(senders, ["human", "SEO Analyst", "Lead Generator", "Data Enricher"]);
+    expect(senders).toEqual(["human", "SEO Analyst", "Lead Generator", "Data Enricher"]);
   });
 
   // ── Test 6: Agent loop emits messages back to chat ─────────────
@@ -204,7 +202,7 @@ describe("Multi-Agent Collaboration Simulation", () => {
     const agentMessages = messages.filter((m) => m.senderType === "agent");
     // Note: mock LLM may or may not emit via message event depending on implementation
     // The important thing is the pipeline didn't crash
-    assert.ok(true, "Pipeline completed without errors");
+    expect(true).toBeTruthy();
   });
 
   // ── Test 7: AgentService integration (full stack) ──────────────
@@ -213,12 +211,12 @@ describe("Multi-Agent Collaboration Simulation", () => {
     const agentService = new AgentService(toolRegistry, sessionStore, queues);
 
     const managed = agentService.createFromTemplate("lifecycle-test", "founding-agent");
-    assert.equal(managed.state.phase, "idle");
+    expect(managed.state.phase).toBe("idle");
 
     // Start triggers a tick
     await agentService.start("lifecycle-test");
     const state = agentService.getState("lifecycle-test");
-    assert.ok(state, "State should exist after start");
+    expect(state).toBeTruthy();
 
     // Steer delivers a message
     agentService.steer("lifecycle-test", "Check CRM for stale deals");
@@ -226,7 +224,7 @@ describe("Multi-Agent Collaboration Simulation", () => {
     // Stop
     agentService.stop("lifecycle-test");
     const finalState = agentService.getState("lifecycle-test");
-    assert.ok(finalState, "State should exist after stop");
+    expect(finalState).toBeTruthy();
   });
 
   // ── Test 8: Agent modification (new wizard features) ───────────
@@ -235,19 +233,19 @@ describe("Multi-Agent Collaboration Simulation", () => {
     const agentService = new AgentService(toolRegistry, sessionStore, queues);
 
     agentService.createFromTemplate("editable", "research");
-    assert.equal(agentService.get("editable")!.config.name, "Research Analyst");
+    expect(agentService.get("editable")!.config.name).toBe("Research Analyst");
 
     // Rename
     agentService.updateConfig("editable", { name: "Senior Research Analyst" });
-    assert.equal(agentService.get("editable")!.config.name, "Senior Research Analyst");
+    expect(agentService.get("editable")!.config.name).toBe("Senior Research Analyst");
 
     // Change expertise
     agentService.updateConfig("editable", { expertise: ["ai-research", "deep-tech"] });
-    assert.deepEqual(agentService.get("editable")!.config.expertise, ["ai-research", "deep-tech"]);
+    expect(agentService.get("editable")!.config.expertise).toEqual(["ai-research", "deep-tech"]);
 
     // Change schedule
     agentService.updateConfig("editable", { heartbeatCron: "hourly" });
-    assert.equal(agentService.get("editable")!.config.heartbeatCron, "hourly");
+    expect(agentService.get("editable")!.config.heartbeatCron).toBe("hourly");
   });
 
   // ── Test 9: Agent removal ──────────────────────────────────────
@@ -256,11 +254,11 @@ describe("Multi-Agent Collaboration Simulation", () => {
     const agentService = new AgentService(toolRegistry, sessionStore, queues);
 
     agentService.createFromTemplate("temp-agent", "research");
-    assert.equal(agentService.list().length, 1);
+    expect(agentService.list().length).toBe(1);
 
     agentService.remove("temp-agent");
-    assert.equal(agentService.list().length, 0);
-    assert.equal(agentService.get("temp-agent"), undefined);
+    expect(agentService.list().length).toBe(0);
+    expect(agentService.get("temp-agent")).toBe(undefined);
   });
 
   // ── Test 10: Subscription notifications ────────────────────────
@@ -272,16 +270,16 @@ describe("Multi-Agent Collaboration Simulation", () => {
     agentService.subscribe(() => events.push("change"));
 
     agentService.createFromTemplate("sub-test", "research");
-    assert.ok(events.length >= 1, "Create should notify");
+    expect(events.length >= 1).toBeTruthy();
 
     await agentService.start("sub-test");
-    assert.ok(events.length >= 2, "Start should notify");
+    expect(events.length >= 2).toBeTruthy();
 
     agentService.stop("sub-test");
-    assert.ok(events.length >= 3, "Stop should notify");
+    expect(events.length >= 3).toBeTruthy();
 
     agentService.remove("sub-test");
-    assert.ok(events.length >= 4, "Remove should notify");
+    expect(events.length >= 4).toBeTruthy();
   });
 
   // ── Test 11: Full scenario simulation ──────────────────────────
@@ -331,21 +329,21 @@ describe("Multi-Agent Collaboration Simulation", () => {
 
     // === Verify: Full conversation is preserved ===
     const generalMessages = chatService.getMessages(general.id);
-    assert.ok(generalMessages.length >= 5, `Expected 5+ messages, got ${generalMessages.length}`);
+    expect(generalMessages.length >= 5).toBeTruthy();
 
     // Verify multiple agents participated
     const uniqueSenders = new Set(generalMessages.map((m) => m.sender));
-    assert.ok(uniqueSenders.size >= 3, "At least 3 unique senders in general channel");
+    expect(uniqueSenders.size >= 3).toBeTruthy();
 
     // Verify DM has the original task
     const dmMessages = chatService.getMessages(dmResearcher.id);
-    assert.ok(dmMessages.length >= 1, "DM should have the original task");
-    assert.ok(dmMessages[0].content.includes("Meridian"));
+    expect(dmMessages.length >= 1).toBeTruthy();
+    expect(dmMessages[0].content.includes("Meridian")).toBeTruthy();
 
     // Verify all agents were started
     for (const slug of ["researcher", "lead-gen", "enricher"]) {
       const state = agentService.getState(slug);
-      assert.ok(state, `Agent ${slug} should have state`);
+      expect(state).toBeTruthy();
     }
 
     // === Quality metrics ===
