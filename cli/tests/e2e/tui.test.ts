@@ -30,7 +30,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("Welcome to Nex", 10000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -40,7 +40,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("/help", 10000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -53,7 +53,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("/agents", 5000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -66,7 +66,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("Agents", 5000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -83,7 +83,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText(">", 3000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -96,7 +96,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("0.1.22", 5000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -109,7 +109,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("Usage: nex", 5000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -122,7 +122,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("SEO Analyst", 5000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -137,7 +137,7 @@ describeOrSkip("TUI E2E", () => {
       // Process should have exited — no more output expected
       // If still alive, the test will time out
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -152,7 +152,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("Conversation cleared", 8000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -167,7 +167,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("Unknown command", 8000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -180,7 +180,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("Claude Code", 5000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -196,7 +196,7 @@ describeOrSkip("TUI E2E", () => {
       const emailPrompt = await tui.waitForText("email", 5000);
       expect(emailPrompt).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -207,7 +207,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText("general", 3000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -223,7 +223,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForText(">", 3000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -237,7 +237,7 @@ describeOrSkip("TUI E2E", () => {
       const created = await tui.waitForMatch(/Created agent|API key|error|unauthorized/i, 5000);
       expect(created).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -251,7 +251,7 @@ describeOrSkip("TUI E2E", () => {
       const found = await tui.waitForMatch(/thinking|No API key|error|hello/i, 5000);
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -268,7 +268,7 @@ describeOrSkip("TUI E2E", () => {
       const intact = tui.text().includes("COMPOSE") || tui.text().includes("SIDEBAR") || tui.text().includes("general");
       expect(intact).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -292,7 +292,7 @@ describeOrSkip("TUI E2E", () => {
       const matches = text.match(new RegExp(token, "g")) ?? [];
       expect(matches.length <= 1).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -309,7 +309,7 @@ describeOrSkip("TUI E2E", () => {
       );
       expect(found).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 
@@ -327,7 +327,7 @@ describeOrSkip("TUI E2E", () => {
       const stillAlive = text.includes(">") || text.includes("nex");
       expect(hasHint || stillAlive).toBeTruthy();
     } finally {
-      tui.kill();
+      await tui.kill();
     }
   });
 });
