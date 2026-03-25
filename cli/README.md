@@ -29,12 +29,38 @@ npx @nex-ai/nex ask "who is Maria?"
 nex setup
 ```
 
-`nex setup` handles everything: API key registration, platform detection, hook installation, file scanning, and config creation. Run it once and you're ready to go.
+`nex setup` handles the base install flow: API key registration or re-keying, platform detection, platform installation, optional first integration connection, file scanning, and config creation.
 
 ```bash
 # Now query your knowledge
 nex ask "what's the latest on the Acme deal?"
 ```
+
+## Copy-Paste Prompt For Any AI Agent
+
+Use this when you want Claude, Codex, Cursor, OpenCode, or another terminal-capable AI agent to do the full Nex bootstrap for you.
+
+```text
+Install and fully bootstrap Nex in this project from start to finish.
+
+1. If the `nex` CLI is missing, install it globally with `npm install -g @nex-ai/nex`.
+2. If Nex is not authenticated yet, ask me for the email address I want to use for registration, then continue. If Nex is already authenticated, reuse the existing account and key.
+3. Run `nex setup` and complete the full install flow for every detected AI coding platform in this environment.
+4. After setup, inspect integrations and connect the first available unconnected integration. Prefer this order when multiple choices are available: gmail, google-calendar, slack, salesforce, hubspot, attio, outlook, outlook-calendar. If OAuth is required, open the browser flow and wait for it to complete.
+5. Run a fresh file scan for the current directory so the workspace is up to date.
+6. After the scan finishes, trigger Nex compounding jobs by calling the authenticated `POST https://app.nex.ai/api/developers/v1/compounding/trigger` endpoint for these job types: `consolidation`, `pattern_detection`, and `playbook_synthesis`. Use the active Nex API key from the current environment or the config written by Nex setup.
+7. Fetch the last 24 hours of insights with the insights endpoint or `nex insight list --last 24h`, then give me a clean digest with sections for Highlights, Risks, Opportunities, Open Loops, and Recommended Next Actions.
+8. Finish by showing me:
+   - what Nex installed
+   - which integration was connected
+   - how many files were scanned and ingested
+   - whether the compounding/playbooks trigger succeeded
+   - the formatted 24-hour insight digest
+
+Do not stop after partial setup. Only pause if you need my email for registration or if an OAuth flow requires my interaction.
+```
+
+This works best in agents that can run shell commands and open OAuth URLs.
 
 <details>
 <summary>Manual setup (if you prefer step-by-step)</summary>
