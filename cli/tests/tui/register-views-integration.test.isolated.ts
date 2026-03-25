@@ -4,8 +4,7 @@
  * and that errors are surfaced rather than swallowed.
  */
 
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, beforeEach, afterEach, expect, mock } from "bun:test";
 import React from "react";
 import { render, cleanup } from "ink-testing-library";
 import type { CommandResult } from "../../src/commands/dispatch.js";
@@ -17,7 +16,7 @@ let mockDispatchResult: CommandResult = {
   exitCode: 0,
 };
 
-const mockDispatch = mock.fn(async (_command: string): Promise<CommandResult> => {
+const mockDispatch = mock(async (_command: string): Promise<CommandResult> => {
   return mockDispatchResult;
 });
 
@@ -27,12 +26,10 @@ const mockCommandHelp = [
 ];
 
 // Use mock.module to intercept the dispatch import used by register-views
-await mock.module("../../src/commands/dispatch.js", {
-  namedExports: {
-    dispatch: mockDispatch,
-    commandHelp: mockCommandHelp,
-  },
-});
+mock.module("../../src/commands/dispatch.js", () => ({
+  dispatch: mockDispatch,
+  commandHelp: mockCommandHelp,
+}));
 
 // ── Track service subscribe calls ──
 
@@ -81,55 +78,51 @@ const mockOrchestrationService = {
 };
 
 // Mock services that register-views imports (they have heavy dependencies)
-await mock.module("../../src/tui/services/chat-service.js", {
-  namedExports: { getChatService: () => mockChatService },
-});
+mock.module("../../src/tui/services/chat-service.js", () => ({
+  getChatService: () => mockChatService,
+}));
 
-await mock.module("../../src/tui/services/calendar-service.js", {
-  namedExports: { getCalendarService: () => mockCalendarService },
-});
+mock.module("../../src/tui/services/calendar-service.js", () => ({
+  getCalendarService: () => mockCalendarService,
+}));
 
-await mock.module("../../src/tui/services/agent-service.js", {
-  namedExports: { getAgentService: () => mockAgentService },
-});
+mock.module("../../src/tui/services/agent-service.js", () => ({
+  getAgentService: () => mockAgentService,
+}));
 
-await mock.module("../../src/tui/services/orchestration-service.js", {
-  namedExports: { getOrchestrationService: () => mockOrchestrationService },
-});
+mock.module("../../src/tui/services/orchestration-service.js", () => ({
+  getOrchestrationService: () => mockOrchestrationService,
+}));
 
 // Mock config so the home adapter can call resolveApiKey without filesystem access
-await mock.module("../../src/lib/config.js", {
-  namedExports: {
-    resolveApiKey: () => "test-api-key",
-    resolveFormat: () => "text",
-    resolveTimeout: () => 120_000,
-    loadConfig: () => ({ api_key: "test-api-key" }),
-    saveConfig: () => {},
-    CONFIG_PATH: "/tmp/.nex/config.json",
-    BASE_URL: "https://app.nex.ai",
-  },
-});
+mock.module("../../src/lib/config.js", () => ({
+  resolveApiKey: () => "test-api-key",
+  resolveFormat: () => "text",
+  resolveTimeout: () => 120_000,
+  loadConfig: () => ({ api_key: "test-api-key" }),
+  saveConfig: () => {},
+  CONFIG_PATH: "/tmp/.nex/config.json",
+  BASE_URL: "https://app.nex.ai",
+}));
 
 // Capture registered view components via registerView interception
 type ViewComponent = React.FC<{ props?: Record<string, unknown> }>;
 const viewRegistry = new Map<string, ViewComponent>();
 
-const mockPush = mock.fn((_view: { name: string; props?: Record<string, unknown> }) => {});
-const mockPop = mock.fn(() => {});
+const mockPush = mock((_view: { name: string; props?: Record<string, unknown> }) => {});
+const mockPop = mock(() => {});
 
-await mock.module("../../src/tui/router.js", {
-  namedExports: {
-    registerView: (name: string, component: ViewComponent) => {
-      viewRegistry.set(name, component);
-    },
-    useRouter: () => ({
-      push: mockPush,
-      pop: mockPop,
-      currentView: { name: "home" },
-      viewStack: [{ name: "home" }],
-    }),
+mock.module("../../src/tui/router.js", () => ({
+  registerView: (name: string, component: ViewComponent) => {
+    viewRegistry.set(name, component);
   },
-});
+  useRouter: () => ({
+    push: mockPush,
+    pop: mockPop,
+    currentView: { name: "home" },
+    viewStack: [{ name: "home" }],
+  }),
+}));
 
 // Now import register-views -- this triggers all registerView() calls
 await import("../../src/tui/register-views.js");
@@ -142,8 +135,8 @@ function strip(s: string): string {
 
 function getAdapter(name: string): ViewComponent {
   const adapter = viewRegistry.get(name);
-  assert.ok(adapter, `Expected adapter "${name}" to be registered`);
-  return adapter;
+  expect(adapter).toBeTruthy();
+  return adapter!;
 }
 
 /**
@@ -159,7 +152,7 @@ function renderAdapter(name: string, props?: Record<string, unknown>) {
 
 describe("register-views: home adapter (conversation mode)", () => {
   beforeEach(() => {
-    mockDispatch.mock.resetCalls();
+    mockDispatch.mockClear();
     mockDispatchResult = { output: "", exitCode: 0 };
   });
 
@@ -168,41 +161,40 @@ describe("register-views: home adapter (conversation mode)", () => {
   });
 
   it("is registered in the view registry", () => {
-    assert.ok(viewRegistry.has("home"), "home adapter should be registered");
+    expect(viewRegistry.has("home")).toBeTruthy();
   });
 
   it("renders without crashing", () => {
     const { lastFrame } = renderAdapter("home");
     const frame = lastFrame() ?? "";
-    assert.ok(frame.length > 0, "should render something");
+    expect(frame.length > 0).toBeTruthy();
   });
 
   it("shows welcome message", () => {
     const { lastFrame } = renderAdapter("home");
     const frame = strip(lastFrame() ?? "");
-    assert.ok(frame.includes("Welcome to Nex"), "should show welcome message");
+    expect(frame.includes("Welcome to Nex")).toBeTruthy();
   });
 
   it("shows compose area", () => {
     const { lastFrame } = renderAdapter("home");
     const frame = strip(lastFrame() ?? "");
     // Slack home shows a compose box (either COMPOSE badge or placeholder text)
-    assert.ok(
+    expect(
       frame.includes("COMPOSE") || frame.includes("Message") || frame.includes("Type a message"),
-      "should show compose area",
-    );
+    ).toBeTruthy();
   });
 
   it("shows divider line", () => {
     const { lastFrame } = renderAdapter("home");
     const frame = strip(lastFrame() ?? "");
-    assert.ok(frame.includes("─"), "should show divider line");
+    expect(frame.includes("\u2500")).toBeTruthy();
   });
 });
 
 describe("register-views: ask-chat adapter", () => {
   beforeEach(() => {
-    mockDispatch.mock.resetCalls();
+    mockDispatch.mockClear();
     mockDispatchResult = { output: "", exitCode: 0 };
   });
 
@@ -211,13 +203,13 @@ describe("register-views: ask-chat adapter", () => {
   });
 
   it("is registered in the view registry", () => {
-    assert.ok(viewRegistry.has("ask-chat"), "ask-chat adapter should be registered");
+    expect(viewRegistry.has("ask-chat")).toBeTruthy();
   });
 
   it("renders without crashing", () => {
     const { lastFrame } = renderAdapter("ask-chat");
     const frame = lastFrame() ?? "";
-    assert.ok(frame.length > 0, "should render something");
+    expect(frame.length > 0).toBeTruthy();
   });
 
   it("returns error string for failed dispatch", async () => {
@@ -230,8 +222,8 @@ describe("register-views: ask-chat adapter", () => {
     // Dispatch is tested directly (adapter now uses hooks, so can't be called outside render)
     const answer = await mockDispatch("ask what is nex?");
 
-    assert.equal(mockDispatch.mock.callCount(), 1);
-    assert.equal(answer.error, "API key missing");
+    expect(mockDispatch.mock.calls.length).toBe(1);
+    expect(answer.error).toBe("API key missing");
   });
 
   it("returns output for successful dispatch", async () => {
@@ -242,7 +234,7 @@ describe("register-views: ask-chat adapter", () => {
 
     const answer = await mockDispatch("ask what is nex?");
 
-    assert.equal(answer.output, "Nex is a CRM tool");
+    expect(answer.output).toBe("Nex is a CRM tool");
   });
 
   it("returns (no response) for empty output", async () => {
@@ -253,31 +245,31 @@ describe("register-views: ask-chat adapter", () => {
 
     const answer = await mockDispatch("ask empty question");
 
-    assert.equal(answer.output, "");
+    expect(answer.output).toBe("");
   });
 
   it("renders with sessionId from props", () => {
     const { lastFrame } = renderAdapter("ask-chat", { sessionId: "sess-123" });
     const frame = strip(lastFrame() ?? "");
-    assert.ok(frame.includes("sess-123"), "should show session ID");
+    expect(frame.includes("sess-123")).toBeTruthy();
   });
 
   it("defaults mode to insert (input active)", () => {
     const { lastFrame } = renderAdapter("ask-chat");
     const frame = strip(lastFrame() ?? "");
-    assert.ok(frame.includes("ask>"), "should show ask prompt");
+    expect(frame.includes("ask>")).toBeTruthy();
   });
 
   it("shows Ask Nex header", () => {
     const { lastFrame } = renderAdapter("ask-chat");
     const frame = strip(lastFrame() ?? "");
-    assert.ok(frame.includes("Ask Nex"), "should show Ask Nex header");
+    expect(frame.includes("Ask Nex")).toBeTruthy();
   });
 
   it("shows session ID when provided", () => {
     const { lastFrame } = renderAdapter("ask-chat", { sessionId: "sess-abc" });
     const frame = strip(lastFrame() ?? "");
-    assert.ok(frame.includes("sess-abc"), "should show session ID");
+    expect(frame.includes("sess-abc")).toBeTruthy();
   });
 });
 
@@ -296,7 +288,7 @@ describe("register-views: all expected views registered", () => {
 
   for (const name of expectedViews) {
     it(`registers "${name}" view`, () => {
-      assert.ok(viewRegistry.has(name), `"${name}" should be in the registry`);
+      expect(viewRegistry.has(name)).toBeTruthy();
     });
   }
 });
@@ -317,19 +309,19 @@ describe("register-views: agent-list subscribes to service", () => {
   });
 
   it("registers a subscriber on mount", async () => {
-    assert.equal(agentSubscribers.length, 0, "no subscribers before mount");
+    expect(agentSubscribers.length).toBe(0);
     renderAdapter("agent-list");
     await waitForEffect();
-    assert.equal(agentSubscribers.length, 1, "should have one subscriber after mount");
+    expect(agentSubscribers.length).toBe(1);
   });
 
   it("unsubscribes on unmount", async () => {
     const { unmount } = renderAdapter("agent-list");
     await waitForEffect();
-    assert.equal(agentSubscribers.length, 1);
+    expect(agentSubscribers.length).toBe(1);
     unmount();
     await waitForEffect();
-    assert.equal(agentSubscribers.length, 0, "subscriber removed after unmount");
+    expect(agentSubscribers.length).toBe(0);
   });
 });
 
@@ -340,7 +332,7 @@ describe("register-views: chat subscribes to service", () => {
   it("registers a subscriber on mount", async () => {
     renderAdapter("chat");
     await waitForEffect();
-    assert.equal(chatSubscribers.length, 1, "should have one subscriber after mount");
+    expect(chatSubscribers.length).toBe(1);
   });
 });
 
@@ -351,7 +343,7 @@ describe("register-views: calendar subscribes to service", () => {
   it("registers a subscriber on mount", async () => {
     renderAdapter("calendar");
     await waitForEffect();
-    assert.equal(calendarSubscribers.length, 1, "should have one subscriber after mount");
+    expect(calendarSubscribers.length).toBe(1);
   });
 });
 
@@ -362,6 +354,6 @@ describe("register-views: orchestration subscribes to service", () => {
   it("registers a subscriber on mount", async () => {
     renderAdapter("orchestration");
     await waitForEffect();
-    assert.equal(orchestrationSubscribers.length, 1, "should have one subscriber after mount");
+    expect(orchestrationSubscribers.length).toBe(1);
   });
 });

@@ -1,5 +1,4 @@
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, expect } from "bun:test";
 import { handleKey, parseKey } from "../../src/tui/keybindings.js";
 import type { TuiState, Action } from "../../src/tui/store.js";
 
@@ -39,52 +38,52 @@ function collectDispatches(
 describe("parseKey", () => {
   it("parses printable lowercase", () => {
     const k = parseKey("a");
-    assert.equal(k.name, "a");
-    assert.equal(k.ctrl, false);
-    assert.equal(k.shift, false);
+    expect(k.name).toBe("a");
+    expect(k.ctrl).toBe(false);
+    expect(k.shift).toBe(false);
   });
 
   it("parses uppercase as shift", () => {
     const k = parseKey("G");
-    assert.equal(k.name, "G");
-    assert.equal(k.shift, true);
+    expect(k.name).toBe("G");
+    expect(k.shift).toBe(true);
   });
 
   it("parses Ctrl+d", () => {
     const k = parseKey("\x04"); // Ctrl+D = 0x04
-    assert.equal(k.name, "d");
-    assert.equal(k.ctrl, true);
+    expect(k.name).toBe("d");
+    expect(k.ctrl).toBe(true);
   });
 
   it("parses Ctrl+u", () => {
     const k = parseKey("\x15"); // Ctrl+U = 0x15
-    assert.equal(k.name, "u");
-    assert.equal(k.ctrl, true);
+    expect(k.name).toBe("u");
+    expect(k.ctrl).toBe(true);
   });
 
   it("parses escape", () => {
     const k = parseKey("\x1b");
-    assert.equal(k.name, "escape");
+    expect(k.name).toBe("escape");
   });
 
   it("parses return", () => {
     const k = parseKey("\r");
-    assert.equal(k.name, "return");
+    expect(k.name).toBe("return");
   });
 
   it("parses tab", () => {
     const k = parseKey("\t");
-    assert.equal(k.name, "tab");
+    expect(k.name).toBe("tab");
   });
 
   it("parses up arrow", () => {
     const k = parseKey("\x1b[A");
-    assert.equal(k.name, "up");
+    expect(k.name).toBe("up");
   });
 
   it("parses down arrow", () => {
     const k = parseKey("\x1b[B");
-    assert.equal(k.name, "down");
+    expect(k.name).toBe("down");
   });
 });
 
@@ -93,36 +92,36 @@ describe("parseKey", () => {
 describe("keybindings: normal mode", () => {
   it("i switches to insert mode", () => {
     const actions = collectDispatches("i", makeState());
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "SET_MODE", mode: "insert" });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "SET_MODE", mode: "insert" });
   });
 
   it("/ switches to insert mode and sets input", () => {
     const actions = collectDispatches("/", makeState());
-    assert.equal(actions.length, 2);
-    assert.deepEqual(actions[0], { type: "SET_MODE", mode: "insert" });
-    assert.deepEqual(actions[1], { type: "SET_INPUT", value: "/" });
+    expect(actions.length).toBe(2);
+    expect(actions[0]).toEqual({ type: "SET_MODE", mode: "insert" });
+    expect(actions[1]).toEqual({ type: "SET_INPUT", value: "/" });
   });
 
   it("? pushes help view", () => {
     const actions = collectDispatches("?", makeState());
-    assert.equal(actions.length, 1);
-    assert.equal(actions[0].type, "PUSH_VIEW");
+    expect(actions.length).toBe(1);
+    expect(actions[0].type).toBe("PUSH_VIEW");
     if (actions[0].type === "PUSH_VIEW") {
-      assert.equal(actions[0].view.name, "help");
+      expect(actions[0].view.name).toBe("help");
     }
   });
 
   it("j scrolls down when no picker", () => {
     const actions = collectDispatches("j", makeState({ scrollOffset: 5 }));
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "SCROLL", offset: 6 });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "SCROLL", offset: 6 });
   });
 
   it("k scrolls up when no picker", () => {
     const actions = collectDispatches("k", makeState({ scrollOffset: 5 }));
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "SCROLL", offset: 4 });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "SCROLL", offset: 4 });
   });
 
   it("j moves picker cursor down", () => {
@@ -134,8 +133,8 @@ describe("keybindings: normal mode", () => {
       "j",
       makeState({ pickerItems: items, pickerCursor: 0 }),
     );
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "SET_PICKER_CURSOR", cursor: 1 });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "SET_PICKER_CURSOR", cursor: 1 });
   });
 
   it("k moves picker cursor up", () => {
@@ -147,14 +146,14 @@ describe("keybindings: normal mode", () => {
       "k",
       makeState({ pickerItems: items, pickerCursor: 1 }),
     );
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "SET_PICKER_CURSOR", cursor: 0 });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "SET_PICKER_CURSOR", cursor: 0 });
   });
 
   it("G scrolls to bottom (Infinity)", () => {
     const actions = collectDispatches("G", makeState());
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "SCROLL", offset: Infinity });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "SCROLL", offset: Infinity });
   });
 
   it("gg (double tap) scrolls to top", () => {
@@ -165,34 +164,34 @@ describe("keybindings: normal mode", () => {
     const scrollAction = actions.find(
       (a) => a.type === "SCROLL" && "offset" in a && a.offset === 0,
     );
-    assert.ok(scrollAction, "Expected SCROLL to offset 0");
+    expect(scrollAction).toBeTruthy();
   });
 
   it("single g just records lastKey", () => {
     const actions = collectDispatches("g", makeState());
-    assert.equal(actions.length, 1);
-    assert.equal(actions[0].type, "SET_LAST_KEY");
+    expect(actions.length).toBe(1);
+    expect(actions[0].type).toBe("SET_LAST_KEY");
     if (actions[0].type === "SET_LAST_KEY") {
-      assert.equal(actions[0].key, "g");
+      expect(actions[0].key).toBe("g");
     }
   });
 
   it("Escape pops view", () => {
     const actions = collectDispatches("\x1b", makeState());
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "POP_VIEW" });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "POP_VIEW" });
   });
 
   it("Ctrl+d scrolls half page down", () => {
     const actions = collectDispatches("\x04", makeState({ scrollOffset: 0 }));
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "SCROLL", offset: 15 });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "SCROLL", offset: 15 });
   });
 
   it("Ctrl+u scrolls half page up", () => {
     const actions = collectDispatches("\x15", makeState({ scrollOffset: 20 }));
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "SCROLL", offset: 5 });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "SCROLL", offset: 5 });
   });
 
   it("number keys quick-select picker item", () => {
@@ -209,12 +208,12 @@ describe("keybindings: normal mode", () => {
     const cursorAction = actions.find(
       (a) => a.type === "SET_PICKER_CURSOR",
     );
-    assert.ok(cursorAction);
+    expect(cursorAction).toBeTruthy();
     if (cursorAction && cursorAction.type === "SET_PICKER_CURSOR") {
-      assert.equal(cursorAction.cursor, 1);
+      expect(cursorAction.cursor).toBe(1);
     }
     const modeAction = actions.find((a) => a.type === "SET_MODE");
-    assert.ok(modeAction);
+    expect(modeAction).toBeTruthy();
   });
 
   it("q calls process.exit", () => {
@@ -226,7 +225,7 @@ describe("keybindings: normal mode", () => {
 
     try {
       collectDispatches("q", makeState());
-      assert.ok(exitCalled, "process.exit should have been called");
+      expect(exitCalled).toBeTruthy();
     } finally {
       process.exit = originalExit;
     }
@@ -238,8 +237,8 @@ describe("keybindings: normal mode", () => {
 describe("keybindings: insert mode", () => {
   it("Escape switches to normal mode", () => {
     const actions = collectDispatches("\x1b", makeState({ mode: "insert" }));
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], { type: "SET_MODE", mode: "normal" });
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({ type: "SET_MODE", mode: "normal" });
   });
 
   it("Enter pushes history when inputValue is non-empty", () => {
@@ -247,8 +246,8 @@ describe("keybindings: insert mode", () => {
       "\r",
       makeState({ mode: "insert", inputValue: "record list" }),
     );
-    assert.equal(actions.length, 1);
-    assert.deepEqual(actions[0], {
+    expect(actions.length).toBe(1);
+    expect(actions[0]).toEqual({
       type: "PUSH_HISTORY",
       command: "record list",
     });
@@ -259,7 +258,7 @@ describe("keybindings: insert mode", () => {
       "\r",
       makeState({ mode: "insert", inputValue: "" }),
     );
-    assert.equal(actions.length, 0);
+    expect(actions.length).toBe(0);
   });
 
   it("Up arrow navigates history", () => {
@@ -270,9 +269,9 @@ describe("keybindings: insert mode", () => {
     );
     // Should set historyIndex to last and set input
     const idxAction = actions.find((a) => a.type === "SET_HISTORY_INDEX");
-    assert.ok(idxAction);
+    expect(idxAction).toBeTruthy();
     if (idxAction && idxAction.type === "SET_HISTORY_INDEX") {
-      assert.equal(idxAction.index, 2); // last item
+      expect(idxAction.index).toBe(2); // last item
     }
   });
 
@@ -283,9 +282,9 @@ describe("keybindings: insert mode", () => {
       makeState({ mode: "insert", inputHistory: history, historyIndex: 0 }),
     );
     const idxAction = actions.find((a) => a.type === "SET_HISTORY_INDEX");
-    assert.ok(idxAction);
+    expect(idxAction).toBeTruthy();
     if (idxAction && idxAction.type === "SET_HISTORY_INDEX") {
-      assert.equal(idxAction.index, 1);
+      expect(idxAction.index).toBe(1);
     }
   });
 
@@ -295,9 +294,9 @@ describe("keybindings: insert mode", () => {
       makeState({ mode: "insert", inputValue: "record l" }),
     );
     const inputAction = actions.find((a) => a.type === "SET_INPUT");
-    assert.ok(inputAction);
+    expect(inputAction).toBeTruthy();
     if (inputAction && inputAction.type === "SET_INPUT") {
-      assert.equal(inputAction.value, "record list");
+      expect(inputAction.value).toBe("record list");
     }
   });
 
@@ -307,7 +306,7 @@ describe("keybindings: insert mode", () => {
       makeState({ mode: "insert", inputValue: "zzzz" }),
     );
     const inputAction = actions.find((a) => a.type === "SET_INPUT");
-    assert.equal(inputAction, undefined);
+    expect(inputAction).toBe(undefined);
   });
 
   it("regular keys in insert mode produce no dispatch", () => {
@@ -315,6 +314,6 @@ describe("keybindings: insert mode", () => {
       "a",
       makeState({ mode: "insert" }),
     );
-    assert.equal(actions.length, 0);
+    expect(actions.length).toBe(0);
   });
 });

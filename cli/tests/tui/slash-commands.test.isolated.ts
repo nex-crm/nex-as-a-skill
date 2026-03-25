@@ -1,36 +1,31 @@
-import { describe, it, beforeEach, mock } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, beforeEach, expect, mock } from "bun:test";
 
 let mockApiKey: string | undefined = "test-api-key-1234567890";
 let mockConfigEmail: string | undefined = "user@example.com";
 
-await mock.module("../../src/lib/config.js", {
-  namedExports: {
-    resolveApiKey: () => mockApiKey,
-    loadConfig: () => ({ api_key: mockApiKey, email: mockConfigEmail, workspace_id: "ws-123", workspace_slug: "my-workspace" }),
-    saveConfig: () => {}, persistRegistration: () => {},
-    CONFIG_PATH: "/tmp/.nex/config.json", BASE_URL: "https://app.nex.ai",
-    API_BASE: "https://app.nex.ai/api/developers",
-    REGISTER_URL: "https://app.nex.ai/api/v1/agents/register",
-    resolveFormat: () => "text", resolveTimeout: () => 120_000,
-  },
-});
+mock.module("../../src/lib/config.js", () => ({
+  resolveApiKey: () => mockApiKey,
+  loadConfig: () => ({ api_key: mockApiKey, email: mockConfigEmail, workspace_id: "ws-123", workspace_slug: "my-workspace" }),
+  saveConfig: () => {}, persistRegistration: () => {},
+  CONFIG_PATH: "/tmp/.nex/config.json", BASE_URL: "https://app.nex.ai",
+  API_BASE: "https://app.nex.ai/api/developers",
+  REGISTER_URL: "https://app.nex.ai/api/v1/agents/register",
+  resolveFormat: () => "text", resolveTimeout: () => 120_000,
+}));
 
 let mockRegisterResult = { apiKey: "new-key-abc1234567890", workspaceId: "ws-new", workspaceSlug: "new-workspace" };
 let mockDetectedPlatforms: Array<{ name: string; slug: string; detected: boolean; nexInstalled: boolean; configPath: string; capabilities: Record<string, boolean> }> = [];
 let installForPlatformCalls: Array<{ platform: string; apiKey: string }> = [];
 
-await mock.module("../../src/commands/init.js", {
-  namedExports: {
-    registerUser: async (_email: string) => mockRegisterResult,
-    detectPlatforms: () => mockDetectedPlatforms,
-    installForPlatform: (platform: { name: string }, apiKey: string, onProgress: (p: { detail?: string }) => void) => {
-      installForPlatformCalls.push({ platform: platform.name, apiKey });
-      onProgress({ detail: `Installed for ${platform.name}` });
-    },
-    getDetected: () => mockDetectedPlatforms, writeMcpConfig: () => {}, runInit: async () => {},
+mock.module("../../src/commands/init.js", () => ({
+  registerUser: async (_email: string) => mockRegisterResult,
+  detectPlatforms: () => mockDetectedPlatforms,
+  installForPlatform: (platform: { name: string }, apiKey: string, onProgress: (p: { detail?: string }) => void) => {
+    installForPlatformCalls.push({ platform: platform.name, apiKey });
+    onProgress({ detail: `Installed for ${platform.name}` });
   },
-});
+  getDetected: () => mockDetectedPlatforms, writeMcpConfig: () => {}, runInit: async () => {},
+}));
 
 let createdAgents: Array<{ slug: string; config: Record<string, unknown> }> = [];
 let createdFromTemplate: Array<{ slug: string; templateName: string }> = [];
@@ -50,26 +45,24 @@ const mockAgentService = {
   },
   list: () => [], get: () => undefined, subscribe: () => () => {},
 };
-await mock.module("../../src/tui/services/agent-service.js", {
-  namedExports: { getAgentService: () => mockAgentService, resetAgentService: () => {}, AgentService: class {} },
-});
+mock.module("../../src/tui/services/agent-service.js", () => ({
+  getAgentService: () => mockAgentService, resetAgentService: () => {}, AgentService: class {},
+}));
 
 let syncApiKeyCalls: string[] = [];
-await mock.module("../../src/lib/installers.js", {
-  namedExports: {
-    syncApiKeyToMcpConfig: (key: string) => { syncApiKeyCalls.push(key); },
-    installClaudeCodePlugin: () => ({ installed: false, hooksAdded: [], commandsCopied: [] }),
-    installMcpServer: () => ({ installed: false, configPath: "" }),
-    installRulesFile: () => ({ installed: false, rulesPath: "" }),
-    installHooks: () => ({ installed: false, hooksAdded: [] }),
-    installOpenCodePlugin: () => ({ installed: false, pluginPath: "" }),
-    installOpenClawPlugin: () => ({ installed: false, message: "" }),
-    installVSCodeAgent: () => ({ installed: false, agentPath: "" }),
-    installKiloCodeMode: () => ({ installed: false, modePath: "" }),
-    installWindsurfWorkflows: () => ({ installed: false, workflowCount: 0 }),
-    installContinueProvider: () => ({ installed: false, providerPath: "" }),
-  },
-});
+mock.module("../../src/lib/installers.js", () => ({
+  syncApiKeyToMcpConfig: (key: string) => { syncApiKeyCalls.push(key); },
+  installClaudeCodePlugin: () => ({ installed: false, hooksAdded: [], commandsCopied: [] }),
+  installMcpServer: () => ({ installed: false, configPath: "" }),
+  installRulesFile: () => ({ installed: false, rulesPath: "" }),
+  installHooks: () => ({ installed: false, hooksAdded: [] }),
+  installOpenCodePlugin: () => ({ installed: false, pluginPath: "" }),
+  installOpenClawPlugin: () => ({ installed: false, message: "" }),
+  installVSCodeAgent: () => ({ installed: false, agentPath: "" }),
+  installKiloCodeMode: () => ({ installed: false, modePath: "" }),
+  installWindsurfWorkflows: () => ({ installed: false, workflowCount: 0 }),
+  installContinueProvider: () => ({ installed: false, providerPath: "" }),
+}));
 
 import { parseSlashInput, getSlashCommand, listSlashCommands, getInitState, resetInitState, handleInitInput } from "../../src/tui/slash-commands.js";
 import type { SlashCommandContext, ConversationMessage } from "../../src/tui/slash-commands.js";
@@ -89,24 +82,24 @@ function makeContext(overrides?: Partial<SlashCommandContext>): SlashCommandCont
 }
 
 describe("parseSlashInput", () => {
-  it("returns isSlash false for plain text", () => { assert.equal(parseSlashInput("hello").isSlash, false); });
-  it("parses /help", () => { const r = parseSlashInput("/help"); assert.equal(r.command, "help"); });
-  it("parses /ask with args", () => { const r = parseSlashInput("/ask top leads?"); assert.equal(r.args, "top leads?"); });
+  it("returns isSlash false for plain text", () => { expect(parseSlashInput("hello").isSlash).toBe(false); });
+  it("parses /help", () => { const r = parseSlashInput("/help"); expect(r.command).toBe("help"); });
+  it("parses /ask with args", () => { const r = parseSlashInput("/ask top leads?"); expect(r.args).toBe("top leads?"); });
 });
 
 describe("slash command registry", () => {
   for (const n of ["help","ask","agents","chat","calendar","orchestration","orch","graph","objects","records","remember","clear","init","agent"]) {
-    it(`has ${n}`, () => { assert.ok(getSlashCommand(n)); });
+    it(`has ${n}`, () => { expect(getSlashCommand(n)).toBeTruthy(); });
   }
-  it("returns undefined for unknown", () => { assert.equal(getSlashCommand("x"), undefined); });
-  it("listSlashCommands >= 15", () => { assert.ok(listSlashCommands().length >= 15); });
+  it("returns undefined for unknown", () => { expect(getSlashCommand("x")).toBe(undefined); });
+  it("listSlashCommands >= 15", () => { expect(listSlashCommands().length >= 15).toBeTruthy(); });
 });
 
 describe("slash command execution", () => {
-  it("/help returns output", async () => { const r = await getSlashCommand("help")!.execute("", makeContext()); assert.ok(r.output!.includes("/help")); });
-  it("/agents pushes view", async () => { let p: any; await getSlashCommand("agents")!.execute("", makeContext({ push: (v) => { p = v; } })); assert.equal(p.name, "agent-list"); });
-  it("/ask no args = usage", async () => { const r = await getSlashCommand("ask")!.execute("", makeContext()); assert.ok(r.output!.includes("Usage")); });
-  it("/clear sentinel", async () => { const r = await getSlashCommand("clear")!.execute("", makeContext()); assert.equal(r.output, "__CLEAR__"); });
+  it("/help returns output", async () => { const r = await getSlashCommand("help")!.execute("", makeContext()); expect(r.output!.includes("/help")).toBeTruthy(); });
+  it("/agents pushes view", async () => { let p: any; await getSlashCommand("agents")!.execute("", makeContext({ push: (v) => { p = v; } })); expect(p.name).toBe("agent-list"); });
+  it("/ask no args = usage", async () => { const r = await getSlashCommand("ask")!.execute("", makeContext()); expect(r.output!.includes("Usage")).toBeTruthy(); });
+  it("/clear sentinel", async () => { const r = await getSlashCommand("clear")!.execute("", makeContext()); expect(r.output).toBe("__CLEAR__"); });
 });
 
 describe("init: picker-based flow", () => {
@@ -116,24 +109,24 @@ describe("init: picker-based flow", () => {
     mockApiKey = undefined;
     const msgs: ConversationMessage[] = [];
     await getSlashCommand("init")!.execute("", makeContext({ addMessage: (m) => msgs.push(m) }));
-    assert.equal(getInitState().phase, "awaiting_email");
+    expect(getInitState().phase).toBe("awaiting_email");
   });
 
   it("/init valid key => showPicker called (not text choices)", async () => {
     mockApiKey = "valid-key-1234567890";
     let picked = false;
     await getSlashCommand("init")!.execute("", makeContext({ dispatch: async () => ({ output: "ok", exitCode: 0 }), showPicker: () => { picked = true; } }));
-    assert.ok(picked, "showPicker should be called for agent choice");
+    expect(picked).toBeTruthy();
   });
 
   it("/init expired key => picker with regenerate/new-email/skip", async () => {
     mockApiKey = "expired-key-1234567890"; mockConfigEmail = "t@e.com";
     let opts: SelectOption[] = [];
     await getSlashCommand("init")!.execute("", makeContext({ dispatch: async () => ({ output: "", exitCode: 2, error: "API key expired" }), showPicker: (_t, o) => { opts = o; } }));
-    assert.equal(opts.length, 3);
-    assert.ok(opts.some((o) => o.value === "regenerate"));
-    assert.ok(opts.some((o) => o.value === "new-email"));
-    assert.ok(opts.some((o) => o.value === "skip"));
+    expect(opts.length).toBe(3);
+    expect(opts.some((o) => o.value === "regenerate")).toBeTruthy();
+    expect(opts.some((o) => o.value === "new-email")).toBeTruthy();
+    expect(opts.some((o) => o.value === "skip")).toBeTruthy();
   });
 });
 
@@ -147,8 +140,8 @@ describe("handleInitInput", () => {
     const ctx = makeContext({ addMessage: (m) => msgs.push(m), showPicker: () => { picked = true; } });
     await getSlashCommand("init")!.execute("", ctx);
     await handleInitInput("a@b.com", ctx);
-    assert.ok(msgs.some((m) => m.content.includes("Logged in!")));
-    assert.ok(picked);
+    expect(msgs.some((m) => m.content.includes("Logged in!"))).toBeTruthy();
+    expect(picked).toBeTruthy();
   });
 
   it("invalid email stays in awaiting_email", async () => {
@@ -158,7 +151,7 @@ describe("handleInitInput", () => {
     await getSlashCommand("init")!.execute("", ctx);
     msgs.length = 0;
     await handleInitInput("bad", ctx);
-    assert.equal(getInitState().phase, "awaiting_email");
+    expect(getInitState().phase).toBe("awaiting_email");
   });
 
   it("regen picker callbacks work", async () => {
@@ -169,7 +162,7 @@ describe("handleInitInput", () => {
     await getSlashCommand("init")!.execute("", ctx);
     msgs.length = 0;
     await cb!("regenerate");
-    assert.ok(msgs.some((m) => m.content.includes("New key generated")));
+    expect(msgs.some((m) => m.content.includes("New key generated"))).toBeTruthy();
   });
 });
 
@@ -182,17 +175,17 @@ describe("agent onboarding (picker)", () => {
     const orig = ctx.showPicker;
     ctx.showPicker = (t, o, fn) => { cb = fn; opts = o; orig(t, o, fn); };
     await getSlashCommand("init")!.execute("", ctx);
-    assert.ok(cb, "agent picker should appear");
+    expect(cb).toBeTruthy();
     return { onSelect: cb!, options: opts };
   }
 
   it("picker has 4 options", async () => {
     const ctx = makeContext({ dispatch: async () => ({ output: "ok", exitCode: 0 }) });
     const { options } = await toAgentPicker(ctx);
-    assert.ok(options.some((o) => o.value === "templates"));
-    assert.ok(options.some((o) => o.value === "custom"));
-    assert.ok(options.some((o) => o.value === "founding"));
-    assert.ok(options.some((o) => o.value === "skip"));
+    expect(options.some((o) => o.value === "templates")).toBeTruthy();
+    expect(options.some((o) => o.value === "custom")).toBeTruthy();
+    expect(options.some((o) => o.value === "founding")).toBeTruthy();
+    expect(options.some((o) => o.value === "skip")).toBeTruthy();
   });
 
   it("founding creates agent", async () => {
@@ -200,8 +193,8 @@ describe("agent onboarding (picker)", () => {
     const ctx = makeContext({ dispatch: async () => ({ output: "ok", exitCode: 0 }), addMessage: (m) => msgs.push(m) });
     const { onSelect } = await toAgentPicker(ctx);
     await onSelect("founding");
-    assert.ok(createdFromTemplate.some((c) => c.slug === "founding-agent"));
-    assert.ok(msgs.some((m) => m.content.includes('Created "Founding Agent"')));
+    expect(createdFromTemplate.some((c) => c.slug === "founding-agent")).toBeTruthy();
+    expect(msgs.some((m) => m.content.includes('Created "Founding Agent"'))).toBeTruthy();
   });
 
   it("skip skips", async () => {
@@ -209,7 +202,7 @@ describe("agent onboarding (picker)", () => {
     const ctx = makeContext({ dispatch: async () => ({ output: "ok", exitCode: 0 }), addMessage: (m) => msgs.push(m) });
     const { onSelect } = await toAgentPicker(ctx);
     onSelect("skip");
-    assert.ok(msgs.some((m) => m.content.includes("Skipped")));
+    expect(msgs.some((m) => m.content.includes("Skipped"))).toBeTruthy();
   });
 
   it("custom => prompt => confirm => create", async () => {
@@ -218,12 +211,12 @@ describe("agent onboarding (picker)", () => {
     const ctx = makeContext({ dispatch: async () => ({ output: "not json", exitCode: 0 }), addMessage: (m) => msgs.push(m), showConfirm: (_q, cb) => { confirmCb = cb; } });
     const { onSelect } = await toAgentPicker(ctx);
     onSelect("custom");
-    assert.equal(getInitState().phase, "awaiting_agent_prompt");
+    expect(getInitState().phase).toBe("awaiting_agent_prompt");
     await handleInitInput("Track sales", ctx);
-    assert.ok(confirmCb);
+    expect(confirmCb).toBeTruthy();
     msgs.length = 0;
     await confirmCb!(true);
-    assert.equal(createdAgents.length, 1);
+    expect(createdAgents.length).toBe(1);
   });
 
   it("templates => template picker => create", async () => {
@@ -232,12 +225,12 @@ describe("agent onboarding (picker)", () => {
     const ctx = makeContext({ dispatch: async () => ({ output: "ok", exitCode: 0 }), addMessage: (m) => msgs.push(m), showPicker: (_t, opts, cb) => { if (opts.some((o) => o.value === "seo-agent")) tCb = cb; } });
     const { onSelect } = await toAgentPicker(ctx);
     onSelect("templates");
-    assert.ok(tCb);
+    expect(tCb).toBeTruthy();
     msgs.length = 0;
     tCb!("seo-agent");
     // handleTemplateSelect is async — wait for microtask queue
     await new Promise((r) => setTimeout(r, 10));
-    assert.ok(createdFromTemplate.some((c) => c.slug === "seo-agent"));
-    assert.ok(msgs.some((m) => m.content.includes('Created "SEO Analyst"')));
+    expect(createdFromTemplate.some((c) => c.slug === "seo-agent")).toBeTruthy();
+    expect(msgs.some((m) => m.content.includes('Created "SEO Analyst"'))).toBeTruthy();
   });
 });

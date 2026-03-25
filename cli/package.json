@@ -40,6 +40,8 @@
     "start": "bun dist/index.js",
     "dev": "bun src/index.ts",
     "test": "bun test",
+    "test:isolated": "bun test ./tests/tui/register-views-integration.test.isolated.ts && bun test ./tests/tui/slash-commands.test.isolated.ts",
+    "test:all": "bun test && bun test ./tests/tui/register-views-integration.test.isolated.ts && bun test ./tests/tui/slash-commands.test.isolated.ts",
     "prepublishOnly": "bun run build"
   },
   "devDependencies": {

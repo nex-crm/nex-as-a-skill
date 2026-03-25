@@ -1,5 +1,4 @@
-import { describe, it, beforeEach } from "node:test";
-import assert from "node:assert/strict";
+import { describe, it, beforeEach, expect } from "bun:test";
 import {
   getChannelColor,
   resetChannelColors,
@@ -11,46 +10,46 @@ describe("channel-colors", () => {
   });
 
   it("assigns well-known colors for standard channels", () => {
-    assert.equal(getChannelColor("general"), "cyan");
-    assert.equal(getChannelColor("leads"), "green");
-    assert.equal(getChannelColor("seo"), "yellow");
-    assert.equal(getChannelColor("support"), "magenta");
+    expect(getChannelColor("general")).toBe("cyan");
+    expect(getChannelColor("leads")).toBe("green");
+    expect(getChannelColor("seo")).toBe("yellow");
+    expect(getChannelColor("support")).toBe("magenta");
   });
 
   it("is case-insensitive for well-known channels", () => {
-    assert.equal(getChannelColor("General"), "cyan");
-    assert.equal(getChannelColor("LEADS"), "green");
+    expect(getChannelColor("General")).toBe("cyan");
+    expect(getChannelColor("LEADS")).toBe("green");
   });
 
   it("returns stable color for same channel name", () => {
     const first = getChannelColor("custom-channel");
     const second = getChannelColor("custom-channel");
-    assert.equal(first, second, "same name should always return same color");
+    expect(first).toBe(second);
   });
 
   it("assigns different colors to different unknown channels", () => {
     const a = getChannelColor("alpha");
     const b = getChannelColor("beta");
-    assert.notEqual(a, b, "different names should get different colors");
+    expect(a).not.toBe(b);
   });
 
   it("cycles through palette for unknown channels", () => {
     const names = ["x1", "x2", "x3", "x4", "x5", "x6"];
     const colors = names.map((n) => getChannelColor(n));
     const unique = new Set(colors);
-    assert.equal(unique.size, 6, "should use all 6 palette colors");
+    expect(unique.size).toBe(6);
   });
 
   it("wraps around after exhausting palette", () => {
     const names = ["x1", "x2", "x3", "x4", "x5", "x6", "x7"];
     const colors = names.map((n) => getChannelColor(n));
-    assert.equal(colors[6], colors[0], "7th should wrap to first color");
+    expect(colors[6]).toBe(colors[0]);
   });
 
   it("resetChannelColors clears all assignments", () => {
     getChannelColor("custom");
     resetChannelColors();
     // After reset, well-known channels still work
-    assert.equal(getChannelColor("general"), "cyan");
+    expect(getChannelColor("general")).toBe("cyan");
   });
 });
