@@ -40,8 +40,20 @@ One fact entered once. Available everywhere, instantly.
 ## Quick Start (Recommended)
 
 ```bash
-# Install and run setup — handles everything in one step
+# Option A: standalone binary (no Node.js required)
+curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
+
+# Option B: install the nex-cli binary directly
+curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
+
+# Option C: install via npm (or bun/pnpm)
 npm install -g @nex-ai/nex
+```
+
+Then sign up and configure:
+
+```bash
+nex register --email you@company.com
 nex setup
 ```
 

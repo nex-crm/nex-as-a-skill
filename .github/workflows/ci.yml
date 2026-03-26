@@ -38,3 +38,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run build
+
+  binary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Build binary
+        run: bun build --compile --minify src/nex.ts --outfile dist/nex
+      - name: Smoke test
+        run: ./dist/nex --version
