@@ -71,7 +71,7 @@ Pre-written agent instructions that teach each platform how to use Nex tools. Co
 |----------|------|-------------|
 | Cursor | `cursor-rules.md` | `.cursor/rules/` |
 | Windsurf | `windsurf-rules.md` | `.windsurf/rules/` |
-| VS Code | `vscode-instructions.md` | `.github/instructions/` |
+| GitHub Copilot | `vscode-instructions.md` | `.github/instructions/` |
 | Zed | `zed-rules.md` | `.zed/rules/` |
 | Aider | `aider-conventions.md` | `.aider/conventions/` |
 | Cline | `cline-rules.md` | `.cline/rules/` |
@@ -203,7 +203,7 @@ Do not stop after partial setup. Only pause if you need my email for registratio
 
 ### Repo structure
 
-```
+```text
 src/                    # Bootstrapper binary source (compiled via Bun)
 bin/                    # Thin Node.js shims that delegate to nex-cli (npm fallback)
 install.sh              # curl-pipe installer for the standalone binary
