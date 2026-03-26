@@ -11,6 +11,7 @@ import { resolveApiKey, resolveFormat, resolveTimeout, loadConfig, saveConfig, C
 import { formatOutput } from "../lib/output.js";
 import type { Format } from "../lib/output.js";
 import { AuthError, RateLimitError, ServerError } from "../lib/errors.js";
+import { shouldTriggerCompounding, triggerCompounding } from "../lib/compounding.js";
 import { parseInput } from "./parse-input.js";
 import { getAgentService } from "../tui/services/agent-service.js";
 import { runInit, detectPlatforms, getDetected } from "./init.js";
@@ -58,17 +59,6 @@ function fmt(data: unknown, ctx: CommandContext): string {
 
 function ok(data: unknown, ctx: CommandContext, extra?: Partial<CommandResult>): CommandResult {
   return { output: fmt(data, ctx), data, exitCode: 0, ...extra };
-}
-
-/**
- * Trigger compounding intelligence jobs (pattern detection, playbook synthesis)
- * after content ingestion. Runs in the background — errors are non-fatal.
- */
-async function triggerCompounding(client: NexClient): Promise<void> {
-  const jobs = ["consolidation", "pattern_detection", "playbook_synthesis"];
-  await Promise.allSettled(
-    jobs.map((job) => client.post("/v1/compounding/trigger", { job_type: job, dry_run: false }, 10_000)),
-  );
 }
 
 function fail(error: string, exitCode = 1): CommandResult {
@@ -1418,7 +1408,7 @@ async function executeScan(args: string[], ctx: CommandContext): Promise<Command
     });
 
     // Trigger compounding intelligence after successful ingestion
-    if (!dryRun && result.scanned > 0) {
+    if (shouldTriggerCompounding(result.scanned, dryRun)) {
       triggerCompounding(client).catch(() => {});
     }
 
