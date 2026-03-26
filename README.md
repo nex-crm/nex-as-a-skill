@@ -28,7 +28,7 @@ One fact entered once. Available everywhere, instantly.
 
 ## Integration Options
 
-| | CLI + MCP Server | OpenClaw Plugin | Claude Code Plugin | SKILL.md |
+| | CLI + MCP Server | OpenClaw Plugin | Claude Code Plugin | Scripts |
 |---|---|---|---|---|
 | **Platforms** | Any terminal, Claude Desktop, ChatGPT, Cursor, Windsurf | OpenClaw | Claude Code CLI | OpenClaw (script-based) |
 | **Auto-recall** | Via `nex recall` / MCP tool calls | Yes (smart filter) | Yes (smart filter) | No (manual) |
@@ -41,7 +41,7 @@ One fact entered once. Available everywhere, instantly.
 
 ```bash
 # Install and run setup — handles everything in one step
-bun install -g @nex-ai/nex
+npm install -g @nex-ai/nex
 nex setup
 ```
 
@@ -53,7 +53,31 @@ nex ask "who is Maria Rodriguez?"
 nex remember "Met with Maria, CTO of TechFlow. European expansion Q3, $2M budget."
 ```
 
-See [`cli/README.md`](cli/README.md) for all 50+ commands.
+## Copy-Paste Prompt For Any AI Agent
+
+Drop this prompt into any terminal-capable AI agent when you want it to bootstrap Nex for you end to end:
+
+```text
+Install and fully bootstrap Nex in this project from start to finish.
+
+1. If the `nex` CLI is missing, install it globally with `npm install -g @nex-ai/nex`.
+2. If Nex is not authenticated yet, ask me for the email address I want to use for registration, then continue. If Nex is already authenticated, reuse the existing account and key.
+3. Run `nex setup` and complete the full install flow for every detected AI coding platform in this environment.
+4. After setup, inspect integrations and connect the first available unconnected integration. Prefer this order when multiple choices are available: gmail, google-calendar, slack, salesforce, hubspot, attio, outlook, outlook-calendar. If OAuth is required, open the browser flow and wait for it to complete.
+5. Run a fresh file scan for the current directory so the workspace is up to date.
+6. After the scan finishes, trigger Nex compounding jobs by calling the authenticated `POST https://app.nex.ai/api/developers/v1/compounding/trigger` endpoint for these job types: `consolidation`, `pattern_detection`, and `playbook_synthesis`. Use the active Nex API key from the current environment or the config written by Nex setup.
+7. Fetch the last 24 hours of insights with the insights endpoint or `nex insight list --last 24h`, then give me a clean digest with sections for Highlights, Risks, Opportunities, Open Loops, and Recommended Next Actions.
+8. Finish by showing me:
+   - what Nex installed
+   - which integration was connected
+   - how many files were scanned and ingested
+   - whether the compounding/playbooks trigger succeeded
+   - the formatted 24-hour insight digest
+
+Do not stop after partial setup. Only pause if you need my email for registration or if an OAuth flow requires my interaction.
+```
+
+This works best in agents that can run shell commands and open OAuth URLs.
 
 ---
 
@@ -93,7 +117,7 @@ nex recall "what do I know about TechFlow?"  # Returns <nex-context> XML block
 nex capture "Agent conversation text..."  # Rate-limited, filtered
 ```
 
-Install globally: `bun install -g @nex-ai/nex`
+Install globally: `npm install -g @nex-ai/nex`
 
 ### MCP Server (Claude Desktop, Cursor, Windsurf)
 
@@ -258,9 +282,9 @@ claude mcp add nex -- nex-mcp                               # Full toolset
 
 See [`claude-code-plugin/README.md`](claude-code-plugin/README.md) for details.
 
-### SKILL.md (OpenClaw script-based)
+### Scripts (OpenClaw script-based)
 
-For OpenClaw agents without the plugin, SKILL.md provides bash-script-based access:
+For OpenClaw agents without the plugin, bash scripts provide direct API access:
 
 ```bash
 # Register and get API key
@@ -276,7 +300,7 @@ printf '{"content":"Meeting notes..."}' | bash scripts/nex-api.sh POST /v1/conte
 bash scripts/nex-scan-files.sh --dir . --max-files 10
 ```
 
-See [`SKILL.md`](SKILL.md) for the full API reference.
+See the [scripts directory](scripts/) for details.
 
 </details>
 
@@ -332,11 +356,9 @@ Register once via any surface → all other surfaces pick up the key automatical
 
 ## Testing
 
-- **CLI**: 119 tests (`cd cli && bun test`)
-- **OpenClaw plugin**: 38/38 unit tests (`cd openclaw-plugin && npx vitest run`)
-- **Claude Code plugin**: 21/21 E2E tests (see `docs/nex-plugin-test-results.md`)
-- **MCP server**: Embedded in CLI, builds clean, all tools typed with Zod schemas
-- **SKILL scripts**: Syntax validated, injection-resistant, cross-platform (macOS + Linux)
+- **Shims**: `npm test` (syntax validation of bin/ shims)
+- **OpenClaw plugin**: `cd openclaw-plugin && npx vitest run`
+- **Claude Code plugin**: `cd claude-code-plugin && bun test`
 
 ## License
 

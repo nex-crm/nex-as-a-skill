@@ -20,7 +20,7 @@
           {
             "type": "command",
             "command": "node <path-to>/claude-code-plugin/dist/auto-recall.js",
-            "timeout": 10000,
+            "timeout": 12000,
             "statusMessage": "Recalling relevant memories..."
           }
         ]

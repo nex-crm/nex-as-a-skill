@@ -12,14 +12,79 @@
 import { loadConfig, isHookEnabled } from "./config.js";
 import { NexClient } from "./nex-client.js";
 import { formatNexContext } from "./context-format.js";
+import { RecallCache, hashPrompt } from "./recall-cache.js";
 import { SessionStore } from "./session-store.js";
 import { shouldRecall } from "./recall-filter.js";
+import { spawn } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const sessions = new SessionStore();
+const recallCache = new RecallCache();
+
+const FAST_RECALL_BUDGET_MS = readTimeoutEnv("NEX_RECALL_SYNC_BUDGET_MS", 8_000);
+const BACKGROUND_RECALL_TIMEOUT_MS = readTimeoutEnv(
+  "NEX_RECALL_BACKGROUND_TIMEOUT_MS",
+  60_000,
+);
+const READY_CACHE_TTL_MS = readTimeoutEnv("NEX_RECALL_READY_TTL_MS", 5 * 60_000);
+const PENDING_CACHE_TTL_MS = readTimeoutEnv(
+  "NEX_RECALL_PENDING_TTL_MS",
+  BACKGROUND_RECALL_TIMEOUT_MS + 30_000,
+);
+const WORKER_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "auto-recall-worker.js",
+);
 
 interface HookInput {
   prompt?: string;
   session_id?: string;
+}
+
+function readTimeoutEnv(name: string, fallbackMs: number): number {
+  const raw = process.env[name];
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
+}
+
+function writeHookContext(context: string): void {
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: context,
+    },
+  }));
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function launchBackgroundRecall(
+  prompt: string,
+  sessionKey: string,
+  promptHash: string,
+): void {
+  try {
+    const child = spawn(process.execPath, [WORKER_PATH], {
+      detached: true,
+      env: {
+        ...process.env,
+        NEX_RECALL_BACKGROUND_TIMEOUT_MS: String(BACKGROUND_RECALL_TIMEOUT_MS),
+        NEX_RECALL_PENDING_TTL_MS: String(PENDING_CACHE_TTL_MS),
+      },
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    child.stdin.end(JSON.stringify({
+      prompt,
+      prompt_hash: promptHash,
+      session_id: sessionKey,
+    }));
+    child.unref();
+  } catch {
+    recallCache.clearPending(sessionKey, promptHash);
+  }
 }
 
 /**
@@ -91,35 +156,69 @@ async function main(): Promise<void> {
 
     // Resolve session ID for multi-turn continuity
     const sessionKey = input.session_id;
+    const promptHash = hashPrompt(prompt);
     const nexSessionId = sessionKey ? sessions.get(sessionKey) : undefined;
+    const cachedReady = sessionKey
+      ? recallCache.getInjectable(sessionKey, READY_CACHE_TTL_MS)
+      : undefined;
 
-    const result = await client.ask(prompt, nexSessionId, 10_000);
-
-    if (!result.answer) {
-      process.stdout.write("{}");
+    if (sessionKey && cachedReady?.promptHash === promptHash) {
+      recallCache.markReadyDelivered(sessionKey);
+      writeHookContext(cachedReady.context);
       return;
     }
 
-    // Store session ID for future turns
-    if (result.session_id && sessionKey) {
-      sessions.set(sessionKey, result.session_id);
+    const hasPendingCurrent = sessionKey
+      ? recallCache.hasPending(sessionKey, promptHash, PENDING_CACHE_TTL_MS)
+      : false;
+    let shouldStartBackground = false;
+
+    if (!hasPendingCurrent) {
+      try {
+        const result = await client.ask(prompt, nexSessionId, FAST_RECALL_BUDGET_MS);
+
+        if (result.answer) {
+          if (result.session_id && sessionKey) {
+            sessions.set(sessionKey, result.session_id);
+          }
+
+          const context = formatNexContext({
+            answer: result.answer,
+            entityCount: result.entity_references?.length ?? 0,
+            sessionId: result.session_id,
+          });
+
+          if (sessionKey) {
+            recallCache.setReady(sessionKey, { promptHash, context });
+            recallCache.markReadyDelivered(sessionKey);
+          }
+
+          writeHookContext(context);
+          return;
+        }
+      } catch (err) {
+        if (isAbortError(err)) {
+          shouldStartBackground = true;
+        } else {
+          process.stderr.write(
+            `[nex-recall] Fast-path error: ${err instanceof Error ? err.message : String(err)}\n`
+          );
+        }
+      }
     }
 
-    const entityCount = result.entity_references?.length ?? 0;
-    const context = formatNexContext({
-      answer: result.answer,
-      entityCount,
-      sessionId: result.session_id,
-    });
+    if (sessionKey && shouldStartBackground && !hasPendingCurrent) {
+      recallCache.setPending(sessionKey, promptHash);
+      launchBackgroundRecall(prompt, sessionKey, promptHash);
+    }
 
-    // Use hookSpecificOutput for discrete context injection (not shown in transcript)
-    const output = JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: context,
-      },
-    });
-    process.stdout.write(output);
+    if (sessionKey && cachedReady) {
+      recallCache.markReadyDelivered(sessionKey);
+      writeHookContext(cachedReady.context);
+      return;
+    }
+
+    process.stdout.write("{}");
   } catch (err) {
     process.stderr.write(
       `[nex-recall] Unexpected error: ${err instanceof Error ? err.message : String(err)}\n`
