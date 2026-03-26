@@ -48,3 +48,5 @@ jobs:
         run: bun build --compile --minify src/nex.ts --outfile dist/nex
       - name: Smoke test
         run: ./dist/nex --version
+      - name: Validate installer
+        run: sh -n install.sh

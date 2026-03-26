@@ -4,9 +4,11 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, chmodSync } from "node:fs";
 import { homedir, platform, arch } from "node:os";
 import { basename, join } from "node:path";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 const VERSION = "0.2.0";
+const NEX_CLI_VERSION = "latest"; // TODO: pin to specific version once nex-cli has releases
 
 const args = process.argv.slice(2);
 
@@ -77,7 +79,12 @@ async function autoInstall(): Promise<string> {
   const os = detectOS();
   const ar = detectArch();
   const binary = `nex-cli-${os}-${ar}`;
-  const url = `https://github.com/nex-crm/nex-cli/releases/latest/download/${binary}`;
+  const tag =
+    NEX_CLI_VERSION === "latest"
+      ? "latest/download"
+      : `download/${NEX_CLI_VERSION}`;
+  const baseUrl = `https://github.com/nex-crm/nex-cli/releases/${tag}`;
+  const url = `${baseUrl}/${binary}`;
   const installDir = join(homedir(), ".local", "bin");
   const installPath = join(installDir, "nex-cli");
 
@@ -89,16 +96,40 @@ async function autoInstall(): Promise<string> {
       console.error(
         `Failed to download nex-cli: ${response.status} ${response.statusText}`
       );
-      console.error(
-        `\nInstall manually:\n  curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh\n`
-      );
+      printManualInstall();
       process.exit(1);
     }
 
-    const data = await response.arrayBuffer();
+    const data = Buffer.from(await response.arrayBuffer());
+
+    // Verify checksum if available
+    try {
+      const checksumUrl = `${baseUrl}/checksums.txt`;
+      const checksumResp = await fetch(checksumUrl, { redirect: "follow" });
+      if (checksumResp.ok) {
+        const checksumText = await checksumResp.text();
+        const expectedLine = checksumText
+          .split("\n")
+          .find((l) => l.includes(binary));
+        if (expectedLine) {
+          const expected = expectedLine.split(/\s+/)[0];
+          const actual = createHash("sha256").update(data).digest("hex");
+          if (actual !== expected) {
+            console.error(
+              `Checksum mismatch! Expected ${expected}, got ${actual}`
+            );
+            printManualInstall();
+            process.exit(1);
+          }
+          console.error("Checksum verified.");
+        }
+      }
+    } catch {
+      // Checksum verification is best-effort — don't block install if unavailable
+    }
 
     mkdirSync(installDir, { recursive: true });
-    writeFileSync(installPath, Buffer.from(data));
+    writeFileSync(installPath, data);
     chmodSync(installPath, 0o755);
 
     console.error(`nex-cli installed to ${installPath}`);
@@ -114,11 +145,15 @@ async function autoInstall(): Promise<string> {
     return installPath;
   } catch (err: any) {
     console.error(`Failed to download nex-cli: ${err.message}`);
-    console.error(
-      `\nInstall manually:\n  curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh\n`
-    );
+    printManualInstall();
     process.exit(1);
   }
+}
+
+function printManualInstall(): void {
+  console.error(
+    `\nInstall manually:\n  curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh\n`
+  );
 }
 
 function detectOS(): string {
