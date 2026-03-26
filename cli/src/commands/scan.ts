@@ -7,7 +7,7 @@ import { resolveApiKey, resolveFormat, resolveTimeout } from "../lib/config.js";
 import { NexClient } from "../lib/client.js";
 import { printOutput, printError } from "../lib/output.js";
 import { scanFiles, loadScanConfig, isScanEnabled } from "../lib/file-scanner.js";
-import { shouldTriggerCompounding, triggerCompounding } from "../lib/compounding.js";
+import { launchBackgroundCompounding, shouldTriggerCompounding } from "../lib/compounding.js";
 import type { Format } from "../lib/output.js";
 import { spinner as createSpinner, table, style, sym, isTTY, exitHint } from "../lib/tui.js";
 
@@ -116,8 +116,8 @@ program
           return client.post("/v1/context/text", { content, context });
         });
 
-        if (shouldTriggerCompounding(result.scanned, opts.dryRun)) {
-          triggerCompounding(client).catch(() => {});
+        if (apiKey && shouldTriggerCompounding(result.scanned, opts.dryRun)) {
+          launchBackgroundCompounding(apiKey);
         }
 
         if (spin) {

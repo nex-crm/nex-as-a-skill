@@ -11,7 +11,7 @@ import { resolveApiKey, resolveFormat, resolveTimeout, loadConfig, saveConfig, C
 import { formatOutput } from "../lib/output.js";
 import type { Format } from "../lib/output.js";
 import { AuthError, RateLimitError, ServerError } from "../lib/errors.js";
-import { shouldTriggerCompounding, triggerCompounding } from "../lib/compounding.js";
+import { launchBackgroundCompounding, shouldTriggerCompounding } from "../lib/compounding.js";
 import { parseInput } from "./parse-input.js";
 import { getAgentService } from "../tui/services/agent-service.js";
 import { runInit, detectPlatforms, getDetected } from "./init.js";
@@ -1408,8 +1408,9 @@ async function executeScan(args: string[], ctx: CommandContext): Promise<Command
     });
 
     // Trigger compounding intelligence after successful ingestion
-    if (shouldTriggerCompounding(result.scanned, dryRun)) {
-      triggerCompounding(client).catch(() => {});
+    const apiKey = ctx.apiKey ?? resolveApiKey();
+    if (apiKey && shouldTriggerCompounding(result.scanned, dryRun)) {
+      launchBackgroundCompounding(apiKey);
     }
 
     return ok({ scanned: result.scanned, skipped: result.skipped, errors: result.errors }, ctx);
