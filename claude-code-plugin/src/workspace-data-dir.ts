@@ -3,8 +3,7 @@
  * Reads from ~/.nex/config.json (workspace registry format).
  * Falls back to ~/.nex/ if no workspace is configured (pre-migration).
  *
- * Intentionally duplicated from cli/src/lib/workspace-registry.ts to avoid
- * cross-package imports. This is a lightweight reader — no migration logic.
+ * Lightweight reader — no migration logic.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

@@ -28,7 +28,7 @@ One fact entered once. Available everywhere, instantly.
 
 ## Integration Options
 
-| | CLI + MCP Server | OpenClaw Plugin | Claude Code Plugin | SKILL.md |
+| | CLI + MCP Server | OpenClaw Plugin | Claude Code Plugin | Scripts |
 |---|---|---|---|---|
 | **Platforms** | Any terminal, Claude Desktop, ChatGPT, Cursor, Windsurf | OpenClaw | Claude Code CLI | OpenClaw (script-based) |
 | **Auto-recall** | Via `nex recall` / MCP tool calls | Yes (smart filter) | Yes (smart filter) | No (manual) |
@@ -79,8 +79,6 @@ Do not stop after partial setup. Only pause if you need my email for registratio
 
 This works best in agents that can run shell commands and open OAuth URLs.
 
-See [`cli/README.md`](cli/README.md) for all 50+ commands.
-
 ---
 
 <details>
@@ -119,7 +117,7 @@ nex recall "what do I know about TechFlow?"  # Returns <nex-context> XML block
 nex capture "Agent conversation text..."  # Rate-limited, filtered
 ```
 
-Install globally: `bun install -g @nex-ai/nex`
+Install globally: `npm install -g @nex-ai/nex`
 
 ### MCP Server (Claude Desktop, Cursor, Windsurf)
 
@@ -284,9 +282,9 @@ claude mcp add nex -- nex-mcp                               # Full toolset
 
 See [`claude-code-plugin/README.md`](claude-code-plugin/README.md) for details.
 
-### SKILL.md (OpenClaw script-based)
+### Scripts (OpenClaw script-based)
 
-For OpenClaw agents without the plugin, SKILL.md provides bash-script-based access:
+For OpenClaw agents without the plugin, bash scripts provide direct API access:
 
 ```bash
 # Register and get API key
@@ -302,7 +300,7 @@ printf '{"content":"Meeting notes..."}' | bash scripts/nex-api.sh POST /v1/conte
 bash scripts/nex-scan-files.sh --dir . --max-files 10
 ```
 
-See [`SKILL.md`](SKILL.md) for the full API reference.
+See the [scripts directory](scripts/) for details.
 
 </details>
 
@@ -358,11 +356,9 @@ Register once via any surface → all other surfaces pick up the key automatical
 
 ## Testing
 
-- **CLI**: 119 tests (`cd cli && bun test`)
-- **OpenClaw plugin**: 38/38 unit tests (`cd openclaw-plugin && npx vitest run`)
-- **Claude Code plugin**: 21/21 E2E tests (see `docs/nex-plugin-test-results.md`)
-- **MCP server**: Embedded in CLI, builds clean, all tools typed with Zod schemas
-- **SKILL scripts**: Syntax validated, injection-resistant, cross-platform (macOS + Linux)
+- **Shims**: `npm test` (syntax validation of bin/ shims)
+- **OpenClaw plugin**: `cd openclaw-plugin && npx vitest run`
+- **Claude Code plugin**: `cd claude-code-plugin && bun test`
 
 ## License
 

@@ -1,7 +1,8 @@
 {
   "mcpServers": {
     "nex": {
-      "command": "nex-mcp",
+      "command": "nex-cli",
+      "args": ["mcp"],
       "env": {}
     }
   }

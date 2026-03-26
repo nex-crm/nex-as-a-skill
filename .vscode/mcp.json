@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "nex": {
+      "command": "nex-mcp",
+      "env": {
+        "NEX_API_KEY": "sk-test-alias"
+      }
+    }
+  }
+}
