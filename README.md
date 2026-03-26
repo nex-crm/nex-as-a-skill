@@ -174,7 +174,7 @@ bash scripts/nex-scan-files.sh --dir . --max-files 10
 
 ## Copy-Paste Bootstrap Prompt
 
-Drop this into any terminal-capable AI agent to bootstrap Nex end to end:
+Drop this into any terminal-capable AI agent to bootstrap Nex end-to-end:
 
 ```text
 Install and fully bootstrap Nex in this project from start to finish.
@@ -200,7 +200,7 @@ Do not stop after partial setup. Only pause if you need my email for registratio
 
 ### Repo structure
 
-```
+```text
 bin/                    # Thin Node.js shims that delegate to nex-cli
 claude-code-plugin/     # Claude Code hooks (auto-recall, auto-capture)
 openclaw-plugin/        # OpenClaw plugin (15+ tools, auto-recall, auto-capture)
@@ -247,22 +247,24 @@ The `@nex-ai/nex` npm package is a thin shim. `bin/nex.js` and `bin/nex-mcp.js` 
 
 ## Architecture
 
-```
-                    ┌─────────────────────┐
-                    │   Nex Context Graph  │
-                    │  (app.nex.ai API)    │
-                    └──────────┬──────────┘
-                               │
-      ┌────────────────────────┼────────────────────────┐
-      │              │                   │              │
-  ┌───▼────┐  ┌─────▼───────┐  ┌───────▼──────┐  ┌───▼──────────┐
-  │nex-cli │  │  MCP Server │  │  OpenClaw    │  │  Claude Code │
-  │ binary │  │  (nex-mcp)  │  │  Plugin     │  │  Plugin      │
-  └───┬────┘  └─────┬───────┘  └──────┬──────┘  └──────┬───────┘
-      │             │                 │                 │
-  Any terminal  Claude Desktop   OpenClaw agents   Claude Code
-  + this npm    Cursor, Windsurf
-    package     ChatGPT
+```mermaid
+flowchart TD
+    API["Nex Context Graph\n(app.nex.ai API)"]
+
+    CLI["nex-cli binary"]
+    MCP["MCP Server\n(nex-mcp)"]
+    OC["OpenClaw Plugin"]
+    CC["Claude Code Plugin"]
+
+    API --- CLI
+    API --- MCP
+    API --- OC
+    API --- CC
+
+    CLI --> T1["Any terminal\n+ this npm package"]
+    MCP --> T2["Claude Desktop\nCursor, Windsurf\nChatGPT"]
+    OC --> T3["OpenClaw agents"]
+    CC --> T4["Claude Code"]
 ```
 
 ## License
