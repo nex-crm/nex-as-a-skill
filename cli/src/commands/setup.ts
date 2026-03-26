@@ -48,6 +48,7 @@ import {
 } from "../lib/installers.js";
 import { writeDefaultProjectConfig } from "../lib/project-config.js";
 import { scanFiles, loadScanConfig, isScanEnabled } from "../lib/file-scanner.js";
+import { launchBackgroundCompounding, shouldTriggerCompounding } from "../lib/compounding.js";
 
 function getClient(): { client: NexClient; format: Format } {
   const opts = program.opts();
@@ -457,6 +458,9 @@ async function runSetup(opts: {
         const name = filePath.replace(process.cwd() + "/", "");
         spin?.update(`Scanning files (${current}/${total}): ${name}  ${exitHint}`);
       });
+      if (shouldTriggerCompounding(scanResult.scanned)) {
+        launchBackgroundCompounding(apiKey);
+      }
       if (scanResult.scanned > 0) {
         spin?.succeed(`${scanResult.scanned} files ingested, ${scanResult.skipped} skipped, ${scanResult.errors} errors`);
         results.push(`File scan: ${scanResult.scanned} files ingested, ${scanResult.skipped} skipped, ${scanResult.errors} errors`);

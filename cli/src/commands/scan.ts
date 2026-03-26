@@ -7,6 +7,7 @@ import { resolveApiKey, resolveFormat, resolveTimeout } from "../lib/config.js";
 import { NexClient } from "../lib/client.js";
 import { printOutput, printError } from "../lib/output.js";
 import { scanFiles, loadScanConfig, isScanEnabled } from "../lib/file-scanner.js";
+import { launchBackgroundCompounding, shouldTriggerCompounding } from "../lib/compounding.js";
 import type { Format } from "../lib/output.js";
 import { spinner as createSpinner, table, style, sym, isTTY, exitHint } from "../lib/tui.js";
 
@@ -114,6 +115,10 @@ program
         const result = await scanFiles(dir, scanOpts, async (content, context) => {
           return client.post("/v1/context/text", { content, context });
         });
+
+        if (apiKey && shouldTriggerCompounding(result.scanned, opts.dryRun)) {
+          launchBackgroundCompounding(apiKey);
+        }
 
         if (spin) {
           spin.succeed("Scan complete");
