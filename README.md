@@ -11,30 +11,15 @@ Supports Claude Code, OpenClaw, Cursor, Windsurf, Codex, Aider, Continue, Zed, a
 
 Talk to the team, share feedback, and connect with other developers building AI agents with Nex.
 
-## What's in this repo
-
-This repo is the **public integration layer** for Nex. It contains the npm package, platform plugins, agent instructions, and slash commands. The heavy lifting happens in the [`nex-cli`](https://github.com/nex-crm/nex-cli) binary, which is installed separately.
-
-```
-bin/                    # Thin Node.js shims that delegate to nex-cli
-claude-code-plugin/     # Claude Code hooks (auto-recall, auto-capture, slash commands)
-openclaw-plugin/        # OpenClaw plugin (15+ tools, auto-recall, auto-capture)
-plugin-commands/        # Slash command definitions (.md files)
-platform-rules/         # Agent instructions for 10 platforms (Cursor, Windsurf, Zed, etc.)
-platform-plugins/       # Editor integrations (Continue, OpenCode, KiloCode, Windsurf workflows)
-scripts/                # Bash API wrappers for shell-only agents
-server.json             # MCP Registry manifest
-```
-
 ## Quick Start
 
-### Install the CLI
+### Install
 
 ```bash
 # Option A: install the nex-cli binary directly
 curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
 
-# Option B: install the npm shim (delegates to nex-cli)
+# Option B: install via npm (or bun/pnpm)
 npm install -g @nex-ai/nex
 ```
 
@@ -55,48 +40,100 @@ nex ask "who is Maria Rodriguez?"
 nex remember "Met with Maria, CTO of TechFlow. European expansion Q3, $2M budget."
 ```
 
-## Copy-Paste Bootstrap Prompt
+## Skills & Platform Rules
 
-Drop this into any terminal-capable AI agent to bootstrap Nex end to end:
+The core of this repo is a set of skills, slash commands, and agent instructions that teach any AI platform how to use Nex.
 
-```text
-Install and fully bootstrap Nex in this project from start to finish.
+### Slash Commands (`plugin-commands/`)
 
-1. If the `nex` CLI is missing, install it globally with `npm install -g @nex-ai/nex`.
-2. If Nex is not authenticated yet, ask me for the email address I want to use for registration, then continue. If Nex is already authenticated, reuse the existing account and key.
-3. Run `nex setup` and complete the full install flow for every detected AI coding platform in this environment.
-4. After setup, inspect integrations and connect the first available unconnected integration. Prefer this order when multiple choices are available: gmail, google-calendar, slack, salesforce, hubspot, attio, outlook, outlook-calendar. If OAuth is required, open the browser flow and wait for it to complete.
-5. Run a fresh file scan for the current directory so the workspace is up to date.
-6. After the scan finishes, trigger Nex compounding jobs by calling the authenticated `POST https://app.nex.ai/api/developers/v1/compounding/trigger` endpoint for these job types: `consolidation`, `pattern_detection`, and `playbook_synthesis`. Use the active Nex API key from the current environment or the config written by Nex setup.
-7. Fetch the last 24 hours of insights with the insights endpoint or `nex insight list --last 24h`, then give me a clean digest with sections for Highlights, Risks, Opportunities, Open Loops, and Recommended Next Actions.
-8. Finish by showing me:
-   - what Nex installed
-   - which integration was connected
-   - how many files were scanned and ingested
-   - whether the compounding/playbooks trigger succeeded
-   - the formatted 24-hour insight digest
+Drop these `.md` files into your agent's commands directory to get Nex slash commands:
 
-Do not stop after partial setup. Only pause if you need my email for registration or if an OAuth flow requires my interaction.
-```
+| Command | What it does |
+|---------|-------------|
+| `/nex:recall <query>` | Search your knowledge base |
+| `/nex:remember <text>` | Store information for later recall |
+| `/nex:entities <query>` | Find people, companies, topics |
+| `/nex:scan <dir>` | Scan project files into Nex |
+| `/nex:integrate <provider>` | Connect an OAuth integration |
+| `/nex:register <email>` | One-time account registration |
+| `/nex:notify` | Check recent notifications |
 
-## Platform Setup
+For Claude Code: `cp plugin-commands/*.md ~/.claude/commands/`
 
-### Claude Code
+### Platform Rules (`platform-rules/`)
 
-The fastest path is `nex setup` — it auto-configures hooks, MCP, and slash commands.
+Pre-written agent instructions that teach each platform how to use Nex tools. Copy the relevant file into your editor's config:
 
-For manual setup, see [`claude-code-plugin/README.md`](claude-code-plugin/README.md). In short:
+| Platform | File | Destination |
+|----------|------|-------------|
+| Cursor | `cursor-rules.md` | `.cursor/rules/` |
+| Windsurf | `windsurf-rules.md` | `.windsurf/rules/` |
+| VS Code | `vscode-instructions.md` | `.github/instructions/` |
+| Zed | `zed-rules.md` | `.zed/rules/` |
+| Aider | `aider-conventions.md` | `.aider/conventions/` |
+| Cline | `cline-rules.md` | `.cline/rules/` |
+| Continue | `continue-rules.md` | `.continue/rules/` |
+| KiloCode | `kilocode-rules.md` | `.kilocode/rules/` |
+| Codex | `codex-agents.md` | `.codex/agents/` |
+| OpenCode | `opencode-agents.md` | `.opencode/agents/` |
+
+### Platform Plugins (`platform-plugins/`)
+
+Deeper integrations for editors that support plugin APIs:
+
+- **Continue** (`continue-provider.ts`) — Nex as a context provider for autocomplete
+- **OpenCode** (`opencode-plugin.ts`) — Session lifecycle hooks for context preservation
+- **KiloCode** (`kilocode-modes.yaml`) — Nex memory mode definitions
+- **Windsurf** (`windsurf-workflows/`) — Native workflow definitions for ask, remember, search, notify
+
+## Plugins
+
+### Claude Code Plugin
+
+Full auto-recall and auto-capture via Claude Code hooks. Queries Nex before each prompt and captures conversation facts after each response.
 
 ```bash
 cd claude-code-plugin && bun install && bun run build
 ```
 
-Then add hooks to `~/.claude/settings.json` (see [`settings.json`](claude-code-plugin/settings.json) for the template) and copy slash commands:
+Then add hooks to `~/.claude/settings.json` (see [`settings.json`](claude-code-plugin/settings.json) for the template) and register the MCP server:
 
 ```bash
 cp claude-code-plugin/commands/*.md ~/.claude/commands/
 claude mcp add nex -- nex-mcp
 ```
+
+The fastest path is just `nex setup` — it does all of this automatically.
+
+See [`claude-code-plugin/README.md`](claude-code-plugin/README.md) for details.
+
+### OpenClaw Plugin
+
+15+ tools, auto-recall, and auto-capture for OpenClaw agents.
+
+```bash
+cp -r openclaw-plugin /path/to/openclaw/plugins/nex
+cd /path/to/openclaw/plugins/nex && bun install && bun run build
+```
+
+Add to `openclaw.json`:
+
+```json
+{
+  "plugins": {
+    "load": { "paths": ["/path/to/plugins/nex"] },
+    "slots": { "memory": "nex" },
+    "entries": {
+      "nex": {
+        "enabled": true,
+        "config": { "apiKey": "sk-your_key_here" }
+      }
+    }
+  }
+}
+```
+
+See [`openclaw-plugin/README.md`](openclaw-plugin/README.md) for details.
 
 ### MCP Server (Claude Desktop, Cursor, Windsurf)
 
@@ -125,68 +162,54 @@ Or without a global install:
 }
 ```
 
-### OpenClaw
-
-```bash
-cp -r openclaw-plugin /path/to/openclaw/plugins/nex
-cd /path/to/openclaw/plugins/nex && bun install && bun run build
-```
-
-Add to `openclaw.json`:
-
-```json
-{
-  "plugins": {
-    "load": { "paths": ["/path/to/plugins/nex"] },
-    "slots": { "memory": "nex" },
-    "entries": {
-      "nex": {
-        "enabled": true,
-        "config": { "apiKey": "sk-your_key_here" }
-      }
-    }
-  }
-}
-```
-
-See [`openclaw-plugin/README.md`](openclaw-plugin/README.md) for details.
-
-### Other Platforms
-
-Copy the relevant rule file from [`platform-rules/`](platform-rules/) into your editor's config:
-
-| Platform | File | Destination |
-|----------|------|-------------|
-| Cursor | `cursor-rules.md` | `.cursor/rules/` |
-| Windsurf | `windsurf-rules.md` | `.windsurf/rules/` |
-| VS Code | `vscode-instructions.md` | `.github/instructions/` |
-| Zed | `zed-rules.md` | `.zed/rules/` |
-| Aider | `aider-conventions.md` | `.aider/conventions/` |
-| Cline | `cline-rules.md` | `.cline/rules/` |
-| Continue | `continue-rules.md` | `.continue/rules/` |
-| KiloCode | `kilocode-rules.md` | `.kilocode/rules/` |
-| Codex | `codex-agents.md` | `.codex/agents/` |
-| OpenCode | `opencode-agents.md` | `.opencode/agents/` |
-
 ### Shell-only Agents (no Node.js)
 
+Bash scripts for agents that can only run shell commands. Requires `curl` and `jq`.
+
 ```bash
-# Register
 bash scripts/nex-openclaw-register.sh your@email.com "Your Name"
-
-# Query
 printf '{"query":"who is Maria?"}' | bash scripts/nex-api.sh POST /v1/context/ask
-
-# Ingest
-printf '{"content":"Meeting notes..."}' | bash scripts/nex-api.sh POST /v1/context/text
-
-# Scan files
 bash scripts/nex-scan-files.sh --dir . --max-files 10
 ```
 
-Requires `curl` and `jq`.
+## Copy-Paste Bootstrap Prompt
+
+Drop this into any terminal-capable AI agent to bootstrap Nex end to end:
+
+```text
+Install and fully bootstrap Nex in this project from start to finish.
+
+1. If the `nex` CLI is missing, install it globally with `npm install -g @nex-ai/nex`.
+2. If Nex is not authenticated yet, ask me for the email address I want to use for registration, then continue. If Nex is already authenticated, reuse the existing account and key.
+3. Run `nex setup` and complete the full install flow for every detected AI coding platform in this environment.
+4. After setup, inspect integrations and connect the first available unconnected integration. Prefer this order when multiple choices are available: gmail, google-calendar, slack, salesforce, hubspot, attio, outlook, outlook-calendar. If OAuth is required, open the browser flow and wait for it to complete.
+5. Run a fresh file scan for the current directory so the workspace is up to date.
+6. After the scan finishes, trigger Nex compounding jobs by calling the authenticated `POST https://app.nex.ai/api/developers/v1/compounding/trigger` endpoint for these job types: `consolidation`, `pattern_detection`, and `playbook_synthesis`. Use the active Nex API key from the current environment or the config written by Nex setup.
+7. Fetch the last 24 hours of insights with the insights endpoint or `nex insight list --last 24h`, then give me a clean digest with sections for Highlights, Risks, Opportunities, Open Loops, and Recommended Next Actions.
+8. Finish by showing me:
+   - what Nex installed
+   - which integration was connected
+   - how many files were scanned and ingested
+   - whether the compounding/playbooks trigger succeeded
+   - the formatted 24-hour insight digest
+
+Do not stop after partial setup. Only pause if you need my email for registration or if an OAuth flow requires my interaction.
+```
 
 ## Development
+
+### Repo structure
+
+```
+bin/                    # Thin Node.js shims that delegate to nex-cli
+claude-code-plugin/     # Claude Code hooks (auto-recall, auto-capture)
+openclaw-plugin/        # OpenClaw plugin (15+ tools, auto-recall, auto-capture)
+plugin-commands/        # Slash command definitions (.md files)
+platform-rules/         # Agent instructions for 10 platforms
+platform-plugins/       # Editor integrations (Continue, OpenCode, KiloCode, Windsurf)
+scripts/                # Bash API wrappers for shell-only agents
+server.json             # MCP Registry manifest
+```
 
 ### Build and test
 
@@ -203,11 +226,7 @@ cd openclaw-plugin && bun install && bun run build && bun test
 
 ### How the npm package works
 
-The `@nex-ai/nex` npm package is a thin shim. `bin/nex.js` and `bin/nex-mcp.js` look for the `nex-cli` binary on your PATH (or `~/.local/bin/nex-cli`) and forward all arguments. If it's not found, they print install instructions:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
-```
+The `@nex-ai/nex` npm package is a thin shim. `bin/nex.js` and `bin/nex-mcp.js` look for the `nex-cli` binary on your PATH (or `~/.local/bin/nex-cli`) and forward all arguments. If it's not found, they print install instructions.
 
 ### CI/CD
 
