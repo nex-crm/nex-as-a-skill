@@ -16,10 +16,13 @@ Talk to the team, share feedback, and connect with other developers building AI 
 ### Install
 
 ```bash
-# Option A: install the nex-cli binary directly
+# Option A: standalone binary (no Node.js required, auto-installs nex-cli)
+curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
+
+# Option B: install the nex-cli binary directly
 curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
 
-# Option B: install via npm (or bun/pnpm)
+# Option C: install via npm (or bun/pnpm)
 npm install -g @nex-ai/nex
 ```
 
@@ -200,8 +203,10 @@ Do not stop after partial setup. Only pause if you need my email for registratio
 
 ### Repo structure
 
-```text
-bin/                    # Thin Node.js shims that delegate to nex-cli
+```
+src/                    # Bootstrapper binary source (compiled via Bun)
+bin/                    # Thin Node.js shims that delegate to nex-cli (npm fallback)
+install.sh              # curl-pipe installer for the standalone binary
 claude-code-plugin/     # Claude Code hooks (auto-recall, auto-capture)
 openclaw-plugin/        # OpenClaw plugin (15+ tools, auto-recall, auto-capture)
 plugin-commands/        # Slash command definitions (.md files)
@@ -214,6 +219,10 @@ server.json             # MCP Registry manifest
 ### Build and test
 
 ```bash
+# Standalone binary (compiles via Bun)
+bun run build:binary            # native platform
+bun run build:all               # all 4 targets (darwin/linux × arm64/x64)
+
 # Shims (syntax check only)
 npm test
 
@@ -224,14 +233,17 @@ cd claude-code-plugin && bun install && bun run build && bun test
 cd openclaw-plugin && bun install && bun run build && bun test
 ```
 
-### How the npm package works
+### How it works
 
-The `@nex-ai/nex` npm package is a thin shim. `bin/nex.js` and `bin/nex-mcp.js` look for the `nex-cli` binary on your PATH (or `~/.local/bin/nex-cli`) and forward all arguments. If it's not found, they print install instructions.
+**Standalone binary** (`src/nex.ts`): Compiled via `bun build --compile`. Finds `nex-cli` on PATH or common locations and delegates all commands. If `nex-cli` isn't installed, auto-downloads it on first run. Detects `nex-mcp` symlink invocation to transparently prepend `mcp` to args.
+
+**npm package** (`bin/nex.js`): Thin Node.js shim with the same delegation logic, for `npx @nex-ai/nex` and MCP Registry compatibility.
 
 ### CI/CD
 
-- **CI** (`ci.yml`): Validates shims, builds + tests both plugins on every PR
-- **Publish** (`publish-cli.yml`): Auto-publishes to npm on push to main (when `bin/`, `plugin-commands/`, `platform-rules/`, `platform-plugins/`, or `package.json` change)
+- **CI** (`ci.yml`): Validates shims, builds + tests both plugins, builds + smoke tests the binary on every PR
+- **Release** (`release.yml`): Cross-compiles 4 binary targets on `v*` tags, creates GitHub Release with checksums
+- **Publish** (`publish-cli.yml`): Auto-publishes to npm on push to main
 - **MCP Registry** (`publish-mcp.yml`): Publishes `server.json` to the MCP Registry on version tags
 
 ## Environment Variables
@@ -248,23 +260,26 @@ The `@nex-ai/nex` npm package is a thin shim. `bin/nex.js` and `bin/nex-mcp.js` 
 ## Architecture
 
 ```mermaid
-flowchart TD
-    API["Nex Context Graph\n(app.nex.ai API)"]
-
+graph TD
+    API["Nex Context Graph<br/><i>app.nex.ai API</i>"]
     CLI["nex-cli binary"]
-    MCP["MCP Server\n(nex-mcp)"]
+
+    API --- CLI
+
+    NEX["nex binary / npm shim"]
+    MCP["MCP Server<br/><i>nex-mcp</i>"]
     OC["OpenClaw Plugin"]
     CC["Claude Code Plugin"]
 
-    API --- CLI
-    API --- MCP
-    API --- OC
-    API --- CC
+    CLI --- NEX
+    CLI --- MCP
+    CLI --- OC
+    CLI --- CC
 
-    CLI --> T1["Any terminal\n+ this npm package"]
-    MCP --> T2["Claude Desktop\nCursor, Windsurf\nChatGPT"]
-    OC --> T3["OpenClaw agents"]
-    CC --> T4["Claude Code"]
+    NEX -.- T1["Any terminal"]
+    MCP -.- T2["Claude Desktop · Cursor<br/>Windsurf · ChatGPT"]
+    OC -.- T3["OpenClaw agents"]
+    CC -.- T4["Claude Code"]
 ```
 
 ## License
