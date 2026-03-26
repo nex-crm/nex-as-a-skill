@@ -7,6 +7,10 @@ Nex turns AI agent conversations into a unified knowledge graph. Tell something 
 
 Supports Claude Code, OpenClaw, Cursor, Windsurf, Codex, Aider, Continue, Zed, and more. Adds context from Email, Meetings, Slack, HubSpot, Salesforce.
 
+<a href="https://discord.gg/gjSySC3PzV"><img src="https://img.shields.io/badge/Join%20our%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join our Discord" /></a>
+
+Talk to the team, share feedback, and connect with other developers building AI agents with Nex.
+
 ## What's in this repo
 
 This repo is the **public integration layer** for Nex. It contains the npm package, platform plugins, agent instructions, and slash commands. The heavy lifting happens in the [`nex-cli`](https://github.com/nex-crm/nex-cli) binary, which is installed separately.
@@ -24,12 +28,27 @@ server.json             # MCP Registry manifest
 
 ## Quick Start
 
+### Install the CLI
+
 ```bash
+# Option A: install the nex-cli binary directly
+curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
+
+# Option B: install the npm shim (delegates to nex-cli)
 npm install -g @nex-ai/nex
+```
+
+### Sign up and configure
+
+```bash
+# Create an account (or log in if you already have one)
+nex register --email you@company.com
+
+# Auto-detect your AI platforms and install hooks, MCP, slash commands
 nex setup
 ```
 
-`nex setup` registers your API key, detects your AI platforms, installs hooks, scans project files, and writes config. After setup:
+`nex setup` detects your platforms (Claude Code, Cursor, Windsurf, etc.), installs hooks, scans project files, and writes config. After setup:
 
 ```bash
 nex ask "who is Maria Rodriguez?"
