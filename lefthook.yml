@@ -1,0 +1,42 @@
+commit-msg:
+  commands:
+    commitlint:
+      run: bunx commitlint --edit {1}
+
+pre-commit:
+  parallel: true
+  commands:
+    secret-scan:
+      run: bunx secretlint {staged_files}
+      exclude:
+        - "node_modules/**"
+        - "**/node_modules/**"
+        - "bun.lock"
+        - "**/bun.lock"
+    biome:
+      glob: "*.{js,ts,tsx,jsx,json}"
+      run: bunx @biomejs/biome check --write --staged {staged_files}
+      stage_fixed: true
+      exclude:
+        - "node_modules/**"
+        - "**/node_modules/**"
+        - "dist/**"
+        - "**/dist/**"
+    check-merge-conflicts:
+      glob: "*.{ts,tsx,js,jsx,json,yaml,yml,md}"
+      run: grep -rlE '^(<{7}|>{7}|={7})' {staged_files} && echo "Merge conflict markers found" && exit 1 || true
+    check-large-files:
+      run: |
+        for f in {staged_files}; do
+          size=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
+          if [ "${size:-0}" -gt 5242880 ]; then
+            echo "ERROR: $f exceeds 5MB ($(( size / 1048576 ))MB)"
+            exit 1
+          fi
+        done
+
+pre-push:
+  parallel: true
+  commands:
+    test:
+      run: bun run test

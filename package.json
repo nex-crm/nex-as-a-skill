@@ -54,5 +54,13 @@
   "publishConfig": {
     "access": "public"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.9",
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^11.4.0",
+    "lefthook": "^1.11.0",
+    "secretlint": "^11.4.0"
+  }
 }
