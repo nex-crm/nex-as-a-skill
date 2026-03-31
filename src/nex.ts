@@ -1,11 +1,10 @@
 #!/usr/bin/env bun
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, chmodSync } from "node:fs";
-import { homedir, platform, arch } from "node:os";
-import { basename, join } from "node:path";
-import { writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { arch, homedir, platform } from "node:os";
+import { basename, join } from "node:path";
 
 const VERSION = "0.2.0";
 const NEX_CLI_VERSION = "latest"; // TODO: pin to specific version once nex-cli has releases
@@ -51,10 +50,7 @@ function findNexCli(): string | null {
   }
 
   // 2. Common install locations
-  const candidates = [
-    "/usr/local/bin/nex-cli",
-    join(homedir(), ".local", "bin", "nex-cli"),
-  ];
+  const candidates = ["/usr/local/bin/nex-cli", join(homedir(), ".local", "bin", "nex-cli")];
   for (const p of candidates) {
     if (existsSync(p)) return p;
   }
@@ -79,10 +75,7 @@ async function autoInstall(): Promise<string> {
   const os = detectOS();
   const ar = detectArch();
   const binary = `nex-cli-${os}-${ar}`;
-  const tag =
-    NEX_CLI_VERSION === "latest"
-      ? "latest/download"
-      : `download/${NEX_CLI_VERSION}`;
+  const tag = NEX_CLI_VERSION === "latest" ? "latest/download" : `download/${NEX_CLI_VERSION}`;
   const baseUrl = `https://github.com/nex-crm/nex-cli/releases/${tag}`;
   const url = `${baseUrl}/${binary}`;
   const installDir = join(homedir(), ".local", "bin");
@@ -93,9 +86,7 @@ async function autoInstall(): Promise<string> {
   try {
     const response = await fetch(url, { redirect: "follow" });
     if (!response.ok) {
-      console.error(
-        `Failed to download nex-cli: ${response.status} ${response.statusText}`
-      );
+      console.error(`Failed to download nex-cli: ${response.status} ${response.statusText}`);
       printManualInstall();
       process.exit(1);
     }
@@ -108,16 +99,12 @@ async function autoInstall(): Promise<string> {
       const checksumResp = await fetch(checksumUrl, { redirect: "follow" });
       if (checksumResp.ok) {
         const checksumText = await checksumResp.text();
-        const expectedLine = checksumText
-          .split("\n")
-          .find((l) => l.includes(binary));
+        const expectedLine = checksumText.split("\n").find((l) => l.includes(binary));
         if (expectedLine) {
           const expected = expectedLine.split(/\s+/)[0];
           const actual = createHash("sha256").update(data).digest("hex");
           if (actual !== expected) {
-            console.error(
-              `Checksum mismatch! Expected ${expected}, got ${actual}`
-            );
+            console.error(`Checksum mismatch! Expected ${expected}, got ${actual}`);
             printManualInstall();
             process.exit(1);
           }
@@ -137,9 +124,7 @@ async function autoInstall(): Promise<string> {
     // Check if installDir is on PATH
     const pathDirs = (process.env.PATH ?? "").split(":");
     if (!pathDirs.includes(installDir)) {
-      console.error(
-        `\nAdd to your PATH:  export PATH="${installDir}:$PATH"\n`
-      );
+      console.error(`\nAdd to your PATH:  export PATH="${installDir}:$PATH"\n`);
     }
 
     return installPath;
@@ -152,7 +137,7 @@ async function autoInstall(): Promise<string> {
 
 function printManualInstall(): void {
   console.error(
-    `\nInstall manually:\n  curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh\n`
+    `\nInstall manually:\n  curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh\n`,
   );
 }
 

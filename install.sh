@@ -21,7 +21,7 @@ case "$OS" in
     *)            echo "Unsupported OS: $OS"; exit 1 ;;
 esac
 
-BINARY="nex-${OS}-${ARCH}"
+BINARY="nex-cli-${OS}-${ARCH}"
 BASE_URL="https://github.com/${REPO}/releases/latest/download"
 echo "Downloading ${BINARY}..."
 
@@ -30,26 +30,24 @@ trap 'rm -f "$TMP" "$TMP.checksums"' EXIT
 
 curl -fsSL "${BASE_URL}/${BINARY}" -o "$TMP"
 
-# Verify checksum
-echo "Verifying checksum..."
-curl -fsSL "${BASE_URL}/checksums.txt" -o "$TMP.checksums"
-EXPECTED=$(grep "$BINARY" "$TMP.checksums" | awk '{print $1}')
-if [ -z "$EXPECTED" ]; then
-    echo "Warning: checksum not found for ${BINARY}, skipping verification"
-else
-    if command -v sha256sum > /dev/null 2>&1; then
-        ACTUAL=$(sha256sum "$TMP" | awk '{print $1}')
-    elif command -v shasum > /dev/null 2>&1; then
-        ACTUAL=$(shasum -a 256 "$TMP" | awk '{print $1}')
-    else
-        echo "Warning: no sha256sum or shasum found, skipping verification"
-        ACTUAL="$EXPECTED"
+# Verify checksum if available
+curl -fsSL "${BASE_URL}/checksums.txt" -o "$TMP.checksums" 2>/dev/null || true
+if [ -f "$TMP.checksums" ] && [ -s "$TMP.checksums" ]; then
+    EXPECTED=$(grep "$BINARY" "$TMP.checksums" | awk '{print $1}')
+    if [ -n "$EXPECTED" ]; then
+        if command -v sha256sum > /dev/null 2>&1; then
+            ACTUAL=$(sha256sum "$TMP" | awk '{print $1}')
+        elif command -v shasum > /dev/null 2>&1; then
+            ACTUAL=$(shasum -a 256 "$TMP" | awk '{print $1}')
+        else
+            ACTUAL="$EXPECTED"
+        fi
+        if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "Checksum mismatch! Expected ${EXPECTED}, got ${ACTUAL}"
+            exit 1
+        fi
+        echo "Checksum verified."
     fi
-    if [ "$ACTUAL" != "$EXPECTED" ]; then
-        echo "Checksum mismatch! Expected ${EXPECTED}, got ${ACTUAL}"
-        exit 1
-    fi
-    echo "Checksum verified."
 fi
 
 chmod +x "$TMP"
@@ -61,8 +59,7 @@ do_install() {
     local cmd=""
     [ "$use_sudo" = "true" ] && cmd="sudo"
     $cmd mkdir -p "$dir"
-    $cmd mv "$TMP" "${dir}/nex"
-    $cmd ln -sf "${dir}/nex" "${dir}/nex-mcp"
+    $cmd mv "$TMP" "${dir}/nex-cli"
     TARGET_DIR="$dir"
 }
 
@@ -77,8 +74,7 @@ else
     do_install "$FALLBACK_DIR" false
 fi
 
-echo "nex installed to ${TARGET_DIR}/nex"
-echo "nex-mcp symlinked to ${TARGET_DIR}/nex-mcp"
+echo "nex-cli installed to ${TARGET_DIR}/nex-cli"
 
 # Check PATH
 case ":$PATH:" in
@@ -88,5 +84,5 @@ esac
 
 echo ""
 echo "Get started:"
-echo "  nex register --email you@company.com"
-echo "  nex setup"
+echo "  nex-cli register --email you@company.com"
+echo "  nex-cli setup"
