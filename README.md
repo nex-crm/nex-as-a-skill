@@ -1,4 +1,4 @@
-# Nex: Compounding Intelligence for AI Agents
+# Nex: Intelligence Layer for AI Agents
 
 [![npm version](https://img.shields.io/npm/v/@nex-ai/nex)](https://www.npmjs.com/package/@nex-ai/nex)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/gjSySC3PzV)

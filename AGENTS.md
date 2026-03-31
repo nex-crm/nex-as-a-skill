@@ -1,5 +1,23 @@
 # --- Nex Context & Memory ---
 
+## Commit Conventions
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/). All commit messages must follow the format: `type(scope): description`
+
+Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
+
+Commitlint enforces this via a `commit-msg` hook.
+
+## Pre-commit Hooks
+
+Lefthook runs the following checks on commit:
+- **biome** — JS/TS/JSON formatting and linting
+- **secretlint** — secret detection
+- **merge conflict markers** — prevents committing unresolved conflicts
+- **large file check** — blocks files >5MB
+
+Setup: `bun install && bunx lefthook install`
+
 # Nex — Organizational Context & Memory
 
 Nex provides your AI agent with real-time organizational knowledge — contacts, deals, meetings, emails, notes, insights, patterns, and playbooks — via MCP tools. Context is proactively injected into your conversation, so relevant knowledge surfaces automatically even when you don't ask for it.
