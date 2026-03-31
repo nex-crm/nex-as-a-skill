@@ -1,0 +1,82 @@
+name: Release Binary
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to release (e.g. v0.1.0). Defaults to latest nex-cli release."
+        required: false
+  repository_dispatch:
+    types: [nex-cli-release]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.CLI_REPO_TOKEN }}
+        run: |
+          # Priority: workflow_dispatch input > repository_dispatch payload > latest
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          elif [ -n "${{ github.event.client_payload.version }}" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+          else
+            VERSION=$(gh release view --repo nex-crm/nex-cli --json tagName -q .tagName)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if release exists
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download binaries from nex-cli
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.CLI_REPO_TOKEN }}
+        run: |
+          mkdir -p dist
+          VERSION="${{ steps.version.outputs.version }}"
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            echo "Downloading nex-cli-${target}..."
+            gh release download "$VERSION" \
+              --repo nex-crm/nex-cli \
+              --pattern "nex-cli-${target}" \
+              --dir dist
+          done
+          ls -lh dist/
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes "nex-cli $VERSION binaries.
+
+          Install:
+          \`\`\`
+          curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
+          \`\`\`" \
+            dist/nex-cli-*
+
+      - name: Skip if already released
+        if: steps.check.outputs.exists == 'true'
+        run: echo "Release ${{ steps.version.outputs.version }} already exists, skipping."
