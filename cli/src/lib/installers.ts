@@ -530,9 +530,10 @@ export function installOpenClawPlugin(
   const entries = (plugins.entries ?? {}) as Record<string, Record<string, unknown>>;
 
   if (!entries.nex) {
-    // Install the plugin
+    // Install the plugin from bundled path inside @nex-ai/nex package
+    const bundledPluginPath = join(__dirname, "..", "..", "openclaw-plugin");
     try {
-      execFileSync("openclaw", ["plugins", "install", "@nex-ai/openclaw-plugin"], {
+      execFileSync("openclaw", ["plugins", "install", bundledPluginPath], {
         stdio: "ignore",
         timeout: 30_000,
       });
