@@ -94,8 +94,13 @@ jobs:
           fi
 
           echo "==> MCP server starts"
-          timeout 3 "$BINARY" mcp 2>mcp_stderr.log || true
+          if timeout 3 "$BINARY" mcp 2>mcp_stderr.log; then
+            status=0
+          else
+            status=$?
+          fi
           cat mcp_stderr.log
+          [ "$status" -eq 124 ] || { echo "FAIL: MCP exited early ($status)"; exit 1; }
           grep -qi "mcp" mcp_stderr.log || { echo "FAIL: MCP server did not start"; exit 1; }
 
           echo "==> Smoke tests passed"
@@ -105,8 +110,8 @@ jobs:
         id: auth
         run: |
           BINARY="dist/nex-cli-linux-x64"
-          "$BINARY" --cmd "setup ci-release-${GITHUB_RUN_ID}@test.nex.ai ci-${GITHUB_RUN_ID}"
           echo "registered=true" >> "$GITHUB_OUTPUT"
+          "$BINARY" --cmd "setup ci-release-${GITHUB_RUN_ID}@test.nex.ai ci-${GITHUB_RUN_ID}"
 
       - name: Integration tests (authenticated)
         if: steps.check.outputs.exists == 'false'
