@@ -61,8 +61,115 @@ jobs:
           done
           ls -lh dist/
 
-      - name: Create release
+      - name: Smoke tests (no auth)
         if: steps.check.outputs.exists == 'false'
+        run: |
+          BINARY="dist/nex-cli-linux-x64"
+          chmod +x "$BINARY"
+
+          echo "==> Version output"
+          VERSION_OUT=$("$BINARY" --version)
+          echo "$VERSION_OUT"
+          echo "$VERSION_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "FAIL: version not semver"; exit 1; }
+
+          echo "==> Help lists commands"
+          HELP_OUT=$("$BINARY" --cmd help)
+          echo "$HELP_OUT"
+          for cmd in objects records search help quit ask remember recall; do
+            echo "$HELP_OUT" | grep -qw "$cmd" || { echo "FAIL: help missing '$cmd'"; exit 1; }
+          done
+
+          echo "==> JSON output"
+          JSON_OUT=$("$BINARY" --cmd help --json)
+          echo "$JSON_OUT"
+          echo "$JSON_OUT" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['ok']==True; assert 'search' in d['data']" \
+            || { echo "FAIL: JSON output invalid"; exit 1; }
+
+          echo "==> Telemetry command"
+          "$BINARY" --cmd telemetry | grep -qi "telemetry" || { echo "FAIL: telemetry output"; exit 1; }
+
+          echo "==> Invalid command exits non-zero"
+          if "$BINARY" --cmd "notacommand" 2>/dev/null; then
+            echo "FAIL: invalid command should exit non-zero"; exit 1
+          fi
+
+          echo "==> MCP server starts"
+          if timeout 3 "$BINARY" mcp 2>mcp_stderr.log; then
+            status=0
+          else
+            status=$?
+          fi
+          cat mcp_stderr.log
+          [ "$status" -eq 124 ] || { echo "FAIL: MCP exited early ($status)"; exit 1; }
+          grep -qi "mcp" mcp_stderr.log || { echo "FAIL: MCP server did not start"; exit 1; }
+
+          echo "==> Smoke tests passed"
+
+      - name: Register test account
+        if: steps.check.outputs.exists == 'false'
+        id: auth
+        run: |
+          BINARY="dist/nex-cli-linux-x64"
+          echo "registered=true" >> "$GITHUB_OUTPUT"
+          "$BINARY" --cmd "setup ci-release-${GITHUB_RUN_ID}@test.nex.ai ci-${GITHUB_RUN_ID}"
+
+      - name: Integration tests (authenticated)
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          BINARY="dist/nex-cli-linux-x64"
+
+          echo "==> List object types"
+          OBJECTS=$("$BINARY" --cmd objects --json)
+          echo "$OBJECTS" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['ok']==True" \
+            || { echo "FAIL: objects listing"; exit 1; }
+          echo "OK: $(echo "$OBJECTS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['data']))" ) object types"
+
+          echo "==> Create a record"
+          CREATE=$("$BINARY" --cmd 'create company name="CI Test Corp"' --json)
+          echo "$CREATE"
+          RECORD_ID=$(echo "$CREATE" | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+          echo "OK: created record $RECORD_ID"
+
+          echo "==> Search for created record"
+          SEARCH=$("$BINARY" --cmd 'search "CI Test Corp"' --json)
+          echo "$SEARCH" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['ok']==True; assert len(d['data']) > 0" \
+            || { echo "FAIL: search returned no results"; exit 1; }
+          echo "OK: search found results"
+
+          echo "==> List records"
+          RECORDS=$("$BINARY" --cmd 'records company' --json)
+          echo "$RECORDS" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['ok']==True; assert len(d['data']) > 0" \
+            || { echo "FAIL: records listing empty"; exit 1; }
+          echo "OK: records listed"
+
+          echo "==> Remember context"
+          REMEMBER=$("$BINARY" --cmd 'remember "CI test: integration tests pass on release"' --json)
+          echo "$REMEMBER" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['ok']==True" \
+            || { echo "FAIL: remember"; exit 1; }
+          echo "OK: context stored"
+
+          echo "==> Recall context"
+          RECALL=$("$BINARY" --cmd 'recall "CI test integration"' --json)
+          echo "$RECALL" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['ok']==True" \
+            || { echo "FAIL: recall"; exit 1; }
+          echo "OK: context recalled"
+
+          echo "==> Delete created record"
+          "$BINARY" --cmd "delete $RECORD_ID --yes" --json | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['ok']==True" \
+            || { echo "FAIL: delete record"; exit 1; }
+          echo "OK: record deleted"
+
+          echo "==> All integration tests passed"
+
+      - name: Cleanup test workspace
+        if: always() && steps.auth.outputs.registered
+        run: |
+          BINARY="dist/nex-cli-linux-x64"
+          "$BINARY" --cmd "clear --all --yes" 2>/dev/null || true
+          echo "Test workspace data cleaned up"
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'false' && success()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
