@@ -104,18 +104,12 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         id: auth
         run: |
-          RESP=$(curl -fsSL -X POST https://app.nex.ai/api/v1/agents/register \
-            -H "Content-Type: application/json" \
-            -d "{\"email\": \"ci-release-${GITHUB_RUN_ID}@test.nex.ai\", \"source\": \"ci\", \"company_name\": \"ci-release-${GITHUB_RUN_ID}\"}")
-          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['api_key'])" > /tmp/nex_api_key
-          echo "::add-mask::$(cat /tmp/nex_api_key)"
-          echo "api_key=$(cat /tmp/nex_api_key)" >> "$GITHUB_OUTPUT"
-          echo "Registered test workspace: $(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['workspace_slug'])")"
+          BINARY="dist/nex-cli-linux-x64"
+          "$BINARY" --cmd "setup ci-release-${GITHUB_RUN_ID}@test.nex.ai ci-${GITHUB_RUN_ID}"
+          echo "registered=true" >> "$GITHUB_OUTPUT"
 
       - name: Integration tests (authenticated)
         if: steps.check.outputs.exists == 'false'
-        env:
-          NEX_API_KEY: ${{ steps.auth.outputs.api_key }}
         run: |
           BINARY="dist/nex-cli-linux-x64"
 
@@ -163,9 +157,7 @@ jobs:
           echo "==> All integration tests passed"
 
       - name: Cleanup test workspace
-        if: always() && steps.auth.outputs.api_key
-        env:
-          NEX_API_KEY: ${{ steps.auth.outputs.api_key }}
+        if: always() && steps.auth.outputs.registered
         run: |
           BINARY="dist/nex-cli-linux-x64"
           "$BINARY" --cmd "clear --all --yes" 2>/dev/null || true
