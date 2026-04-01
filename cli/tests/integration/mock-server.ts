@@ -127,6 +127,51 @@ const INSIGHTS = {
   insight_count: 1,
 };
 
+const PLAYBOOK = {
+  id: "pb-1",
+  title: "Acme Corp Brief",
+  slug: "acme-corp-brief",
+  card_type: 3,
+  scope_type: 1,
+  version: 2,
+  content: "# Acme Corp\n\nKey account with $2M ARR...",
+  entity_id: "rec-1",
+  entity_name: "Acme Corp",
+  created_at: "2025-01-01T00:00:00Z",
+  updated_at: "2025-06-15T12:00:00Z",
+};
+
+const WORKSPACE_PLAYBOOK = {
+  id: "pb-2",
+  title: "Enterprise Churn Prevention",
+  slug: "enterprise-churn-prevention",
+  card_type: 3,
+  scope_type: 1,
+  version: 1,
+  content: "# Enterprise Churn Prevention\n\nWhen usage drops below 50%...",
+  created_at: "2025-01-01T00:00:00Z",
+  updated_at: "2025-06-15T12:00:00Z",
+};
+
+const PLAYBOOK_HISTORY = {
+  events: [
+    {
+      id: "evt-pb-1",
+      version: 2,
+      event_type: "compiled",
+      diff_summary: "Added Q1 revenue data, updated relationship status",
+      created_at: "2025-06-15T12:00:00Z",
+    },
+    {
+      id: "evt-pb-2",
+      version: 1,
+      event_type: "created",
+      diff_summary: null,
+      created_at: "2025-01-01T00:00:00Z",
+    },
+  ],
+};
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -198,6 +243,28 @@ export function startMockServer(): { url: string; close: () => void } {
         // GET /v1/context/artifacts/:id
         m = path.match(/^\/api\/developers\/v1\/context\/artifacts\/([^/]+)$/);
         if (m) return json(res, ARTIFACT);
+
+        // GET /v1/playbooks/workspace/:slug
+        m = path.match(/^\/api\/developers\/v1\/playbooks\/workspace\/([^/]+)$/);
+        if (m) return json(res, WORKSPACE_PLAYBOOK);
+
+        // GET /v1/playbooks/workspace
+        if (path === "/api/developers/v1/playbooks/workspace") return json(res, { data: [WORKSPACE_PLAYBOOK] });
+
+        // GET /v1/playbooks/by-context/:context_id
+        m = path.match(/^\/api\/developers\/v1\/playbooks\/by-context\/([^/]+)$/);
+        if (m) return json(res, PLAYBOOK);
+
+        // GET /v1/playbooks/:id/history
+        m = path.match(/^\/api\/developers\/v1\/playbooks\/([^/]+)\/history$/);
+        if (m) return json(res, PLAYBOOK_HISTORY);
+
+        // GET /v1/playbooks/:id
+        m = path.match(/^\/api\/developers\/v1\/playbooks\/([^/]+)$/);
+        if (m) return m[1] === "pb-1" ? json(res, PLAYBOOK) : m[1] === "pb-2" ? json(res, WORKSPACE_PLAYBOOK) : json(res, { error: "Not found" }, 404);
+
+        // GET /v1/playbooks
+        if (path === "/api/developers/v1/playbooks") return json(res, { data: [PLAYBOOK] });
       }
 
       // ── POST ────────────────────────────────────────────────
@@ -249,6 +316,11 @@ export function startMockServer(): { url: string; close: () => void } {
         // POST /v1/records/:id/relationships
         m = path.match(/^\/api\/developers\/v1\/records\/([^/]+)\/relationships$/);
         if (m) return json(res, { id: "rel-inst-new" });
+
+        // POST /v1/playbooks/compile
+        if (path === "/api/developers/v1/playbooks/compile") {
+          return json(res, { id: "pb-compiled", status: "queued" });
+        }
       }
 
       // ── PUT ─────────────────────────────────────────────────
