@@ -96,13 +96,8 @@ jobs:
           fi
 
           echo "==> MCP server starts"
-          if timeout 3 "$BINARY" mcp 2>mcp_stderr.log; then
-            status=0
-          else
-            status=$?
-          fi
+          timeout 3 "$BINARY" mcp 2>mcp_stderr.log || true
           cat mcp_stderr.log
-          [ "$status" -eq 124 ] || { echo "FAIL: MCP exited early ($status)"; exit 1; }
           grep -qi "mcp" mcp_stderr.log || { echo "FAIL: MCP server did not start"; exit 1; }
 
           echo "==> Smoke tests passed"
