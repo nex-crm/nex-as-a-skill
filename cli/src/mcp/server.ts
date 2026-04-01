@@ -13,6 +13,7 @@ import { registerRegistrationTools } from "./tools/register.js";
 import { registerScanTools } from "./tools/scan.js";
 import { registerIntegrationTools } from "./tools/integrations.js";
 import { registerNotificationTools } from "./tools/notifications.js";
+import { registerPlaybookTools } from "./tools/playbooks.js";
 
 export function createServer(apiKey?: string): {
   server: McpServer;
@@ -49,6 +50,7 @@ export function createServer(apiKey?: string): {
   registerScanTools(server, client);
   registerIntegrationTools(server, client);
   registerNotificationTools(server, client);
+  registerPlaybookTools(server, client);
 
   return { server, client };
 }
