@@ -165,6 +165,25 @@ Or without a global install:
 }
 ```
 
+### Remote MCP Server (no install required)
+
+Connect directly to the hosted Nex MCP server. No local installation needed — works with any MCP client that supports Streamable HTTP transport.
+
+```json
+{
+  "mcpServers": {
+    "nex": {
+      "url": "https://mcp.nex.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer sk-your_key_here"
+      }
+    }
+  }
+}
+```
+
+Get an API key at [app.nex.ai/settings/developers](https://app.nex.ai/settings/developers).
+
 ### Shell-only Agents (no Node.js)
 
 Bash scripts for agents that can only run shell commands. Requires `curl` and `jq`.
