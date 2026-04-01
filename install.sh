@@ -85,4 +85,3 @@ esac
 echo ""
 echo "Get started:"
 echo "  nex-cli --cmd \"setup you@company.com\""
-echo "  nex-cli --cmd \"setup\""
