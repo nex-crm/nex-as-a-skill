@@ -1325,6 +1325,65 @@ async function executeDetectPlatforms(_args: string[], ctx: CommandContext): Pro
   return ok(detected, ctx);
 }
 
+// -- CRM commands --
+
+async function executeCrmAccountBrief(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const id = args[0];
+  if (!id) return fail("No entity ID provided. Usage: crm account-brief <entity-id>");
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get(`/v1/crm/account/${encodeURIComponent(id)}/brief`);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executeCrmDealBrief(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const id = args[0];
+  if (!id) return fail("No deal ID provided. Usage: crm deal-brief <deal-id>");
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get(`/v1/crm/deal/${encodeURIComponent(id)}/brief`);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executeCrmRecommend(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { positional, opts } = extractOpts(args);
+  const entityId = positional[0];
+  if (!entityId) return fail("No entity ID provided. Usage: crm recommend <entity-id>");
+  try {
+    const client = makeClient(ctx);
+    const body: Record<string, unknown> = { entity_id: entityId };
+    if (typeof opts.limit === "string") body.limit = parseInt(opts.limit, 10);
+    const result = await client.post("/v1/crm/recommend", body);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executeCrmCatchup(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  try {
+    const client = makeClient(ctx);
+    const params = new URLSearchParams();
+    if (typeof opts.since === "string") params.set("since", opts.since);
+    if (typeof opts.from === "string") params.set("from", opts.from);
+    if (typeof opts.to === "string") params.set("to", opts.to);
+    const qs = params.toString();
+    const result = await client.get(`/v1/crm/catchup${qs ? `?${qs}` : ""}`);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executeCrmWarmth(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const id = args[0];
+  if (!id) return fail("No entity ID provided. Usage: crm warmth <entity-id>");
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get(`/v1/crm/warmth/${encodeURIComponent(id)}`);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
 // ── Command registry ──
 
 const commands = new Map<string, CommandEntry>();
@@ -1382,6 +1441,13 @@ register("playbook get", { execute: executePlaybookGet, description: "Get a play
 register("playbook workspace", { execute: executePlaybookWorkspace, description: "List workspace playbooks", category: "query", usage: "playbook workspace" });
 register("playbook history", { execute: executePlaybookHistory, description: "Get playbook version history", category: "query", usage: "playbook history <id>" });
 register("playbook compile", { execute: executePlaybookCompile, description: "Trigger playbook compilation", category: "write", usage: "playbook compile --entity-id <id>" });
+
+// -- CRM --
+register("crm account-brief", { execute: executeCrmAccountBrief, description: "Get structured account brief", category: "query", usage: "crm account-brief <entity-id>" });
+register("crm deal-brief", { execute: executeCrmDealBrief, description: "Get structured deal brief", category: "query", usage: "crm deal-brief <deal-id>" });
+register("crm recommend", { execute: executeCrmRecommend, description: "Get AI-recommended next actions", category: "ai", usage: "crm recommend <entity-id> [--limit <n>]" });
+register("crm catchup", { execute: executeCrmCatchup, description: "What did I miss? catch-up digest", category: "query", usage: "crm catchup [--since <dur>] [--from <date>] [--to <date>]" });
+register("crm warmth", { execute: executeCrmWarmth, description: "Get relationship warmth score", category: "query", usage: "crm warmth <entity-id>" });
 
 // -- Relationships --
 register("rel list-defs", { execute: executeRelListDefs, description: "List relationship definitions", category: "query", usage: "rel list-defs" });
