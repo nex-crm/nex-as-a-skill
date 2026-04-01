@@ -84,6 +84,7 @@ Commands:
   mcp                   Start the embedded MCP server (stdio)
   agent templates       List available agent templates
   agent create          Create a new agent
+  upgrade               Update nex to the latest version
 
 Options:
   --cmd <input>         Run a single command and exit
@@ -113,6 +114,13 @@ When no command is given, launches the interactive TUI.`);
   // nex mcp → start embedded MCP server
   if (firstArg === "mcp") {
     await import("./mcp/index.js");
+    return;
+  }
+
+  // nex upgrade → check for updates and install
+  if (firstArg === "upgrade" || firstArg === "update") {
+    const { runUpgrade } = await import("./commands/upgrade.js");
+    await runUpgrade();
     return;
   }
 

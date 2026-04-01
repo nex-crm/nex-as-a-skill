@@ -22,12 +22,35 @@ import { ingestContextFiles } from "./context-files.js";
 import { readManifest as readScanManifest, isScanFresh, markScanned, writeManifest as writeScanManifest } from "./file-manifest.js";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { execFileSync } from "node:child_process";
 
 const sessions = new SessionStore();
 
 interface HookInput {
   session_id?: string;
   source?: string; // "startup" | "resume" | "clear" | "compact"
+}
+
+/**
+ * Run nex-update-check as a subprocess and return the result.
+ * Returns null on error or if no update available.
+ */
+function checkForUpdate(): string | null {
+  try {
+    const pluginDir = dirname(fileURLToPath(import.meta.url));
+    const checkScript = join(pluginDir, "update-check.js");
+    const output = execFileSync("node", [checkScript], {
+      encoding: "utf-8",
+      timeout: 6000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    if (output.startsWith("UPGRADE_AVAILABLE") || output.startsWith("JUST_UPGRADED")) {
+      return output;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 const SESSION_START_QUERY = "Summarize the key active context, recent interactions, and important updates for this user.";
@@ -167,9 +190,24 @@ async function main(): Promise<void> {
     });
 
     // Append scan summary if any
-    const fullContext = contextParts.length > 0
+    let fullContext = contextParts.length > 0
       ? `${context}\n${contextParts.join("\n")}`
       : context;
+
+    // --- Update check (non-blocking, best-effort) ---
+    const updateResult = checkForUpdate();
+    if (updateResult) {
+      const parts = updateResult.split(" ");
+      if (parts[0] === "UPGRADE_AVAILABLE") {
+        const [, currentVer, latestVer] = parts;
+        fullContext += `\n\n[Nex Update] A new version of Nex is available: ${currentVer} → ${latestVer}. ` +
+          `Inform the user that a Nex update is available and offer to upgrade. ` +
+          `To upgrade, run: nex upgrade`;
+      } else if (parts[0] === "JUST_UPGRADED") {
+        const [, oldVer, newVer] = parts;
+        fullContext += `\n\n[Nex Update] Nex was recently upgraded from ${oldVer} to ${newVer}.`;
+      }
+    }
 
     const output = JSON.stringify({
       hookSpecificOutput: {
