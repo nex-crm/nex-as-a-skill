@@ -640,15 +640,15 @@ async function executePlaybookHistory(args: string[], ctx: CommandContext): Prom
 
 async function executePlaybookCompile(args: string[], ctx: CommandContext): Promise<CommandResult> {
   const { opts } = extractOpts(args);
-  const entityId = typeof opts["entity-id"] === "string" ? opts["entity-id"] : undefined;
-  if (!entityId) return fail("Required: --entity-id <id>");
+  const contextId = typeof opts["context-id"] === "string" ? opts["context-id"] : undefined;
+  if (!contextId) return fail("Required: --context-id <id> (use context_id from playbook list)");
   try {
     const client = makeClient(ctx);
-    const result = await client.post("/v1/playbooks/compile", { entity_id: entityId });
+    const body: Record<string, unknown> = { context_id: contextId };
+    if (opts.private === true) body.is_private = true;
+    const result = await client.post("/v1/playbooks/compile", body);
     return ok(result, ctx);
-  } catch (err) {
-    return wrapError(err);
-  }
+  } catch (err) { return wrapError(err); }
 }
 
 // -- Relationship commands --
@@ -1580,7 +1580,7 @@ register("playbook list", { execute: executePlaybookList, description: "List ent
 register("playbook get", { execute: executePlaybookGet, description: "Get a playbook by ID", category: "query", usage: "playbook get <id>" });
 register("playbook workspace", { execute: executePlaybookWorkspace, description: "List workspace playbooks", category: "query", usage: "playbook workspace" });
 register("playbook history", { execute: executePlaybookHistory, description: "Get playbook version history", category: "query", usage: "playbook history <id>" });
-register("playbook compile", { execute: executePlaybookCompile, description: "Trigger playbook compilation", category: "write", usage: "playbook compile --entity-id <id>" });
+register("playbook compile", { execute: executePlaybookCompile, description: "Trigger playbook compilation", category: "write", usage: "playbook compile --context-id <id> [--private]" });
 
 // -- CRM --
 register("crm account-brief", { execute: executeCrmAccountBrief, description: "Get structured account brief", category: "query", usage: "crm account-brief <entity-id>" });

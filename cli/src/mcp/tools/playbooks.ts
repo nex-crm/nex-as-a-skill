@@ -62,16 +62,13 @@ export function registerPlaybookTools(server: McpServer, client: NexApiClient) {
     "compile_brief",
     "Trigger compilation of an entity brief or workspace playbook. Queues a background job that generates or refreshes the intelligence document from the latest context graph data. At least one parameter is required.",
     {
-      entity_id: z.string().optional().describe("Entity ID to compile brief for (required for entity briefs)"),
-      playbook_type: z.enum(["entity", "workspace"]).default("entity").describe("Type of playbook to compile"),
+      context_id: z.string().describe("Context entity ID to compile brief for (from entity search or playbook list)"),
+      is_private: z.boolean().optional().describe("Create a private brief (default: false)"),
     },
     { readOnlyHint: false },
-    async ({ entity_id, playbook_type }) => {
-      if (playbook_type === "entity" && !entity_id) {
-        return { content: [{ type: "text", text: "Error: entity_id is required when compiling entity briefs." }] };
-      }
-      const body: Record<string, unknown> = { playbook_type };
-      if (entity_id !== undefined) body.entity_id = entity_id;
+    async ({ context_id, is_private }) => {
+      const body: Record<string, unknown> = { context_id };
+      if (is_private !== undefined) body.is_private = is_private;
       const result = await client.post("/v1/playbooks/compile", body);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
