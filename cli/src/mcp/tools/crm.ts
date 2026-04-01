@@ -34,7 +34,7 @@ export function registerCrmTools(server: McpServer, client: NexApiClient) {
     },
     { readOnlyHint: true },
     async ({ entity_id, limit }) => {
-      const body: Record<string, unknown> = { entity_id };
+      const body: Record<string, unknown> = { entity_id: parseInt(entity_id, 10) };
       if (limit !== undefined) body.limit = limit;
       const result = await client.post("/v1/crm/recommend", body);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

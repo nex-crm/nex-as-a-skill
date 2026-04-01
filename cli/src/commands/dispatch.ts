@@ -644,7 +644,7 @@ async function executePlaybookCompile(args: string[], ctx: CommandContext): Prom
   if (!entityId) return fail("Required: --entity-id <id>");
   try {
     const client = makeClient(ctx);
-    const result = await client.post("/v1/playbooks/compile", { entity_id: entityId });
+    const result = await client.post("/v1/playbooks/compile", { entity_id: parseInt(entityId, 10) });
     return ok(result, ctx);
   } catch (err) {
     return wrapError(err);
@@ -1353,7 +1353,7 @@ async function executeCrmRecommend(args: string[], ctx: CommandContext): Promise
   if (!entityId) return fail("No entity ID provided. Usage: crm recommend <entity-id>");
   try {
     const client = makeClient(ctx);
-    const body: Record<string, unknown> = { entity_id: entityId };
+    const body: Record<string, unknown> = { entity_id: parseInt(entityId, 10) };
     if (typeof opts.limit === "string") body.limit = parseInt(opts.limit, 10);
     const result = await client.post("/v1/crm/recommend", body);
     return ok(result, ctx);
