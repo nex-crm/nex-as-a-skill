@@ -77,6 +77,11 @@ Commands:
   record get <id>       Get a record by ID
   task list             List tasks
   note list             List notes
+  playbook list         List entity briefs
+  playbook get <id>     Get a playbook by ID
+  playbook workspace    List workspace playbooks
+  playbook history <id> Get playbook version history
+  playbook compile      Trigger playbook compilation
   search <query>        Search across records
   graph                 View relationship graph
   detect                Detect installed AI coding platforms
