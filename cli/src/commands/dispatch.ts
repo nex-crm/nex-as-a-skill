@@ -1464,6 +1464,66 @@ async function executePolicySet(args: string[], ctx: CommandContext): Promise<Co
   } catch (err) { return wrapError(err); }
 }
 
+// -- Pipeline commands --
+
+async function executePipelineGet(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  try {
+    const client = makeClient(ctx);
+    const params = new URLSearchParams();
+    if (typeof opts.owner === "string") params.set("owner_id", opts.owner);
+    if (typeof opts["closing-before"] === "string") params.set("closing_before", opts["closing-before"]);
+    if (typeof opts["closing-after"] === "string") params.set("closing_after", opts["closing-after"]);
+    const qs = params.toString();
+    const result = await client.get(`/v1/pipeline${qs ? `?${qs}` : ""}`);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executePipelineMove(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  const dealId = typeof opts["deal-id"] === "string" ? opts["deal-id"] : undefined;
+  const stage = typeof opts.stage === "string" ? opts.stage : undefined;
+  if (!dealId || !stage) return fail("Usage: pipeline move --deal-id <id> --stage <stage> [--reason <r>]");
+  try {
+    const client = makeClient(ctx);
+    const body: Record<string, unknown> = { deal_id: dealId, new_stage: stage };
+    if (typeof opts.reason === "string") body.reason = opts.reason;
+    const result = await client.post("/v1/pipeline/move", body);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executePipelineForecast(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  try {
+    const client = makeClient(ctx);
+    const params = new URLSearchParams();
+    if (typeof opts.period === "string") params.set("period", opts.period);
+    const qs = params.toString();
+    const result = await client.get(`/v1/pipeline/forecast${qs ? `?${qs}` : ""}`);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+// -- Action execution --
+
+async function executeActionExecute(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  const actionType = typeof opts.type === "string" ? opts.type : undefined;
+  const operation = typeof opts.operation === "string" ? opts.operation : undefined;
+  if (!actionType || !operation) return fail("Usage: action execute --type <internal|external> --operation <op> [--entity <id>] [--approval <id>] [--params <json>]");
+  try {
+    const client = makeClient(ctx);
+    const body: Record<string, unknown> = { action_type: actionType, operation };
+    if (typeof opts.entity === "string") body.target_entity_id = opts.entity;
+    if (typeof opts.approval === "string") body.approval_id = opts.approval;
+    if (typeof opts.params === "string") body.params = JSON.parse(opts.params);
+    const result = await client.post("/v1/actions/execute", body);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
 // ── Command registry ──
 
 const commands = new Map<string, CommandEntry>();
@@ -1538,6 +1598,14 @@ register("approval history", { execute: executeActionHistory, description: "Get 
 // -- Policy --
 register("policy get", { execute: executePolicyGet, description: "Show agent policy config", category: "config" });
 register("policy set", { execute: executePolicySet, description: "Set agent trust level", category: "config", usage: "policy set --object-type <t> --trust-level <l> [--action-type <a>]" });
+
+// -- Pipeline --
+register("pipeline get", { execute: executePipelineGet, description: "View deal pipeline by stage", category: "query", usage: "pipeline get [--owner <id>] [--closing-before <date>]" });
+register("pipeline move", { execute: executePipelineMove, description: "Move a deal to a new stage", category: "write", usage: "pipeline move --deal-id <id> --stage <stage>" });
+register("pipeline forecast", { execute: executePipelineForecast, description: "Get revenue forecast", category: "query", usage: "pipeline forecast [--period <week|month|quarter>]" });
+
+// -- Actions --
+register("action execute", { execute: executeActionExecute, description: "Execute an action (internal or external)", category: "write", usage: "action execute --type <internal|external> --operation <op>" });
 
 // -- Relationships --
 register("rel list-defs", { execute: executeRelListDefs, description: "List relationship definitions", category: "query", usage: "rel list-defs" });
