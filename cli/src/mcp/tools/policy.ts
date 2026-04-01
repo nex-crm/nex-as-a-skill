@@ -9,7 +9,7 @@ export function registerPolicyTools(server: McpServer, client: NexApiClient) {
     {},
     { readOnlyHint: true },
     async () => {
-      const result = await client.get("/v1/policy");
+      const result = await client.get("/v1/crm/policy");
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -26,7 +26,7 @@ export function registerPolicyTools(server: McpServer, client: NexApiClient) {
     async ({ object_type, action_type, trust_level }) => {
       const body: Record<string, unknown> = { object_type, trust_level };
       if (action_type !== undefined) body.action_type = action_type;
-      const result = await client.put("/v1/policy", body);
+      const result = await client.put("/v1/crm/policy", body);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );

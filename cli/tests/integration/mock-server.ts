@@ -382,17 +382,17 @@ export function startMockServer(): { url: string; close: () => void } {
         if (m) return json(res, WARMTH);
 
         // Approvals
-        if (path.startsWith("/api/developers/v1/approvals") && !path.includes("/history")) return json(res, PROPOSALS);
+        if (path.startsWith("/api/developers/v1/crm/approvals") && !path.includes("/history")) return json(res, PROPOSALS);
 
         // Action history
-        if (path.startsWith("/api/developers/v1/actions/history")) return json(res, ACTION_HISTORY_DATA);
+        if (path.startsWith("/api/developers/v1/crm/actions/history")) return json(res, ACTION_HISTORY_DATA);
 
         // Policy
-        if (path === "/api/developers/v1/policy") return json(res, POLICY);
+        if (path === "/api/developers/v1/crm/policy") return json(res, POLICY);
 
         // Pipeline
-        if (path.startsWith("/api/developers/v1/pipeline/forecast")) return json(res, FORECAST);
-        if (path.startsWith("/api/developers/v1/pipeline") && !path.includes("move") && !path.includes("forecast")) return json(res, PIPELINE);
+        if (path.startsWith("/api/developers/v1/crm/pipeline/forecast")) return json(res, FORECAST);
+        if (path.startsWith("/api/developers/v1/crm/pipeline") && !path.includes("move") && !path.includes("forecast")) return json(res, PIPELINE);
       }
 
       // ── POST ────────────────────────────────────────────────
@@ -454,10 +454,10 @@ export function startMockServer(): { url: string; close: () => void } {
         if (path === "/api/developers/v1/crm/recommend") return json(res, RECOMMENDATIONS);
 
         // Pipeline move
-        if (path === "/api/developers/v1/pipeline/move") return json(res, { deal_id: parsed.deal_id, new_stage: parsed.new_stage, status: "moved" });
+        if (path === "/api/developers/v1/crm/pipeline/move") return json(res, { deal_id: parsed.deal_id, new_stage: parsed.new_stage, status: "moved" });
 
         // Action execute
-        if (path === "/api/developers/v1/actions/execute") return json(res, ACTION_RESULT);
+        if (path === "/api/developers/v1/crm/actions/execute") return json(res, ACTION_RESULT);
       }
 
       // ── PUT ─────────────────────────────────────────────────
@@ -477,7 +477,7 @@ export function startMockServer(): { url: string; close: () => void } {
         }
 
         // Policy update
-        if (path === "/api/developers/v1/policy") return json(res, { ...POLICY, updated: true });
+        if (path === "/api/developers/v1/crm/policy") return json(res, { ...POLICY, updated: true });
       }
 
       // ── PATCH ───────────────────────────────────────────────
@@ -510,7 +510,7 @@ export function startMockServer(): { url: string; close: () => void } {
         if (m) return json(res, { ...NOTE, ...parsed });
 
         // Approval approve/reject
-        m = path.match(/^\/api\/developers\/v1\/approvals\/([^/]+)$/);
+        m = path.match(/^\/api\/developers\/v1\/crm\/approvals\/([^/]+)$/);
         if (m) return json(res, { ...PROPOSALS.data[0], id: m[1], status: parsed.action === "approve" ? "approved" : "rejected" });
       }
 

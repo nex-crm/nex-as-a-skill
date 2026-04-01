@@ -18,7 +18,7 @@ export function registerPipelineTools(server: McpServer, client: NexApiClient) {
       if (closing_before) params.set("closing_before", closing_before);
       if (closing_after) params.set("closing_after", closing_after);
       const qs = params.toString();
-      const path = `/v1/pipeline${qs ? `?${qs}` : ""}`;
+      const path = `/v1/crm/pipeline${qs ? `?${qs}` : ""}`;
       const result = await client.get(path);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
@@ -36,7 +36,7 @@ export function registerPipelineTools(server: McpServer, client: NexApiClient) {
     async ({ deal_id, new_stage, reason }) => {
       const body: Record<string, unknown> = { deal_id, new_stage };
       if (reason !== undefined) body.reason = reason;
-      const result = await client.post("/v1/pipeline/move", body);
+      const result = await client.post("/v1/crm/pipeline/move", body);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -52,7 +52,7 @@ export function registerPipelineTools(server: McpServer, client: NexApiClient) {
       const params = new URLSearchParams();
       if (period) params.set("period", period);
       const qs = params.toString();
-      const path = `/v1/pipeline/forecast${qs ? `?${qs}` : ""}`;
+      const path = `/v1/crm/pipeline/forecast${qs ? `?${qs}` : ""}`;
       const result = await client.get(path);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },

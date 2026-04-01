@@ -1395,7 +1395,7 @@ async function executeApprovalList(args: string[], ctx: CommandContext): Promise
     if (typeof opts.status === "string") params.set("status", opts.status);
     if (typeof opts.limit === "string") params.set("limit", opts.limit);
     const qs = params.toString();
-    const result = await client.get(`/v1/approvals${qs ? `?${qs}` : ""}`);
+    const result = await client.get(`/v1/crm/approvals${qs ? `?${qs}` : ""}`);
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }
@@ -1408,7 +1408,7 @@ async function executeApprovalApprove(args: string[], ctx: CommandContext): Prom
     const client = makeClient(ctx);
     const body: Record<string, unknown> = { action: "approve" };
     if (typeof opts.comment === "string") body.comment = opts.comment;
-    const result = await client.patch(`/v1/approvals/${encodeURIComponent(id)}`, body);
+    const result = await client.patch(`/v1/crm/approvals/${encodeURIComponent(id)}`, body);
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }
@@ -1421,7 +1421,7 @@ async function executeApprovalReject(args: string[], ctx: CommandContext): Promi
     const client = makeClient(ctx);
     const body: Record<string, unknown> = { action: "reject" };
     if (typeof opts.reason === "string") body.reason = opts.reason;
-    const result = await client.patch(`/v1/approvals/${encodeURIComponent(id)}`, body);
+    const result = await client.patch(`/v1/crm/approvals/${encodeURIComponent(id)}`, body);
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }
@@ -1435,7 +1435,7 @@ async function executeActionHistory(args: string[], ctx: CommandContext): Promis
     if (typeof opts.limit === "string") params.set("limit", opts.limit);
     if (typeof opts.since === "string") params.set("since", opts.since);
     const qs = params.toString();
-    const result = await client.get(`/v1/actions/history${qs ? `?${qs}` : ""}`);
+    const result = await client.get(`/v1/crm/actions/history${qs ? `?${qs}` : ""}`);
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }
@@ -1445,7 +1445,7 @@ async function executeActionHistory(args: string[], ctx: CommandContext): Promis
 async function executePolicyGet(_args: string[], ctx: CommandContext): Promise<CommandResult> {
   try {
     const client = makeClient(ctx);
-    const result = await client.get("/v1/policy");
+    const result = await client.get("/v1/crm/policy");
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }
@@ -1459,7 +1459,7 @@ async function executePolicySet(args: string[], ctx: CommandContext): Promise<Co
     const client = makeClient(ctx);
     const body: Record<string, unknown> = { object_type: objectType, trust_level: trustLevel };
     if (typeof opts["action-type"] === "string") body.action_type = opts["action-type"];
-    const result = await client.put("/v1/policy", body);
+    const result = await client.put("/v1/crm/policy", body);
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }
@@ -1475,7 +1475,7 @@ async function executePipelineGet(args: string[], ctx: CommandContext): Promise<
     if (typeof opts["closing-before"] === "string") params.set("closing_before", opts["closing-before"]);
     if (typeof opts["closing-after"] === "string") params.set("closing_after", opts["closing-after"]);
     const qs = params.toString();
-    const result = await client.get(`/v1/pipeline${qs ? `?${qs}` : ""}`);
+    const result = await client.get(`/v1/crm/pipeline${qs ? `?${qs}` : ""}`);
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }
@@ -1489,7 +1489,7 @@ async function executePipelineMove(args: string[], ctx: CommandContext): Promise
     const client = makeClient(ctx);
     const body: Record<string, unknown> = { deal_id: dealId, new_stage: stage };
     if (typeof opts.reason === "string") body.reason = opts.reason;
-    const result = await client.post("/v1/pipeline/move", body);
+    const result = await client.post("/v1/crm/pipeline/move", body);
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }
@@ -1501,7 +1501,7 @@ async function executePipelineForecast(args: string[], ctx: CommandContext): Pro
     const params = new URLSearchParams();
     if (typeof opts.period === "string") params.set("period", opts.period);
     const qs = params.toString();
-    const result = await client.get(`/v1/pipeline/forecast${qs ? `?${qs}` : ""}`);
+    const result = await client.get(`/v1/crm/pipeline/forecast${qs ? `?${qs}` : ""}`);
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }
@@ -1519,7 +1519,7 @@ async function executeActionExecute(args: string[], ctx: CommandContext): Promis
     if (typeof opts.entity === "string") body.target_entity_id = opts.entity;
     if (typeof opts.approval === "string") body.approval_id = opts.approval;
     if (typeof opts.params === "string") body.params = JSON.parse(opts.params);
-    const result = await client.post("/v1/actions/execute", body);
+    const result = await client.post("/v1/crm/actions/execute", body);
     return ok(result, ctx);
   } catch (err) { return wrapError(err); }
 }

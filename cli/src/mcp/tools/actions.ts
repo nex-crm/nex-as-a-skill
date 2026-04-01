@@ -19,7 +19,7 @@ export function registerActionTools(server: McpServer, client: NexApiClient) {
       if (target_entity_id !== undefined) body.target_entity_id = target_entity_id;
       if (approval_id !== undefined) body.approval_id = approval_id;
       if (params !== undefined) body.params = params;
-      const result = await client.post("/v1/actions/execute", body);
+      const result = await client.post("/v1/crm/actions/execute", body);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );

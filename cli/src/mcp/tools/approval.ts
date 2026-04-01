@@ -18,7 +18,7 @@ export function registerApprovalTools(server: McpServer, client: NexApiClient) {
       if (status) params.set("status", status);
       if (limit !== undefined) params.set("limit", String(limit));
       const qs = params.toString();
-      const path = `/v1/approvals${qs ? `?${qs}` : ""}`;
+      const path = `/v1/crm/approvals${qs ? `?${qs}` : ""}`;
       const result = await client.get(path);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
@@ -35,7 +35,7 @@ export function registerApprovalTools(server: McpServer, client: NexApiClient) {
     async ({ proposal_id, comment }) => {
       const body: Record<string, unknown> = { action: "approve" };
       if (comment !== undefined) body.comment = comment;
-      const result = await client.patch(`/v1/approvals/${encodeURIComponent(proposal_id)}`, body);
+      const result = await client.patch(`/v1/crm/approvals/${encodeURIComponent(proposal_id)}`, body);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -51,7 +51,7 @@ export function registerApprovalTools(server: McpServer, client: NexApiClient) {
     async ({ proposal_id, reason }) => {
       const body: Record<string, unknown> = { action: "reject" };
       if (reason !== undefined) body.reason = reason;
-      const result = await client.patch(`/v1/approvals/${encodeURIComponent(proposal_id)}`, body);
+      const result = await client.patch(`/v1/crm/approvals/${encodeURIComponent(proposal_id)}`, body);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
   );
@@ -71,7 +71,7 @@ export function registerApprovalTools(server: McpServer, client: NexApiClient) {
       if (limit !== undefined) params.set("limit", String(limit));
       if (since) params.set("since", since);
       const qs = params.toString();
-      const path = `/v1/actions/history${qs ? `?${qs}` : ""}`;
+      const path = `/v1/crm/actions/history${qs ? `?${qs}` : ""}`;
       const result = await client.get(path);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     },
