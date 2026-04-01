@@ -592,6 +592,65 @@ async function executeTaskDelete(args: string[], ctx: CommandContext): Promise<C
   }
 }
 
+// -- Playbook commands --
+
+async function executePlaybookList(_args: string[], ctx: CommandContext): Promise<CommandResult> {
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get("/v1/playbooks");
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executePlaybookGet(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const id = args[0];
+  if (!id) return fail("No playbook ID provided.");
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get(`/v1/playbooks/${encodeURIComponent(id)}`);
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executePlaybookWorkspace(_args: string[], ctx: CommandContext): Promise<CommandResult> {
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get("/v1/playbooks/workspace");
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executePlaybookHistory(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const id = args[0];
+  if (!id) return fail("No playbook ID provided.");
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get(`/v1/playbooks/${encodeURIComponent(id)}/history`);
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
+async function executePlaybookCompile(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  const entityId = typeof opts["entity-id"] === "string" ? opts["entity-id"] : undefined;
+  if (!entityId) return fail("Required: --entity-id <id>");
+  try {
+    const client = makeClient(ctx);
+    const result = await client.post("/v1/playbooks/compile", { entity_id: entityId });
+    return ok(result, ctx);
+  } catch (err) {
+    return wrapError(err);
+  }
+}
+
 // -- Relationship commands --
 
 async function executeRelListDefs(_args: string[], ctx: CommandContext): Promise<CommandResult> {
@@ -1316,6 +1375,13 @@ register("task get", { execute: executeTaskGet, description: "Get a task by ID",
 register("task create", { execute: executeTaskCreate, description: "Create a task", category: "write", usage: "task create --title <t> [--priority <p>] [--due <d>]" });
 register("task update", { execute: executeTaskUpdate, description: "Update a task", category: "write", usage: "task update <id> [--title <t>] [--completed]" });
 register("task delete", { execute: executeTaskDelete, description: "Delete a task", category: "write", usage: "task delete <id>" });
+
+// -- Playbooks --
+register("playbook list", { execute: executePlaybookList, description: "List entity briefs", category: "query", usage: "playbook list" });
+register("playbook get", { execute: executePlaybookGet, description: "Get a playbook by ID", category: "query", usage: "playbook get <id>" });
+register("playbook workspace", { execute: executePlaybookWorkspace, description: "List workspace playbooks", category: "query", usage: "playbook workspace" });
+register("playbook history", { execute: executePlaybookHistory, description: "Get playbook version history", category: "query", usage: "playbook history <id>" });
+register("playbook compile", { execute: executePlaybookCompile, description: "Trigger playbook compilation", category: "write", usage: "playbook compile --entity-id <id>" });
 
 // -- Relationships --
 register("rel list-defs", { execute: executeRelListDefs, description: "List relationship definitions", category: "query", usage: "rel list-defs" });
