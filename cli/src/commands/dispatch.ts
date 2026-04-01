@@ -1384,6 +1384,86 @@ async function executeCrmWarmth(args: string[], ctx: CommandContext): Promise<Co
   } catch (err) { return wrapError(err); }
 }
 
+// -- Approval commands --
+
+async function executeApprovalList(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  try {
+    const client = makeClient(ctx);
+    const params = new URLSearchParams();
+    if (typeof opts.entity === "string") params.set("entity_id", opts.entity);
+    if (typeof opts.status === "string") params.set("status", opts.status);
+    if (typeof opts.limit === "string") params.set("limit", opts.limit);
+    const qs = params.toString();
+    const result = await client.get(`/v1/approvals${qs ? `?${qs}` : ""}`);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executeApprovalApprove(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { positional, opts } = extractOpts(args);
+  const id = positional[0];
+  if (!id) return fail("No proposal ID provided. Usage: approval approve <id>");
+  try {
+    const client = makeClient(ctx);
+    const body: Record<string, unknown> = { action: "approve" };
+    if (typeof opts.comment === "string") body.comment = opts.comment;
+    const result = await client.patch(`/v1/approvals/${encodeURIComponent(id)}`, body);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executeApprovalReject(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { positional, opts } = extractOpts(args);
+  const id = positional[0];
+  if (!id) return fail("No proposal ID provided. Usage: approval reject <id>");
+  try {
+    const client = makeClient(ctx);
+    const body: Record<string, unknown> = { action: "reject" };
+    if (typeof opts.reason === "string") body.reason = opts.reason;
+    const result = await client.patch(`/v1/approvals/${encodeURIComponent(id)}`, body);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executeActionHistory(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  try {
+    const client = makeClient(ctx);
+    const params = new URLSearchParams();
+    if (typeof opts.entity === "string") params.set("entity_id", opts.entity);
+    if (typeof opts.limit === "string") params.set("limit", opts.limit);
+    if (typeof opts.since === "string") params.set("since", opts.since);
+    const qs = params.toString();
+    const result = await client.get(`/v1/actions/history${qs ? `?${qs}` : ""}`);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+// -- Policy commands --
+
+async function executePolicyGet(_args: string[], ctx: CommandContext): Promise<CommandResult> {
+  try {
+    const client = makeClient(ctx);
+    const result = await client.get("/v1/policy");
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
+async function executePolicySet(args: string[], ctx: CommandContext): Promise<CommandResult> {
+  const { opts } = extractOpts(args);
+  const objectType = typeof opts["object-type"] === "string" ? opts["object-type"] : undefined;
+  const trustLevel = typeof opts["trust-level"] === "string" ? opts["trust-level"] : undefined;
+  if (!objectType || !trustLevel) return fail("Usage: policy set --object-type <type> --trust-level <level> [--action-type <type>]");
+  try {
+    const client = makeClient(ctx);
+    const body: Record<string, unknown> = { object_type: objectType, trust_level: trustLevel };
+    if (typeof opts["action-type"] === "string") body.action_type = opts["action-type"];
+    const result = await client.put("/v1/policy", body);
+    return ok(result, ctx);
+  } catch (err) { return wrapError(err); }
+}
+
 // ── Command registry ──
 
 const commands = new Map<string, CommandEntry>();
@@ -1448,6 +1528,16 @@ register("crm deal-brief", { execute: executeCrmDealBrief, description: "Get str
 register("crm recommend", { execute: executeCrmRecommend, description: "Get AI-recommended next actions", category: "ai", usage: "crm recommend <entity-id> [--limit <n>]" });
 register("crm catchup", { execute: executeCrmCatchup, description: "What did I miss? catch-up digest", category: "query", usage: "crm catchup [--since <dur>] [--from <date>] [--to <date>]" });
 register("crm warmth", { execute: executeCrmWarmth, description: "Get relationship warmth score", category: "query", usage: "crm warmth <entity-id>" });
+
+// -- Approvals --
+register("approval list", { execute: executeApprovalList, description: "List pending approval proposals", category: "query", usage: "approval list [--entity <id>] [--status <s>]" });
+register("approval approve", { execute: executeApprovalApprove, description: "Approve a proposed action", category: "write", usage: "approval approve <id> [--comment <c>]" });
+register("approval reject", { execute: executeApprovalReject, description: "Reject a proposed action", category: "write", usage: "approval reject <id> [--reason <r>]" });
+register("approval history", { execute: executeActionHistory, description: "Get agent action audit trail", category: "query", usage: "approval history [--entity <id>] [--since <dur>]" });
+
+// -- Policy --
+register("policy get", { execute: executePolicyGet, description: "Show agent policy config", category: "config" });
+register("policy set", { execute: executePolicySet, description: "Set agent trust level", category: "config", usage: "policy set --object-type <t> --trust-level <l> [--action-type <a>]" });
 
 // -- Relationships --
 register("rel list-defs", { execute: executeRelListDefs, description: "List relationship definitions", category: "query", usage: "rel list-defs" });
