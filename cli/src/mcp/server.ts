@@ -14,6 +14,11 @@ import { registerScanTools } from "./tools/scan.js";
 import { registerIntegrationTools } from "./tools/integrations.js";
 import { registerNotificationTools } from "./tools/notifications.js";
 import { registerPlaybookTools } from "./tools/playbooks.js";
+import { registerCrmTools } from "./tools/crm.js";
+import { registerApprovalTools } from "./tools/approval.js";
+import { registerPolicyTools } from "./tools/policy.js";
+import { registerActionTools } from "./tools/actions.js";
+import { registerPipelineTools } from "./tools/pipeline.js";
 
 export function createServer(apiKey?: string): {
   server: McpServer;
@@ -51,6 +56,11 @@ export function createServer(apiKey?: string): {
   registerIntegrationTools(server, client);
   registerNotificationTools(server, client);
   registerPlaybookTools(server, client);
+  registerCrmTools(server, client);
+  registerApprovalTools(server, client);
+  registerPolicyTools(server, client);
+  registerActionTools(server, client);
+  registerPipelineTools(server, client);
 
   return { server, client };
 }

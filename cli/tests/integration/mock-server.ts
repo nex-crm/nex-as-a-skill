@@ -172,6 +172,109 @@ const PLAYBOOK_HISTORY = {
   ],
 };
 
+const ACCOUNT_BRIEF = {
+  entity_id: "rec-1",
+  name: "Acme Corp",
+  summary: "Key enterprise account. $2M ARR, 3 open deals.",
+  last_interaction: { date: "2025-06-15T12:00:00Z", type: "email", summary: "Contract renewal discussion" },
+  open_deals: [{ id: "deal-1", name: "Enterprise Renewal", stage: "Negotiation", value: 500000 }],
+  pending_tasks: [{ id: "task-1", title: "Send revised proposal", due_date: "2025-06-20T00:00:00Z" }],
+  warmth: { score: 78, trend: "stable" },
+};
+
+const DEAL_BRIEF = {
+  deal_id: "deal-1",
+  name: "Enterprise Renewal",
+  account: "Acme Corp",
+  stage: "Negotiation",
+  value: 500000,
+  close_date: "2025-07-15T00:00:00Z",
+  next_step: "Send revised proposal with updated pricing",
+  risk_level: "medium",
+  contacts: [{ name: "John Doe", role: "VP Engineering" }],
+};
+
+const RECOMMENDATIONS = {
+  entity_id: "rec-1",
+  actions: [
+    { action: "Send follow-up email", confidence: 0.92, reasoning: "No contact in 5 days, deal is in Negotiation" },
+    { action: "Schedule call with VP Engineering", confidence: 0.85, reasoning: "Contract questions need discussion" },
+  ],
+};
+
+const CATCHUP = {
+  period: { from: "2025-06-08T00:00:00Z", to: "2025-06-15T12:00:00Z" },
+  deals_moved: [{ deal: "Enterprise Renewal", from_stage: "Proposal", to_stage: "Negotiation" }],
+  new_interactions: 12,
+  stale_deals: [{ deal: "Globex Pilot", days_stale: 14 }],
+  tasks_completed: 5,
+  key_changes: ["Acme Corp contract revision received from legal"],
+};
+
+const WARMTH = { entity_id: "rec-1", score: 78, trend: "stable", breakdown: { frequency: 85, recency: 70, sentiment: 80 } };
+
+const PROPOSALS = {
+  data: [{
+    id: "prop-1",
+    action_type: "create_task",
+    target_entity_id: "rec-1",
+    target_entity_name: "Acme Corp",
+    risk_level: "low",
+    status: "pending",
+    reasoning: "Follow-up needed after contract revision",
+    params: { title: "Review contract terms", priority: "high" },
+    created_at: "2025-06-15T12:00:00Z",
+    expires_at: "2025-06-17T12:00:00Z",
+    record_version: 5,
+  }],
+};
+
+const ACTION_HISTORY_DATA = {
+  data: [{
+    id: "action-1",
+    action_type: "internal",
+    operation: "create_task",
+    status: "executed",
+    proposed_by: "agent",
+    approved_by: "user-1",
+    target_entity_id: "rec-1",
+    created_at: "2025-06-15T12:00:00Z",
+    executed_at: "2025-06-15T12:01:00Z",
+  }],
+};
+
+const POLICY = {
+  rules: [
+    { object_type: "task", action_type: "*", trust_level: "trusted_write" },
+    { object_type: "deal", action_type: "update", trust_level: "approve_before_write" },
+    { object_type: "contact", action_type: "*", trust_level: "observe_only" },
+  ],
+};
+
+const PIPELINE = {
+  stages: [
+    { name: "Discovery", deals: 3, value: 150000, probability: 0.1 },
+    { name: "Proposal", deals: 2, value: 300000, probability: 0.3 },
+    { name: "Negotiation", deals: 1, value: 500000, probability: 0.6 },
+    { name: "Closed Won", deals: 5, value: 2000000, probability: 1.0 },
+  ],
+  total_value: 2950000,
+  weighted_value: 1715000,
+};
+
+const FORECAST = {
+  period: "month",
+  projected_revenue: 850000,
+  weighted_pipeline: 1715000,
+  deals_closing: 3,
+  by_stage: [
+    { stage: "Negotiation", count: 1, value: 500000, weighted: 300000 },
+    { stage: "Proposal", count: 2, value: 300000, weighted: 90000 },
+  ],
+};
+
+const ACTION_RESULT = { id: "action-2", status: "executed", operation: "create_task", result: { task_id: "task-new" } };
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -265,6 +368,31 @@ export function startMockServer(): { url: string; close: () => void } {
 
         // GET /v1/playbooks
         if (path === "/api/developers/v1/playbooks") return json(res, { data: [PLAYBOOK] });
+
+        // CRM briefs
+        m = path.match(/^\/api\/developers\/v1\/crm\/account\/([^/]+)\/brief$/);
+        if (m) return json(res, ACCOUNT_BRIEF);
+
+        m = path.match(/^\/api\/developers\/v1\/crm\/deal\/([^/]+)\/brief$/);
+        if (m) return json(res, DEAL_BRIEF);
+
+        if (path.startsWith("/api/developers/v1/crm/catchup")) return json(res, CATCHUP);
+
+        m = path.match(/^\/api\/developers\/v1\/crm\/warmth\/([^/]+)$/);
+        if (m) return json(res, WARMTH);
+
+        // Approvals
+        if (path.startsWith("/api/developers/v1/approvals") && !path.includes("/history")) return json(res, PROPOSALS);
+
+        // Action history
+        if (path.startsWith("/api/developers/v1/actions/history")) return json(res, ACTION_HISTORY_DATA);
+
+        // Policy
+        if (path === "/api/developers/v1/policy") return json(res, POLICY);
+
+        // Pipeline
+        if (path.startsWith("/api/developers/v1/pipeline/forecast")) return json(res, FORECAST);
+        if (path.startsWith("/api/developers/v1/pipeline") && !path.includes("move") && !path.includes("forecast")) return json(res, PIPELINE);
       }
 
       // ── POST ────────────────────────────────────────────────
@@ -321,6 +449,15 @@ export function startMockServer(): { url: string; close: () => void } {
         if (path === "/api/developers/v1/playbooks/compile") {
           return json(res, { id: "pb-compiled", status: "queued" });
         }
+
+        // CRM recommend
+        if (path === "/api/developers/v1/crm/recommend") return json(res, RECOMMENDATIONS);
+
+        // Pipeline move
+        if (path === "/api/developers/v1/pipeline/move") return json(res, { deal_id: parsed.deal_id, new_stage: parsed.new_stage, status: "moved" });
+
+        // Action execute
+        if (path === "/api/developers/v1/actions/execute") return json(res, ACTION_RESULT);
       }
 
       // ── PUT ─────────────────────────────────────────────────
@@ -338,6 +475,9 @@ export function startMockServer(): { url: string; close: () => void } {
             created_at: "2025-01-01T00:00:00Z", updated_at: "2025-01-01T00:00:00Z",
           });
         }
+
+        // Policy update
+        if (path === "/api/developers/v1/policy") return json(res, { ...POLICY, updated: true });
       }
 
       // ── PATCH ───────────────────────────────────────────────
@@ -368,6 +508,10 @@ export function startMockServer(): { url: string; close: () => void } {
         // PATCH /v1/notes/:id
         m = path.match(/^\/api\/developers\/v1\/notes\/([^/]+)$/);
         if (m) return json(res, { ...NOTE, ...parsed });
+
+        // Approval approve/reject
+        m = path.match(/^\/api\/developers\/v1\/approvals\/([^/]+)$/);
+        if (m) return json(res, { ...PROPOSALS.data[0], id: m[1], status: parsed.action === "approve" ? "approved" : "rejected" });
       }
 
       // ── DELETE ──────────────────────────────────────────────
