@@ -84,5 +84,5 @@ esac
 
 echo ""
 echo "Get started:"
-echo "  nex-cli register --email you@company.com"
-echo "  nex-cli setup"
+echo "  nex-cli --cmd \"setup you@company.com\""
+echo "  nex-cli --cmd \"setup\""
