@@ -20,7 +20,7 @@ Setup: `bun install && bunx lefthook install`
 
 # Nex — Organizational Context & Memory
 
-Nex provides your AI agent with real-time organizational knowledge — contacts, deals, meetings, emails, notes, insights, patterns, and playbooks — via MCP tools. Context is proactively injected into your conversation, so relevant knowledge surfaces automatically even when you don't ask for it.
+Nex provides your AI agent with real-time organizational knowledge — contacts, deals, meetings, emails, notes, insights, patterns, playbooks, and executable skills — via MCP tools. Context is proactively injected into your conversation, so relevant knowledge surfaces automatically even when you don't ask for it.
 
 ## MCP Tools Available
 
@@ -51,6 +51,21 @@ Change notification frequency or toggle notification types. Example: set polling
 ### `nex_create_notification_rule` — Create custom notification rules
 Set up AI-powered notification rules in natural language. Example: "notify me when deal value changes by more than 10%".
 
+### `list_skills` — List agent skills
+List executable skills synthesized from playbook rules. Skills are grounded to workspace tools, team, and CRM schema.
+
+### `get_skill_by_slug` — View a skill
+Get the full skill content by slug name. Shows trigger condition, action steps, required integrations, and Composio actions.
+
+### `compile_skills` — Trigger skill compilation
+Re-synthesize skills from the latest playbook rules. Runs automatically after playbook compilation on cron.
+
+### `update_skill` — Improve a skill
+Patch or replace a skill's content. Use when the user corrects an approach during execution — the skill improves for next time.
+
+### `sync_skills` — Sync skills locally
+Download all skills to `.nex/skills/` as markdown files. Local agents read these directly without API calls.
+
 ## Proactive Context
 
 Nex automatically surfaces relevant context from the user's knowledge graph on every prompt — not just questions. When you see a `<nex-context>` block, use it naturally to inform your response:
@@ -58,6 +73,7 @@ Nex automatically surfaces relevant context from the user's knowledge graph on e
 - **Entity insights** — facts about people, companies, and deals mentioned or relevant to the task
 - **Knowledge insights** — patterns, lessons learned, and domain knowledge from past work
 - **Playbook rules** — proven approaches and best practices from the user's experience
+- **Agent skills** — executable workflows the agent can follow, with specific tools, steps, and decision points
 
 Leverage this context to provide more informed, personalized responses. If the context mentions a relevant pattern or past decision, incorporate it naturally without explicitly referencing the context block.
 

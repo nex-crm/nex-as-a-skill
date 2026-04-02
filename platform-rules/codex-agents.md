@@ -2,7 +2,7 @@
 
 # Nex — Organizational Context & Memory
 
-Nex provides your AI agent with real-time organizational knowledge — contacts, deals, meetings, emails, notes, insights, patterns, and playbooks — via MCP tools. Context is proactively injected into your conversation, so relevant knowledge surfaces automatically even when you don't ask for it.
+Nex provides your AI agent with real-time organizational knowledge — contacts, deals, meetings, emails, notes, insights, patterns, playbooks, and executable skills — via MCP tools. Context is proactively injected into your conversation, so relevant knowledge surfaces automatically even when you don't ask for it.
 
 ## MCP Tools Available
 
@@ -40,6 +40,7 @@ Nex automatically surfaces relevant context from the user's knowledge graph on e
 - **Entity insights** — facts about people, companies, and deals mentioned or relevant to the task
 - **Knowledge insights** — patterns, lessons learned, and domain knowledge from past work
 - **Playbook rules** — proven approaches and best practices from the user's experience
+- **Agent skills** — executable workflows with specific tools, steps, and decision points
 
 Leverage this context to provide more informed, personalized responses. If the context mentions a relevant pattern or past decision, incorporate it naturally without explicitly referencing the context block.
 
