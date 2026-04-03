@@ -60,6 +60,9 @@ Get the full skill content by slug name. Shows trigger condition, action steps, 
 ### `compile_skills` — Trigger skill compilation
 Re-synthesize skills from the latest playbook rules. Runs automatically after playbook compilation on cron.
 
+### `generate_skill` — Create a skill from a prompt
+Create a new skill from scratch. Read workspace context first (query_context, search_entities, get_entity_brief), then generate the full skill markdown and store it. Use when the user asks to create a new workflow or automation.
+
 ### `update_skill` — Improve a skill
 Patch or replace a skill's content. Use when the user corrects an approach during execution — the skill improves for next time.
 
