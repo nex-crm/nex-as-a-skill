@@ -31,6 +31,13 @@ interface HookInput {
 }
 
 const SESSION_START_QUERY = "Summarize the key active context, recent interactions, and important updates for this user.";
+const SESSION_START_TIMEOUT_MS = readTimeoutEnv("NEX_SESSION_START_TIMEOUT_MS", 90_000);
+
+function readTimeoutEnv(name: string, fallbackMs: number): number {
+  const raw = process.env[name];
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
+}
 
 async function main(): Promise<void> {
   try {
@@ -146,8 +153,12 @@ async function main(): Promise<void> {
       }
     }
 
+    // Claude's session_id is not a Nex ask session_id on first contact.
+    // Reuse the mapped Nex session only when we have already established one.
+    const nexSessionId = input.session_id ? sessions.get(input.session_id) : undefined;
+
     // --- Nex context query ---
-    const result = await client.ask(SESSION_START_QUERY, undefined, 10_000);
+    const result = await client.ask(SESSION_START_QUERY, nexSessionId, SESSION_START_TIMEOUT_MS);
 
     if (!result.answer && contextParts.length === 0) {
       process.stdout.write("{}");

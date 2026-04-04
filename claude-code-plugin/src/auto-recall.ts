@@ -89,9 +89,9 @@ function launchBackgroundRecall(
 
 /**
  * Check if this is the first prompt for this session.
- * A session with no stored Nex session ID is considered "first prompt"
- * (SessionStart may have already set one, but that's fine — it means
- * baseline context was loaded, and first user prompt still gets recall).
+ * This uses the session-start Ask flow as a lightweight marker that baseline
+ * context has already been loaded for the Claude session. If no marker exists,
+ * we bias toward treating the turn as a first prompt so recall stays helpful.
  */
 function isFirstPrompt(sessionKey: string | undefined): boolean {
   if (!sessionKey) return true;
@@ -154,10 +154,8 @@ async function main(): Promise<void> {
 
     const client = new NexClient(cfg.apiKey, cfg.baseUrl);
 
-    // Resolve session ID for multi-turn continuity
     const sessionKey = input.session_id;
     const promptHash = hashPrompt(prompt);
-    const nexSessionId = sessionKey ? sessions.get(sessionKey) : undefined;
     const cachedReady = sessionKey
       ? recallCache.getInjectable(sessionKey, READY_CACHE_TTL_MS)
       : undefined;
@@ -175,17 +173,12 @@ async function main(): Promise<void> {
 
     if (!hasPendingCurrent) {
       try {
-        const result = await client.ask(prompt, nexSessionId, FAST_RECALL_BUDGET_MS);
+        const result = await client.prepareAgentTurnContext(prompt, sessionKey, FAST_RECALL_BUDGET_MS);
 
-        if (result.answer) {
-          if (result.session_id && sessionKey) {
-            sessions.set(sessionKey, result.session_id);
-          }
-
+        if (result.prepared_context) {
           const context = formatNexContext({
-            answer: result.answer,
+            answer: result.prepared_context,
             entityCount: result.entity_references?.length ?? 0,
-            sessionId: result.session_id,
           });
 
           if (sessionKey) {

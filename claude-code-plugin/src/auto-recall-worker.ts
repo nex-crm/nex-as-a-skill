@@ -4,9 +4,7 @@ import { loadConfig } from "./config.js";
 import { formatNexContext } from "./context-format.js";
 import { NexClient } from "./nex-client.js";
 import { RecallCache } from "./recall-cache.js";
-import { SessionStore } from "./session-store.js";
 
-const sessions = new SessionStore();
 const recallCache = new RecallCache();
 
 interface WorkerInput {
@@ -60,22 +58,16 @@ async function main(): Promise<void> {
 
     const cfg = loadConfig();
     const client = new NexClient(cfg.apiKey, cfg.baseUrl);
-    const nexSessionId = sessions.get(sessionKey);
-    const result = await client.ask(prompt, nexSessionId, BACKGROUND_RECALL_TIMEOUT_MS);
+    const result = await client.prepareAgentTurnContext(prompt, sessionKey, BACKGROUND_RECALL_TIMEOUT_MS);
 
-    if (!result.answer) {
+    if (!result.prepared_context) {
       recallCache.clearPending(sessionKey, promptHash);
       return;
     }
 
-    if (result.session_id) {
-      sessions.set(sessionKey, result.session_id);
-    }
-
     const context = formatNexContext({
-      answer: result.answer,
+      answer: result.prepared_context,
       entityCount: result.entity_references?.length ?? 0,
-      sessionId: result.session_id,
     });
 
     if (!recallCache.hasPending(sessionKey, promptHash, PENDING_CACHE_TTL_MS)) {

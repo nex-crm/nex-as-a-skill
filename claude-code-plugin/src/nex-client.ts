@@ -58,6 +58,11 @@ export interface AskResponse {
   entity_references?: EntityReference[];
 }
 
+export interface AgentTurnContextResponse {
+  prepared_context: string;
+  entity_references?: EntityReference[];
+}
+
 // --- Client ---
 
 export class NexClient {
@@ -172,5 +177,16 @@ export class NexClient {
     const body: Record<string, unknown> = { query };
     if (sessionId) body.session_id = sessionId;
     return this.request<AskResponse>("POST", "/v1/context/ask", body, timeoutMs);
+  }
+
+  /** Prepare turn-level context once before the outer agent starts tool selection. */
+  async prepareAgentTurnContext(
+    prompt: string,
+    threadId?: string,
+    timeoutMs?: number,
+  ): Promise<AgentTurnContextResponse> {
+    const body: Record<string, unknown> = { prompt };
+    if (threadId) body.thread_id = threadId;
+    return this.request<AgentTurnContextResponse>("POST", "/v1/agent/prepare_turn_context", body, timeoutMs);
   }
 }
