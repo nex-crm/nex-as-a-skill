@@ -19,7 +19,7 @@ Use `get_workspace_playbook` with the slug. Display the full markdown.
 
 **"sync" → sync all playbooks to local .nex/playbooks/ folder:**
 Use `sync_playbooks`. Downloads all entity playbooks, workspace playbooks, and private playbooks as .md files for fast local access. Structure:
-```
+```text
 .nex/playbooks/entities/   — person-playbook-lenny-rachitsky.md
 .nex/playbooks/workspace/  — early-b2b-growth.md
 .nex/playbooks/private/    — my-writing-style.md
