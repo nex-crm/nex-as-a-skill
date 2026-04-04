@@ -1,5 +1,5 @@
 ---
-description: List, view, compile, generate, update, and sync agent skills
+description: List, view, compile, generate, update, sync, download, and read agent skills
 ---
 Handle skill requests based on $ARGUMENTS:
 

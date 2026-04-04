@@ -1,5 +1,5 @@
 ---
-description: List, view, compile, and sync entity playbooks and workspace playbooks
+description: List, view, compile, sync, download, read, and view history for entity and workspace playbooks
 ---
 Handle playbook requests based on $ARGUMENTS:
 
