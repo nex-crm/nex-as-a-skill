@@ -1,12 +1,13 @@
 ---
-description: Search for entities (people, companies, topics) in Nex knowledge base
+description: Look up entities in Nex by email, name, or domain
 ---
-Search for entities matching: $ARGUMENTS
-If no query provided, respond: "Usage: /nex:entities <search query>"
+Look up entities matching: $ARGUMENTS
+If no query provided, respond: "Usage: /nex:entities <email|name|domain>"
 
-Use the `mcp__nex__query_context` tool with the query.
-From the response, extract the `entity_references` array.
-If no entities found, respond: "No matching entities found."
+Use the direct entity lookup tools instead of `query_context`:
+1. Call `mcp__nex__search_entities` with the query if that tool name is available. Otherwise call `search_entities`.
+2. If there are no matches, respond: "No matching entities found."
+3. If the result is ambiguous and you need richer detail for a specific match, follow up with `get_entity_brief` or `get_entity_profile`.
 
 Format each entity as a bullet list:
 ```

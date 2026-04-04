@@ -111,14 +111,18 @@ Then use:
 3. Injects as system context so the agent "already knows" relevant business context from the first message
 4. On any error: returns `{}`, logs to stderr (graceful degradation)
 
+This stays on Ask intentionally because it is a synthesis path, not an outer-agent tool loop.
+
 ### Auto-Recall (UserPromptSubmit Hook)
 
 1. Reads the user's prompt from stdin (`{ "prompt": "...", "session_id": "..." }`)
 2. Runs prompt through `recall-filter.ts` and skips only low-signal input such as short messages, slash commands, explicit `!` opt-out prompts, and bare shell commands
-3. If recall is needed, tries a short synchronous `/ask` request so relevant context can land on the same user turn
-4. If the sync budget is missed, falls back to a background `/ask` request and caches the result for the next eligible prompt
+3. If recall is needed, calls the agent preflight endpoint so Nex runs turn-level prep and pre-search once before Claude starts selecting direct tools
+4. If the synchronous budget is missed, the background recall worker retries the same preflight request and caches the result for the next eligible prompt
 5. Returns `{ "additionalContext": "<nex-context>...</nex-context>" }` when recall is ready to inject into the conversation
 6. On any error: returns `{}`, logs to stderr (graceful degradation)
+
+This is the agent-owned path: preflight once per turn, then Claude uses direct tools itself instead of routing through a nested Ask agent.
 
 ### Auto-Capture (Stop Hook)
 
@@ -136,7 +140,7 @@ claude-code-plugin/
 │   ├── auto-session-start.ts  # SessionStart hook — baseline context load
 │   ├── auto-recall.ts         # UserPromptSubmit hook — fast recall + cache fallback
 │   ├── auto-capture.ts        # Stop hook — conversation capture
-│   ├── auto-recall-worker.ts  # Background recall worker for slow Ask calls
+│   ├── auto-recall-worker.ts  # Background recall worker for slow preflight calls
 │   ├── recall-filter.ts       # Smart prompt classifier
 │   ├── nex-client.ts          # HTTP client for Nex API
 │   ├── config.ts              # Environment variable config

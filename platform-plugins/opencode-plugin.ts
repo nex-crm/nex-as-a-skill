@@ -5,8 +5,11 @@
  * OpenCode's bun runtime resolves imports at load time.
  *
  * Provides:
- * - Session lifecycle hooks (context loading on session create)
+ * - Session lifecycle hooks (Ask-based context loading on session create)
  * - Context preservation during compaction
+ *
+ * OpenCode's startup synthesis stays on Ask because it is automatic
+ * context loading rather than a direct agent-invoked query.
  */
 
 import { readFileSync } from "node:fs";

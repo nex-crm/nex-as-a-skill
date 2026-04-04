@@ -20,7 +20,7 @@ Talk to the team, share feedback, and connect with other developers building AI 
 curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
 
 # Option B: install the nex-cli binary directly
-curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
 
 # Option C: install via npm (or bun/pnpm)
 npm install -g @nex-ai/nex
@@ -47,6 +47,16 @@ nex remember "Met with Maria, CTO of TechFlow. European expansion Q3, $2M budget
 
 The core of this repo is a set of skills, slash commands, and agent instructions that teach any AI platform how to use Nex.
 
+### Agent-owned vs synthesis paths
+
+For agent-owned tool loops, the intended flow is:
+
+1. Call `prepare_turn_context` once at the start of the turn
+2. Let the outer agent choose direct tools such as `search_knowledge`, `search_entities`, `get_entity_brief`, or `get_tasks`
+3. Use `query_context` / Ask only as an explicit fallback for open-ended synthesis
+
+Non-agent provider flows such as startup summaries, digest generation, or editor context providers still use Ask because those paths need Nex to do the synthesis itself rather than expose raw tool primitives.
+
 ### Slash Commands (`plugin-commands/`)
 
 Drop these `.md` files into your agent's commands directory to get Nex slash commands:
@@ -55,7 +65,7 @@ Drop these `.md` files into your agent's commands directory to get Nex slash com
 |---------|-------------|
 | `/nex:recall <query>` | Search your knowledge base |
 | `/nex:remember <text>` | Store information for later recall |
-| `/nex:entities <query>` | Find people, companies, topics |
+| `/nex:entities <query>` | Look up entities by email, name, or domain |
 | `/nex:scan <dir>` | Scan project files into Nex |
 | `/nex:integrate <provider>` | Connect an OAuth integration |
 | `/nex:register <email>` | One-time account registration |
@@ -85,7 +95,7 @@ Pre-written agent instructions that teach each platform how to use Nex tools. Co
 Deeper integrations for editors that support plugin APIs:
 
 - **Continue** (`continue-provider.ts`) — Nex as a context provider for autocomplete
-- **OpenCode** (`opencode-plugin.ts`) — Session lifecycle hooks for context preservation
+- **OpenCode** (`opencode-plugin.ts`) — Session lifecycle hooks for context preservation and startup synthesis
 - **KiloCode** (`kilocode-modes.yaml`) — Nex memory mode definitions
 - **Windsurf** (`windsurf-workflows/`) — Native workflow definitions for ask, remember, search, notify
 
@@ -165,32 +175,13 @@ Or without a global install:
 }
 ```
 
-### Remote MCP Server (no install required)
-
-Connect directly to the hosted Nex MCP server. No local installation needed — works with any MCP client that supports Streamable HTTP transport.
-
-```json
-{
-  "mcpServers": {
-    "nex": {
-      "url": "https://mcp.nex.ai/mcp",
-      "headers": {
-        "Authorization": "Bearer sk-your_key_here"
-      }
-    }
-  }
-}
-```
-
-Get an API key at [app.nex.ai/settings/developers](https://app.nex.ai/settings/developers).
-
 ### Shell-only Agents (no Node.js)
 
 Bash scripts for agents that can only run shell commands. Requires `curl` and `jq`.
 
 ```bash
 bash scripts/nex-openclaw-register.sh your@email.com "Your Name"
-printf '{"query":"who is Maria?"}' | bash scripts/nex-api.sh POST /v1/context/ask
+printf '{"arguments":{"query":"who is Maria?"}}' | bash scripts/nex-api.sh POST /v1/agent/tools/search_knowledge/execute
 bash scripts/nex-scan-files.sh --dir . --max-files 10
 ```
 
