@@ -1,6 +1,6 @@
 /**
  * Mock Nex Developer API server for plugin testing.
- * Responds to /ask and /text with realistic payloads.
+ * Responds to /agent/prepare_turn_context, /ask, and /text with realistic payloads.
  * Run: node mock-nex-server.mjs
  */
 
@@ -50,6 +50,19 @@ const server = http.createServer(async (req, res) => {
     memories.push({ id, content: body.content, context: body.context, ts: Date.now() });
     console.log(`[ingest] artifact_id=${id} content="${body.content.slice(0, 80)}..." (${memories.length} total)`);
     return json(res, 200, { artifact_id: id });
+  }
+
+  // POST /api/developers/v1/agent/prepare_turn_context — direct preflight
+  if (req.method === "POST" && path === "/api/developers/v1/agent/prepare_turn_context") {
+    const body = await readBody(req);
+    if (!body?.prompt) {
+      return json(res, 400, { error: "prompt required" });
+    }
+
+    return json(res, 200, {
+      prepared_context: `Prepared context for: ${body.prompt}`,
+      entity_references: [],
+    });
   }
 
   // POST /api/developers/v1/context/ask — recall
@@ -102,7 +115,9 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Mock Nex API running on http://localhost:${PORT}`);
   console.log(`Auth key: ${VALID_KEY}`);
-  console.log(`Endpoints: POST /api/developers/v1/context/text, POST /api/developers/v1/context/ask`);
+  console.log(
+    `Endpoints: POST /api/developers/v1/agent/prepare_turn_context, POST /api/developers/v1/context/text, POST /api/developers/v1/context/ask`
+  );
   console.log(`Memories stored: ${memories.length}`);
   console.log("---");
 });

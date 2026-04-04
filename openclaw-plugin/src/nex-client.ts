@@ -51,6 +51,17 @@ export interface AskResponse {
   entity_references?: EntityReference[];
 }
 
+export interface DirectToolResponse {
+  tool_name: string;
+  result: string;
+  entity_references?: EntityReference[];
+}
+
+export interface AgentTurnContextResponse {
+  prepared_context: string;
+  entity_references?: EntityReference[];
+}
+
 // --- Client ---
 
 export class NexClient {
@@ -155,11 +166,33 @@ export class NexClient {
     return this.request<AskResponse>("POST", "/v1/context/ask", body, timeoutMs);
   }
 
+  /** Execute a direct agent tool without routing through Ask. */
+  async executeAgentTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    threadId?: string,
+    timeoutMs?: number,
+  ): Promise<DirectToolResponse> {
+    const body: Record<string, unknown> = { arguments: args };
+    if (threadId) body.thread_id = threadId;
+    return this.request<DirectToolResponse>("POST", `/v1/agent/tools/${toolName}/execute`, body, timeoutMs);
+  }
+
+  /** Prepare turn-level context once before the outer agent starts tool selection. */
+  async prepareAgentTurnContext(
+    prompt: string,
+    threadId?: string,
+    timeoutMs?: number,
+  ): Promise<AgentTurnContextResponse> {
+    const body: Record<string, unknown> = { prompt };
+    if (threadId) body.thread_id = threadId;
+    return this.request<AgentTurnContextResponse>("POST", "/v1/agent/prepare_turn_context", body, timeoutMs);
+  }
+
   /** Lightweight health check — validates API key connectivity. */
   async healthCheck(): Promise<boolean> {
     try {
-      // Use a minimal ask call with short timeout
-      await this.request("POST", "/v1/context/ask", { query: "ping" }, 5000);
+      await this.request("POST", "/v1/agent/prepare_turn_context", { prompt: "ping" }, 5000);
       return true;
     } catch (err) {
       if (err instanceof NexAuthError) throw err; // Auth errors should propagate

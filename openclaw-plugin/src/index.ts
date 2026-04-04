@@ -10,7 +10,6 @@ import { Type, type Static } from "@sinclair/typebox";
 import { parseConfig, type NexPluginConfig } from "./config.js";
 import { NexClient, NexAuthError } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
-import { SessionStore } from "./session-store.js";
 import { formatNexContext, stripNexContext } from "./context-format.js";
 import { captureFilter, type AgentMessage } from "./capture-filter.js";
 import { scanFiles as scanFilesUtil, type ScanResult } from "./file-scanner.js";
@@ -27,7 +26,7 @@ const RememberParams = Type.Object({
 });
 
 const EntitiesParams = Type.Object({
-  query: Type.String({ description: "Search query to find related entities" }),
+  query: Type.String({ description: "Entity identifier to look up by email, name, or domain" }),
 });
 
 const ScanFilesParams = Type.Object({
@@ -126,6 +125,40 @@ interface OpenClawPluginApi {
   }): void;
 }
 
+function formatEntityType(type: string): string {
+  switch (type.toLowerCase()) {
+    case "1":
+    case "14":
+    case "person":
+      return "Person";
+    case "2":
+    case "15":
+    case "company":
+      return "Company";
+    default:
+      return "Entity";
+  }
+}
+
+function inferSearchEntitiesArgs(query: string): Record<string, unknown> {
+  const trimmed = query.trim();
+  if (trimmed.includes("@")) {
+    return { email: trimmed };
+  }
+
+  const normalized = trimmed
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/.*$/, "")
+    .toLowerCase();
+
+  if (/^[a-z0-9-]+\.[a-z]{2,}$/i.test(normalized) && !trimmed.includes(" ")) {
+    return { domain: normalized };
+  }
+
+  return { name: trimmed };
+}
+
 // --- Plugin definition ---
 
 const plugin = {
@@ -149,11 +182,16 @@ const plugin = {
 
     const client = new NexClient(cfg.apiKey, cfg.baseUrl);
     const rateLimiter = new RateLimiter();
-    const sessions = new SessionStore();
 
     const debug = (...args: unknown[]) => {
       if (cfg.debug && log.debug) log.debug("[nex]", ...args);
     };
+
+    const searchKnowledge = (query: string) =>
+      client.executeAgentTool("search_knowledge", { query });
+
+    const searchEntities = (query: string) =>
+      client.executeAgentTool("search_entities", inferSearchEntitiesArgs(query));
 
     debug("Plugin config loaded", { baseUrl: cfg.baseUrl, autoRecall: cfg.autoRecall, autoCapture: cfg.autoCapture });
 
@@ -189,7 +227,6 @@ const plugin = {
           logger.warn("Capture queue flush timed out");
         }
         rateLimiter.destroy();
-        sessions.clear();
       },
     });
 
@@ -205,30 +242,24 @@ const plugin = {
 
           try {
             // Resolve session ID for multi-turn continuity
-            const nexSessionId = ctx.sessionKey && cfg.sessionTracking
-              ? sessions.get(ctx.sessionKey)
+            const threadId = ctx.sessionKey && cfg.sessionTracking
+              ? ctx.sessionKey
               : undefined;
 
-            const result = await client.ask(event.prompt, nexSessionId, cfg.recallTimeoutMs);
+            const result = await client.prepareAgentTurnContext(event.prompt, threadId, cfg.recallTimeoutMs);
 
-            if (!result.answer) {
+            if (!result.prepared_context) {
               debug("Recall returned empty answer");
               return;
             }
 
-            // Store session ID for future turns
-            if (result.session_id && ctx.sessionKey && cfg.sessionTracking) {
-              sessions.set(ctx.sessionKey, result.session_id);
-            }
-
             const entityCount = result.entity_references?.length ?? 0;
             const context = formatNexContext({
-              answer: result.answer,
+              answer: result.prepared_context,
               entityCount,
-              sessionId: result.session_id,
             });
 
-            debug("Recall injecting context", { entityCount, answerLength: result.answer.length });
+            debug("Recall injecting context", { entityCount, answerLength: result.prepared_context.length });
 
             return { prependContext: context };
           } catch (err) {
@@ -282,17 +313,17 @@ const plugin = {
       name: "nex_search",
       label: "Search Nex Knowledge",
       description:
-        "Search the user's Nex knowledge base for relevant context. Returns an AI-synthesized answer with entity references.",
+        "Search the user's Nex knowledge base for grounded context using the direct search_knowledge tool.",
       parameters: SearchParams,
       async execute(_toolCallId, params) {
         const { query } = params as Static<typeof SearchParams>;
-        const result = await client.ask(query);
+        const result = await searchKnowledge(query);
 
-        const parts: string[] = [result.answer];
+        const parts: string[] = [result.result];
         if (result.entity_references && result.entity_references.length > 0) {
           parts.push("\n\nRelated entities:");
           for (const ref of result.entity_references) {
-            parts.push(`- ${ref.name} (${ref.type})`);
+            parts.push(`- ${ref.name} (${formatEntityType(ref.type)})`);
           }
         }
 
@@ -333,11 +364,11 @@ const plugin = {
       name: "nex_entities",
       label: "Find Nex Entities",
       description:
-        "Search for entities (people, companies, topics) in the user's Nex knowledge base. Returns a structured list with types and mention counts.",
+        "Look up Nex entities by email, name, or domain using the direct search_entities tool.",
       parameters: EntitiesParams,
       async execute(_toolCallId, params) {
         const { query } = params as Static<typeof EntitiesParams>;
-        const result = await client.ask(query);
+        const result = await searchEntities(query);
 
         if (!result.entity_references || result.entity_references.length === 0) {
           return {
@@ -347,7 +378,7 @@ const plugin = {
         }
 
         const lines = result.entity_references.map(
-          (ref) => `- ${ref.name} (${ref.type})${ref.count ? ` — ${ref.count} mentions` : ""}`
+          (ref) => `- ${ref.name} (${formatEntityType(ref.type)})`
         );
 
         return {
@@ -1335,17 +1366,10 @@ const plugin = {
         }
 
         try {
-          const result = await client.ask(query);
-          const parts: string[] = [result.answer];
+          const result = await searchKnowledge(query);
+          const parts: string[] = [result.result];
 
           if (result.entity_references && result.entity_references.length > 0) {
-            const typeLabel = (t: string) => {
-              switch (t) {
-                case "14": return "Person";
-                case "15": return "Company";
-                default: return "Entity";
-              }
-            };
             // Deduplicate by name+type
             const seen = new Set<string>();
             const unique = result.entity_references.filter((ref) => {
@@ -1356,7 +1380,7 @@ const plugin = {
             });
             parts.push("\n\nSources:");
             for (const ref of unique) {
-              parts.push(`\n• ${ref.name} · ${typeLabel(ref.type)}`);
+              parts.push(`\n• ${ref.name} · ${formatEntityType(ref.type)}`);
             }
           }
 
