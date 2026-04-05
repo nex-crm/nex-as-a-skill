@@ -18,7 +18,9 @@ import type { RateLimiter } from "./rate-limiter.js";
 import { readManifest, writeManifest, isChanged, markIngested } from "./file-manifest.js";
 
 const CLAUDE_DIR = join(homedir(), ".claude");
-const INGEST_TIMEOUT_MS = 10_000;
+const INGEST_TIMEOUT_MS = readTimeoutEnv("NEX_CONTEXT_FILES_TIMEOUT_MS", 10_000);
+const TOTAL_BUDGET_MS = readTimeoutEnv("NEX_CONTEXT_FILES_TOTAL_BUDGET_MS", 12_000);
+const CONTEXT_FILES_ENABLED = (process.env.NEX_CONTEXT_FILES_ENABLED ?? "true").toLowerCase() !== "false";
 const MAX_FILE_SIZE = 100_000;
 
 export interface ContextFilesResult {
@@ -26,6 +28,16 @@ export interface ContextFilesResult {
   skipped: number;
   errors: number;
   files: string[]; // context tags of ingested files
+}
+
+function readTimeoutEnv(name: string, fallbackMs: number): number {
+  const raw = process.env[name];
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
 }
 
 /**
@@ -43,16 +55,16 @@ function collectContextFiles(cwd: string): Array<{ path: string; contextTag: str
   const files: Array<{ path: string; contextTag: string }> = [];
   const key = projectKey(cwd);
 
-  // 1. Global CLAUDE.md
-  const globalClaude = join(CLAUDE_DIR, "CLAUDE.md");
-  if (existsSync(globalClaude)) {
-    files.push({ path: globalClaude, contextTag: "claude-md:global" });
-  }
-
-  // 2. Project CLAUDE.md
+  // 1. Project CLAUDE.md
   const projectClaude = join(cwd, "CLAUDE.md");
   if (existsSync(projectClaude)) {
     files.push({ path: projectClaude, contextTag: "claude-md:project" });
+  }
+
+  // 2. Global CLAUDE.md
+  const globalClaude = join(CLAUDE_DIR, "CLAUDE.md");
+  if (existsSync(globalClaude)) {
+    files.push({ path: globalClaude, contextTag: "claude-md:global" });
   }
 
   // 3. Memory files: ~/.claude/projects/{key}/memory/*.md
@@ -84,12 +96,23 @@ export async function ingestContextFiles(
   cwd: string
 ): Promise<ContextFilesResult> {
   const result: ContextFilesResult = { ingested: 0, skipped: 0, errors: 0, files: [] };
+  if (!CONTEXT_FILES_ENABLED) {
+    return result;
+  }
   const manifest = readManifest();
   const candidates = collectContextFiles(cwd);
   let dirty = false;
+  const startedAt = Date.now();
 
-  for (const { path, contextTag } of candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const { path, contextTag } = candidates[i];
     try {
+      const remainingBudgetMs = TOTAL_BUDGET_MS - (Date.now() - startedAt);
+      if (remainingBudgetMs <= 0) {
+        result.skipped += candidates.length - i;
+        break;
+      }
+
       const stat = statSync(path);
       if (!isChanged(path, stat, manifest)) {
         result.skipped++;
@@ -107,12 +130,17 @@ export async function ingestContextFiles(
         content = content.slice(0, MAX_FILE_SIZE) + "\n[...truncated]";
       }
 
-      await client.ingest(content, contextTag, INGEST_TIMEOUT_MS);
+      await client.ingest(content, contextTag, Math.min(INGEST_TIMEOUT_MS, remainingBudgetMs));
       markIngested(path, stat, contextTag, manifest);
       result.ingested++;
       result.files.push(contextTag);
       dirty = true;
     } catch (err) {
+      if (isAbortError(err)) {
+        // Optional preload only: stop here and let SessionStart continue with Ask.
+        result.skipped += candidates.length - i;
+        break;
+      }
       process.stderr.write(
         `[nex-context-files] Failed to ingest ${contextTag}: ${err instanceof Error ? err.message : String(err)}\n`
       );
