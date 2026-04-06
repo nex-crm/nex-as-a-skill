@@ -43,7 +43,7 @@ console.error(`
   nex-cli binary not found.
 
   Install it with:
-    curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
 
   Then run your command again.
 `);
