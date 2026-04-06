@@ -75,6 +75,36 @@ Read a skill by slug from `.nex/skills/` first, with API fallback if it is not c
 ### `sync_skills` — Sync skills locally
 Download all skills to `.nex/skills/` as markdown files. Local agents read these directly without API calls.
 
+### `list_agents` — List agents
+List workspace agents and their current status, version, and domain.
+
+### `get_agent_by_slug` — View an agent
+Fetch an agent definition by slug. Use this before activating, updating, or running a specific agent.
+
+### `compile_agents` — Refresh compiled agents
+Re-run agent compilation from the latest workspace skills. Existing compiled agents are updated in place when their generated definition changes.
+
+### `generate_agent` — Create an agent from a prompt
+Create a new agent from a natural-language request, built-in template, or explicit spec.
+
+### `update_agent` — Improve an agent
+Patch an existing agent definition, then refresh the local Claude agent file if it is cached locally.
+
+### `download_agent` — Render an agent for a platform
+Generate the platform-specific agent artifact without changing the agent's status. Use `claude-code` for local markdown sync.
+
+### `read_agent` — Read a synced agent locally
+Read an agent by slug from `.claude/agents/` first, with API fallback if it is not cached locally.
+
+### `sync_agents` — Sync agents locally
+Download all non-archived agents to `.claude/agents/` as markdown files so local Claude sessions stay aligned with the backend definitions.
+
+### `activate_agent` — Activate an agent
+Mark an agent active. When Claude output is requested, also refresh the local `.claude/agents/` file.
+
+### `run_agent` — Trigger an agent run
+Create a new run for an agent and inspect the resulting findings with `get_agent_runs` and `get_agent_findings`.
+
 ## Proactive Context
 
 Nex automatically surfaces relevant context from the user's knowledge graph on every prompt — not just questions. When you see a `<nex-context>` block, use it naturally to inform your response:
