@@ -7,40 +7,58 @@ Branch: `feat/nex-as-a-skill-parity-00-planning-docs`
 
 This document is the master index for the CLI parity rollout in `nex-as-a-skill`.
 
-It exists to enforce the implementation rule we want to use by default:
+It enforces four rules:
 
-- prefer small, digestible PRs
-- target less than 500 changed lines when possible
-- keep each PR focused on one reviewable behavior slice
-- explicitly track upstream and downstream dependencies in every PR
+- every implementation branch starts from `main` in this repo
+- every PR stays below 500 changed lines unless it is re-split first
+- every PR is themed around one owned surface in this repo
+- every PR body links any required upstream runtime PRs instead of absorbing that work here
 
-This plan is downstream of [CLI Parity Analysis](./cli-parity-analysis.md) and is the repo-local implementation index for `nex-crm/nex-as-a-skill#87`.
+This is the repo-local implementation index for `nex-crm/nex-as-a-skill#87`.
 
-## Source-of-Truth Rule
+## Source of Truth
 
-This rollout is package-backed.
-
-The canonical behavior target is the published `@nex-ai/nex@0.1.68` package.
+The canonical behavior target is the published `@nex-ai/nex` package.
 
 The canonical implementation base is:
 
 - repository: `nex-crm/nex-as-a-skill`
 - branch base: `main`
 
-Do not let exploratory work in other repos or worktrees override what is on `main` here.
+Do not plan work against exploratory branches in `nex-cli` or other repos. If a runtime dependency lives elsewhere, link it as an upstream dependency from the repo-local PR instead of pretending the code lives here.
+
+## Repo Boundary
+
+This repo owns:
+
+- the bootstrap wrapper in `src/`
+- npm shims in `bin/`
+- the curl installer in `install.sh`
+- package and registry metadata in `package.json` and `server.json`
+- slash-command content in `plugin-commands/`
+- platform instructions in `platform-rules/`
+- platform assets in `platform-plugins/`
+- the Claude Code plugin in `claude-code-plugin/`
+- the OpenClaw plugin in `openclaw-plugin/`
+- shell-only scripts in `scripts/`
+
+This repo does not own:
+
+- the interactive TUI runtime
+- command-browser UX implementation
+- backend auth, integration, or notification APIs
+- MCP server runtime code that lives outside this tree
+
+Those dependencies may still exist, but they must be linked as upstream PRs in real PR bodies.
 
 ## Working Rules
 
-1. No large parity PRs.
-2. Every implementation PR must have a dedicated plan doc before code starts.
-3. Every PR description should include:
-   - `Upstream PRs:`
-   - `Downstream PRs:`
-   - `What ships in this PR`
-   - `What is intentionally not included`
-4. If a slice drifts above about 500 changed lines, split it again unless there is a strong reason not to.
-5. Prefer shipping enabling plumbing first, then user-facing behavior, then release and distribution updates last.
-6. Treat workflow/TUI parity as first-class work. Do not hide it inside unrelated command PRs.
+1. No implementation PR over 500 changed lines.
+2. If a slice threatens to cross 500 lines, split it before code review starts.
+3. Keep one behavior family per PR.
+4. Prefer file-cluster boundaries that match the repo layout.
+5. Runtime dependencies in other repos belong in `Upstream PRs`, not in the local diff.
+6. Finish release and registry alignment last, after behavior and asset parity are landed.
 
 ## Branch Naming Convention
 
@@ -50,84 +68,77 @@ Pattern:
 
 Examples:
 
-- `feat/nex-as-a-skill-parity-01-workos-onboarding-entrypoint`
-- `feat/nex-as-a-skill-parity-18-conversation-shell-foundation`
-- `feat/nex-as-a-skill-parity-22-server-manifest-alignment`
+- `feat/nex-as-a-skill-parity-01-wrapper-release-source`
+- `feat/nex-as-a-skill-parity-10-claude-plugin-setup-surface`
+- `feat/nex-as-a-skill-parity-16-release-registry-alignment`
 
 ## Sequence Overview
 
 ### Phase 0: Planning
 
-| PR | Repo | Branch | Goal | Size Target | Doc |
-|---|---|---|---|---:|---|
-| 00 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-00-planning-docs` | Land corrected planning/index docs before code | <300 | [PR 00](./cli-parity-prs/00-planning-docs.md) |
+| PR | Branch | Goal | Size Target | Doc |
+|---|---|---|---:|---|
+| 00 | `feat/nex-as-a-skill-parity-00-planning-docs` | Correct the rollout plan and re-slice it against `main` in this repo | <350 | [PR 00](./cli-parity-prs/00-planning-docs.md) |
 
-### Phase 1: Core Command and Onboarding Reachability
+### Phase 1: Wrapper, Install, and Quick Start
 
-| PR | Repo | Branch | Goal | Size Target | Doc |
-|---|---|---|---|---:|---|
-| 01 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-01-workos-onboarding-entrypoint` | Restore a first-class onboarding entrypoint with WorkOS-first auth | <350 | [PR 01](./cli-parity-prs/01-register-command.md) |
-| 02 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-02-upgrade-command` | Restore `upgrade` command parity | <250 | [PR 02](./cli-parity-prs/02-upgrade-command.md) |
-| 03 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-03-operational-aliases` | Restore `detect`, `workspace`, and status/info command reachability | <450 | [PR 03](./cli-parity-prs/03-operational-aliases.md) |
-| 04 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-04-notifications-parity` | Restore notification preference and custom-rule workflows | <450 | [PR 04](./cli-parity-prs/04-notifications-parity.md) |
-| 05 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-05-list-and-relationship-mutations` | Restore missing relationship and list mutations | <450 | [PR 05](./cli-parity-prs/05-list-and-relationship-mutations.md) |
-| 06 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-06-task-and-insights-parity` | Restore task, insight, and related command parity | <450 | [PR 06](./cli-parity-prs/06-task-and-insights-parity.md) |
+| PR | Branch | Goal | Size Target | Doc |
+|---|---|---|---:|---|
+| 01 | `feat/nex-as-a-skill-parity-01-wrapper-release-source` | Tighten wrapper release-source and version behavior in `src/nex.ts` | <250 | [PR 01](./cli-parity-prs/01-wrapper-release-source.md) |
+| 02 | `feat/nex-as-a-skill-parity-02-install-and-shims` | Align `install.sh` and npm shim behavior with the wrapper contract | <350 | [PR 02](./cli-parity-prs/02-install-and-shims.md) |
+| 03 | `feat/nex-as-a-skill-parity-03-readme-quickstart` | Rewrite install, auth, and setup copy around the current architecture | <350 | [PR 03](./cli-parity-prs/03-readme-quickstart.md) |
 
-### Phase 2: Setup and Platform Install Parity
+### Phase 2: Distributed Command and Instruction Assets
 
-| PR | Repo | Branch | Goal | Size Target | Doc |
-|---|---|---|---|---:|---|
-| 07 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-07-setup-foundation` | Add setup and status foundation plus `.nex.toml` creation | <450 | [PR 07](./cli-parity-prs/07-setup-foundation.md) |
-| 08 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-08-setup-claude-code-install` | Restore Claude Code install behavior in setup | <450 | [PR 08](./cli-parity-prs/08-setup-claude-code-install.md) |
-| 09 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-09-setup-rules-install` | Restore rules and instructions installation during setup | <450 | [PR 09](./cli-parity-prs/09-setup-rules-install.md) |
-| 10 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-10-setup-non-claude-hooks` | Restore Cursor, Windsurf, and related hook installers | <500 | [PR 10](./cli-parity-prs/10-setup-non-claude-hooks.md) |
-| 11 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-11-platform-assets-a` | Restore OpenCode, Continue, and Windsurf workflow assets and installers | <500 | [PR 11](./cli-parity-prs/11-platform-assets-a.md) |
-| 12 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-12-platform-assets-b` | Restore VS Code, Kilo, and related custom mode assets and installers | <450 | [PR 12](./cli-parity-prs/12-platform-assets-b.md) |
-| 13 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-13-openclaw-installer` | Restore OpenClaw install and config behavior | <400 | [PR 13](./cli-parity-prs/13-openclaw-installer.md) |
-| 14 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-14-setup-integrations-step` | Restore setup-time integration selection and connection-aware status | <450 | [PR 14](./cli-parity-prs/14-setup-integrations-step.md) |
-| 15 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-15-setup-scan-and-compounding` | Restore setup scan step, reporting, and compounding trigger | <500 | [PR 15](./cli-parity-prs/15-setup-scan-and-compounding.md) |
+| PR | Branch | Goal | Size Target | Doc |
+|---|---|---|---:|---|
+| 04 | `feat/nex-as-a-skill-parity-04-plugin-commands-memory` | Bring memory-oriented slash commands to package parity | <300 | [PR 04](./cli-parity-prs/04-plugin-commands-memory.md) |
+| 05 | `feat/nex-as-a-skill-parity-05-plugin-commands-ops` | Bring registration, integration, notification, and scan command docs to parity | <350 | [PR 05](./cli-parity-prs/05-plugin-commands-ops.md) |
+| 06 | `feat/nex-as-a-skill-parity-06-platform-rules-core` | Update core editor rules for Cursor, Windsurf, VS Code, and Codex | <450 | [PR 06](./cli-parity-prs/06-platform-rules-core.md) |
+| 07 | `feat/nex-as-a-skill-parity-07-platform-rules-secondary` | Update the remaining editor and agent rule bundles | <450 | [PR 07](./cli-parity-prs/07-platform-rules-secondary.md) |
+| 08 | `feat/nex-as-a-skill-parity-08-platform-plugins-core` | Bring Continue and OpenCode assets to parity | <450 | [PR 08](./cli-parity-prs/08-platform-plugins-core.md) |
+| 09 | `feat/nex-as-a-skill-parity-09-platform-plugins-workflows` | Bring Windsurf, KiloCode, and VS Code workflow assets to parity | <450 | [PR 09](./cli-parity-prs/09-platform-plugins-workflows.md) |
 
-### Dropped Scope
+### Phase 3: Plugin Runtime Bundles
 
-`PR 16` and `PR 17` are intentionally dropped.
+| PR | Branch | Goal | Size Target | Doc |
+|---|---|---|---:|---|
+| 10 | `feat/nex-as-a-skill-parity-10-claude-plugin-setup-surface` | Align Claude Code plugin setup docs, settings, and shipped commands | <450 | [PR 10](./cli-parity-prs/10-claude-plugin-setup-surface.md) |
+| 11 | `feat/nex-as-a-skill-parity-11-claude-plugin-recall-foundation` | Bring Claude Code recall and session-start behavior to parity | <500 | [PR 11](./cli-parity-prs/11-claude-plugin-recall-foundation.md) |
+| 12 | `feat/nex-as-a-skill-parity-12-claude-plugin-capture-scan` | Bring Claude Code capture and scan behavior to parity | <500 | [PR 12](./cli-parity-prs/12-claude-plugin-capture-scan.md) |
+| 13 | `feat/nex-as-a-skill-parity-13-openclaw-plugin-tool-surface` | Bring OpenClaw tool and command registration to parity | <500 | [PR 13](./cli-parity-prs/13-openclaw-plugin-tool-surface.md) |
+| 14 | `feat/nex-as-a-skill-parity-14-openclaw-plugin-behavior` | Bring OpenClaw recall, capture, and scan behavior to parity | <500 | [PR 14](./cli-parity-prs/14-openclaw-plugin-behavior.md) |
+| 15 | `feat/nex-as-a-skill-parity-15-shell-scripts-parity` | Align shell-only bootstrap and API helper scripts with the package contract | <300 | [PR 15](./cli-parity-prs/15-shell-scripts-parity.md) |
 
-Reason:
+### Phase 4: Release Alignment
 
-- the published package did ship agents
-- the new product direction explicitly does not want local agent parity
-- we are preserving that correction in the analysis docs, but not shipping those PRs
-
-### Phase 3: Workflow and TUI Parity
-
-| PR | Repo | Branch | Goal | Size Target | Doc |
-|---|---|---|---|---:|---|
-| 18 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-18-conversation-shell-foundation` | Restore the conversation-first shell foundation | <500 | [PR 18](./cli-parity-prs/18-conversation-shell-foundation.md) |
-| 19 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-19-guided-onboarding-workflow` | Restore guided onboarding and interactive setup flow | <500 | [PR 19](./cli-parity-prs/19-guided-onboarding-workflow.md) |
-| 20 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-20-secondary-views-and-quick-switcher` | Restore quick-switcher and current-destination workflow equivalents | <500 | [PR 20](./cli-parity-prs/20-secondary-views-and-quick-switcher.md) |
-| 21 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-21-focus-model-and-layout` | Restore multi-pane shell layout and focus semantics | <500 | [PR 21](./cli-parity-prs/21-focus-model-and-layout.md) |
-
-### Phase 4: Distribution Alignment
-
-| PR | Repo | Branch | Goal | Size Target | Doc |
-|---|---|---|---|---:|---|
-| 22 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-22-server-manifest-alignment` | Align server-manifest and MCP-facing metadata after behavior parity is real | <250 | [PR 22](./cli-parity-prs/22-server-manifest-alignment.md) |
-| 23 | `nex-as-a-skill` | `feat/nex-as-a-skill-parity-23-npm-and-server-manifest-alignment` | Align npm metadata and local server manifest last | <250 | [PR 23](./cli-parity-prs/23-npm-and-server-manifest-alignment.md) |
+| PR | Branch | Goal | Size Target | Doc |
+|---|---|---|---:|---|
+| 16 | `feat/nex-as-a-skill-parity-16-release-registry-alignment` | Align npm and MCP registry metadata after the owned surfaces land | <250 | [PR 16](./cli-parity-prs/16-release-registry-alignment.md) |
 
 ## Shipping Order
 
-Ship in numeric order unless a slice is re-split.
+Ship in numeric order.
 
 The intended dependency chain is:
 
-- `00` first, no code
-- `01` through `06` establish core command reachability
-- `07` through `15` restore the package setup and install experience
-- `18` through `21` restore the package-backed workflow and TUI model
-- `22` and `23` align manifests and package metadata only after behavior parity is real in this repo
+- `00` establishes the corrected plan
+- `01` through `03` stabilize bootstrap and onboarding copy
+- `04` through `09` align the distributed command and editor assets
+- `10` through `15` align the bundled plugin and script runtimes
+- `16` closes the loop on release metadata and registry output
 
-## Dependency Linking Convention
+## Cross-Repo Dependency Rule
 
-Every PR should include these sections in the PR body:
+If a repo-local PR depends on a runtime change in `nex-cli`, `mcp`, or another repo:
+
+- keep the `nex-as-a-skill` PR scoped to its owned files
+- link the runtime PR under `Upstream PRs`
+- do not widen the local PR to compensate
+
+## PR Body Template
+
+Every implementation PR should include:
 
 ```text
 Upstream PRs:
@@ -135,9 +146,15 @@ Upstream PRs:
 
 Downstream PRs:
 - #<id> <title>
+
+What ships in this PR:
+- ...
+
+What is intentionally not included:
+- ...
 ```
 
-If there are no links yet:
+If there is no upstream or downstream link yet:
 
 ```text
 Upstream PRs:
@@ -149,34 +166,27 @@ Downstream PRs:
 
 ## Review Standard
 
-The default review standard for this rollout is:
-
-- each PR should be understandable without reading the full parity program
-- each PR should have a narrow test and verification surface
-- reviewers should be able to reason about regressions from the PR title and plan doc alone
-- workflow and TUI PRs should be validated with real interactive flows, not only batch tests
+- the file list should make the theme obvious
+- the validation surface should be narrow and local
+- reviewers should not need cross-repo context to understand the local diff
+- if a PR body says a runtime dependency exists elsewhere, the local diff must still be useful and reviewable on its own
 
 ## Per-PR Plan Docs
 
 - [PR 00: Planning Docs](./cli-parity-prs/00-planning-docs.md)
-- [PR 01: WorkOS Onboarding Entry Point](./cli-parity-prs/01-register-command.md)
-- [PR 02: Upgrade Command](./cli-parity-prs/02-upgrade-command.md)
-- [PR 03: Operational Aliases](./cli-parity-prs/03-operational-aliases.md)
-- [PR 04: Notifications Parity](./cli-parity-prs/04-notifications-parity.md)
-- [PR 05: List and Relationship Mutations](./cli-parity-prs/05-list-and-relationship-mutations.md)
-- [PR 06: Task and Insights Parity](./cli-parity-prs/06-task-and-insights-parity.md)
-- [PR 07: Setup Foundation](./cli-parity-prs/07-setup-foundation.md)
-- [PR 08: Setup Claude Code Install](./cli-parity-prs/08-setup-claude-code-install.md)
-- [PR 09: Setup Rules Install](./cli-parity-prs/09-setup-rules-install.md)
-- [PR 10: Setup Non-Claude Hooks](./cli-parity-prs/10-setup-non-claude-hooks.md)
-- [PR 11: Platform Assets A](./cli-parity-prs/11-platform-assets-a.md)
-- [PR 12: Platform Assets B](./cli-parity-prs/12-platform-assets-b.md)
-- [PR 13: OpenClaw Installer](./cli-parity-prs/13-openclaw-installer.md)
-- [PR 14: Setup Integrations Step](./cli-parity-prs/14-setup-integrations-step.md)
-- [PR 15: Setup Scan and Compounding](./cli-parity-prs/15-setup-scan-and-compounding.md)
-- [PR 18: Conversation Shell Foundation](./cli-parity-prs/18-conversation-shell-foundation.md)
-- [PR 19: Guided Onboarding Workflow](./cli-parity-prs/19-guided-onboarding-workflow.md)
-- [PR 20: Secondary Views and Quick Switcher](./cli-parity-prs/20-secondary-views-and-quick-switcher.md)
-- [PR 21: Focus Model and Layout](./cli-parity-prs/21-focus-model-and-layout.md)
-- [PR 22: Server Manifest Alignment](./cli-parity-prs/22-server-manifest-alignment.md)
-- [PR 23: npm and Server Manifest Alignment](./cli-parity-prs/23-npm-and-server-manifest-alignment.md)
+- [PR 01: Wrapper Release Source](./cli-parity-prs/01-wrapper-release-source.md)
+- [PR 02: Install and Shims](./cli-parity-prs/02-install-and-shims.md)
+- [PR 03: README Quick Start](./cli-parity-prs/03-readme-quickstart.md)
+- [PR 04: Plugin Commands Memory](./cli-parity-prs/04-plugin-commands-memory.md)
+- [PR 05: Plugin Commands Ops](./cli-parity-prs/05-plugin-commands-ops.md)
+- [PR 06: Platform Rules Core](./cli-parity-prs/06-platform-rules-core.md)
+- [PR 07: Platform Rules Secondary](./cli-parity-prs/07-platform-rules-secondary.md)
+- [PR 08: Platform Plugins Core](./cli-parity-prs/08-platform-plugins-core.md)
+- [PR 09: Platform Plugins Workflows](./cli-parity-prs/09-platform-plugins-workflows.md)
+- [PR 10: Claude Plugin Setup Surface](./cli-parity-prs/10-claude-plugin-setup-surface.md)
+- [PR 11: Claude Plugin Recall Foundation](./cli-parity-prs/11-claude-plugin-recall-foundation.md)
+- [PR 12: Claude Plugin Capture and Scan](./cli-parity-prs/12-claude-plugin-capture-scan.md)
+- [PR 13: OpenClaw Plugin Tool Surface](./cli-parity-prs/13-openclaw-plugin-tool-surface.md)
+- [PR 14: OpenClaw Plugin Behavior](./cli-parity-prs/14-openclaw-plugin-behavior.md)
+- [PR 15: Shell Scripts Parity](./cli-parity-prs/15-shell-scripts-parity.md)
+- [PR 16: Release Registry Alignment](./cli-parity-prs/16-release-registry-alignment.md)

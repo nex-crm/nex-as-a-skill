@@ -1,54 +1,42 @@
 # PR 00: Planning Docs
 
 - Target repo: `nex-as-a-skill`
+- Base branch: `main`
 - Branch: `feat/nex-as-a-skill-parity-00-planning-docs`
-- Size target: `<300` changed lines
+- Size target: `<350` changed lines
 - Upstream PRs: none
-- Downstream PRs: `01` through `23`
+- Downstream PRs: `01` through `16`
 
 ## Goal
 
-Land the corrected parity docs before code changes begin.
-
-The job of this PR is to make the rollout package-backed, explicitly sequenced, and small-PR-friendly.
-It also locks the rollout to the right repo and branch base:
-
-- repo: `nex-as-a-skill`
-- base: `main`
-- canonical issue: `nex-crm/nex-as-a-skill#87`
+Correct the parity plan so it is rooted in `nex-as-a-skill` `main` and split into real sub-500-line PRs.
 
 ## Scope
 
-- add the corrected master plan and index doc
-- add or amend one plan doc per planned PR
-- replace repo-lineage assumptions with published-package scope
-- record the rollout sequence and dependency-linking convention
+- rewrite the master plan
+- rewrite the analysis and workflow audit
+- create one per-PR plan doc for every implementation slice
 
 ## Out of Scope
 
-- any production code change
-- any manifest or version update
-- any repo split or branch creation
+- implementation changes
+- runtime work in other repos
 
 ## Files Likely Touched
 
+- `docs/cli-parity-pr-plan.md`
 - `docs/cli-parity-analysis.md`
 - `docs/cli-workflow-gap-audit-2026-04-05.md`
-- `docs/cli-parity-pr-plan.md`
-- `docs/cli-parity-prs/*.md`
+- `docs/cli-parity-prs/`
 
 ## Implementation Plan
 
-1. Rewrite the main parity analysis so the published package is the canonical source of truth.
-2. Split workflow parity into its own explicit phase.
-3. Re-scope onboarding to WorkOS-first parity rather than legacy auth restoration.
-4. Record that agents were published, but are intentionally de-scoped from the rollout.
-5. Move manifest and package alignment to the final phase.
-6. Remove the wrong-repo planning assumption and state that all future branches must start from `main` in this repo.
+1. Replace the wrong `nex-cli` assumptions with the real file ownership in this repo.
+2. Re-slice the rollout along repo-owned directories.
+3. Make the sub-500-line review cap explicit in the master plan and each PR doc.
+4. Point the issue and planning PR at the corrected docs.
 
 ## Validation
 
-- every planned PR has a corresponding doc
-- the master doc links to every PR doc
-- workflow parity is explicitly planned
-- the corrected scope is clear without reading old analysis history
+- docs only
+- `git diff --check -- docs`
