@@ -3,7 +3,7 @@
 /**
  * Thin shim for @nex-ai/nex — delegates all commands to the nex-cli binary.
  *
- * Install the binary: curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
+ * Install the binary: curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
  */
 
 import { execFileSync } from "node:child_process";
@@ -46,7 +46,7 @@ console.error(`
   nex-cli binary not found.
 
   Install it with:
-    curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
 
   Then run your command again.
 `);
