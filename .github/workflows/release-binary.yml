@@ -193,14 +193,16 @@ jobs:
             dist/nex-cli-* dist/checksums.txt
 
       - name: Create version pin PR
-        if: steps.check.outputs.exists == 'false' && success()
+        if: success()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
 
           # Update NEX_CLI_VERSION in src/nex.ts
+          grep -qE '^const NEX_CLI_VERSION = ".*";' src/nex.ts || { echo "Could not locate NEX_CLI_VERSION declaration"; exit 1; }
           sed -i "s|^const NEX_CLI_VERSION = \".*\";.*|const NEX_CLI_VERSION = \"${VERSION}\";|" src/nex.ts
+          grep -q "^const NEX_CLI_VERSION = \"${VERSION}\";" src/nex.ts || { echo "Failed to pin NEX_CLI_VERSION to ${VERSION}"; exit 1; }
 
           if git diff --quiet src/nex.ts; then
             echo "Already pinned to ${VERSION}, skipping PR"
