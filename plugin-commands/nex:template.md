@@ -11,7 +11,7 @@ Set up a Nex agent from a pre-built template.
 Run the template setup command:
 
 ```bash
-nex template run <template-slug>
+nex-cli template run <template-slug>
 ```
 
 Available templates:
@@ -34,12 +34,12 @@ Available templates:
 ## Preview mode
 
 ```bash
-nex template run crm-hygiene --dry-run
+nex-cli template run crm-hygiene --dry-run
 ```
 
 ## Check status after setup
 
 ```bash
-nex agents findings crm-hygiene
-nex agents runs crm-hygiene
+nex-cli agents findings crm-hygiene
+nex-cli agents runs crm-hygiene
 ```

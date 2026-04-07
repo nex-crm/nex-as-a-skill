@@ -72,6 +72,6 @@ actions:
 
 success_message: |
   Your CRM Hygiene Agent is live! Here's what it found in its first run.
-  It'll run daily from now on. Use `nex agents findings crm-hygiene`
+  It'll run daily from now on. Use `nex-cli agents findings crm-hygiene`
   to check findings anytime, or ask your AI agent "what did my CRM
   hygiene agent find?"

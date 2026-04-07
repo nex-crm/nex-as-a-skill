@@ -6,7 +6,7 @@ Pre-built agent templates that users copy-paste into their AI agent for guided s
 
 1. User copies a setup prompt from the Nex website or docs
 2. Pastes it into their AI agent (Claude Code, ChatGPT, Cursor, etc.)
-3. AI agent runs `nex template run <slug>`
+3. AI agent runs `nex-cli template run <slug>`
 4. CLI orchestrates: register → connect → sync → activate → run
 
 ## Available Templates
@@ -29,10 +29,8 @@ Check if `nex-cli` exists: `which nex-cli`. If not found:
 ```
 curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
 ```
-Verify: `nex-cli --version` must print a version number. If it hangs or errors, rebuild from source:
-```
-cd ~/Documents/nex/nex-cli && go build -o ~/.local/bin/nex-cli ./cmd/nex-cli/
-```
+Verify: `nex-cli --version` must print a version number.
+If the install script fails, visit https://github.com/nex-crm/nex-cli/releases for manual download.
 
 ## Phase 2: Setup
 
@@ -58,6 +56,7 @@ After the template completes, get the findings. Try these in order:
 
 1. `nex-cli insights` — the primary findings endpoint
 2. If that fails (403 or empty): pull data directly and analyze it yourself:
+   (This can happen if the agent's first run hasn't completed yet — wait 30 seconds and retry once.)
    ```
    nex-cli records person --json > /tmp/persons.json
    nex-cli records company --json > /tmp/companies.json
@@ -136,7 +135,10 @@ Tell me:
 1. The agent now runs daily — I don't need to do anything
 2. To check findings anytime: `nex-cli insights` or ask "what did my CRM hygiene agent find?"
 3. To re-run manually: `nex-cli template run crm-hygiene --force`
-4. Show me `cat ~/.nex/README.md` for a quick reference
+4. Show me:
+   ```
+   cat ~/.nex/README.md   # Generated during setup — shows your workspace layout and available commands
+   ```
 
 ## Rules
 
