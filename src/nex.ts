@@ -7,7 +7,7 @@ import { arch, homedir, platform } from "node:os";
 import { basename, join } from "node:path";
 
 const VERSION = "0.2.0";
-const NEX_CLI_VERSION = "latest"; // TODO: pin to specific version once nex-cli has releases
+const NEX_CLI_VERSION = "v0.1.3";
 
 const args = process.argv.slice(2);
 

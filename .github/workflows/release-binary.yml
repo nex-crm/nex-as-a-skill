@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
@@ -190,6 +191,42 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
           \`\`\`" \
             dist/nex-cli-* dist/checksums.txt
+
+      - name: Create version pin PR
+        if: steps.check.outputs.exists == 'false' && success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Update NEX_CLI_VERSION in src/nex.ts
+          sed -i "s|^const NEX_CLI_VERSION = \".*\";.*|const NEX_CLI_VERSION = \"${VERSION}\";|" src/nex.ts
+
+          if git diff --quiet src/nex.ts; then
+            echo "Already pinned to ${VERSION}, skipping PR"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="chore/pin-nex-cli"
+          git checkout -b "$BRANCH"
+          git add src/nex.ts
+          git commit -m "chore: pin nex-cli to ${VERSION}"
+          git push origin "$BRANCH" --force
+
+          existing=$(gh pr list --head "$BRANCH" --json number -q '.[0].number // empty' 2>/dev/null || true)
+          if [ -z "$existing" ]; then
+            gh pr create \
+              --title "chore: pin nex-cli to ${VERSION}" \
+              --body "Auto-generated from nex-cli release ${VERSION}. Merge to update the pinned CLI version."
+          else
+            gh pr edit "$existing" \
+              --title "chore: pin nex-cli to ${VERSION}" \
+              --body "Auto-generated from nex-cli release ${VERSION}. Merge to update the pinned CLI version."
+            echo "Updated existing PR #${existing}"
+          fi
 
       - name: Skip if already released
         if: steps.check.outputs.exists == 'true'
