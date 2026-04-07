@@ -2,8 +2,8 @@
 set -e
 
 REPO="nex-crm/nex-as-a-skill"
-INSTALL_DIR="/usr/local/bin"
-FALLBACK_DIR="${HOME}/.local/bin"
+PRIMARY_DIR="${HOME}/.local/bin"
+FALLBACK_DIR="/usr/local/bin"
 
 # Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -52,7 +52,7 @@ fi
 
 chmod +x "$TMP"
 
-# Install binary
+# Install binary — prefer ~/.local/bin (no sudo, no macOS sandbox issues)
 do_install() {
     local dir="$1"
     local use_sudo="$2"
@@ -63,23 +63,42 @@ do_install() {
     TARGET_DIR="$dir"
 }
 
-if [ -w "$INSTALL_DIR" ]; then
-    do_install "$INSTALL_DIR" false
-elif [ "$(id -u)" = "0" ]; then
-    do_install "$INSTALL_DIR" false
-elif command -v sudo > /dev/null 2>&1; then
-    echo "Installing to ${INSTALL_DIR} (requires sudo)..."
-    do_install "$INSTALL_DIR" true
-else
+if do_install "$PRIMARY_DIR" false 2>/dev/null; then
+    : # installed to ~/.local/bin
+elif [ -w "$FALLBACK_DIR" ]; then
     do_install "$FALLBACK_DIR" false
+elif [ "$(id -u)" = "0" ]; then
+    do_install "$FALLBACK_DIR" false
+elif command -v sudo > /dev/null 2>&1; then
+    echo "Installing to ${FALLBACK_DIR} (requires sudo)..."
+    do_install "$FALLBACK_DIR" true
+else
+    echo "Error: cannot install to ${PRIMARY_DIR} or ${FALLBACK_DIR}"
+    exit 1
 fi
 
 echo "nex-cli installed to ${TARGET_DIR}/nex-cli"
 
-# Check PATH
+# Ensure PATH includes the install directory for the current session
 case ":$PATH:" in
     *":${TARGET_DIR}:"*) ;;
-    *) echo ""; echo "Add to your PATH:  export PATH=\"${TARGET_DIR}:\$PATH\"" ;;
+    *)
+        export PATH="${TARGET_DIR}:$PATH"
+        echo "Added ${TARGET_DIR} to PATH for this session."
+
+        # Persist to shell RC if not already there
+        for rc in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.profile"; do
+            if [ -f "$rc" ]; then
+                if ! grep -q "${TARGET_DIR}" "$rc" 2>/dev/null; then
+                    echo "" >> "$rc"
+                    echo "# Added by nex-cli installer" >> "$rc"
+                    echo "export PATH=\"${TARGET_DIR}:\$PATH\"" >> "$rc"
+                    echo "Updated ${rc} with PATH."
+                fi
+                break
+            fi
+        done
+        ;;
 esac
 
 echo ""

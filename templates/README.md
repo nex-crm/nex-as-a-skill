@@ -15,7 +15,27 @@ Pre-built agent templates that users copy-paste into their AI agent for guided s
 |----------|------|----------------------|-------------|
 | CRM Hygiene Agent | `crm-hygiene` | CRM (required), Email (optional) | Daily duplicate detection, field audit, stale records |
 
-## Copy-Paste Prompt
+## Quick Prompt (for demos and website copy button)
+
+Copy this into any AI agent. Replace HubSpot with your CRM if different.
+
+---
+
+Set up a CRM Hygiene Agent using Nex. I use HubSpot.
+
+Install nex-cli if missing: `curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh`
+
+Run: `nex-cli template run crm-hygiene --crm hubspot`
+
+If all steps show [skip], re-run with `--force`. Tell me what each step means in plain language as it runs.
+
+After setup, pull my CRM data (`nex-cli records person --json`, `nex-cli records company --json`, `nex-cli records deal --json`) and produce a CRM HYGIENE REPORT: duplicates (use fuzzy name matching — "Jon Smith" and "Jonathan Smith" are likely the same person), missing fields, and stale records (no updates in 90+ days). Include counts and specific examples.
+
+Then ask me: "I found [N] issues. Want me to fix any?" List each fixable action (merge duplicates, fill missing fields, archive stale records) and wait for my approval before changing anything. Use `nex-cli update-record <id> <field>=<value>` or Nex MCP tools to make approved changes.
+
+---
+
+## Full Prompt (detailed 5-phase version)
 
 Copy this into any AI agent (Claude Code, ChatGPT, Cursor, etc.):
 
