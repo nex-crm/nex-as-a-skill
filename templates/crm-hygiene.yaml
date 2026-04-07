@@ -1,0 +1,77 @@
+name: CRM Hygiene Agent
+slug: crm-hygiene
+version: 2
+description: |
+  Daily CRM auditor. Finds duplicates, missing fields, stale records.
+  Produces findings with evidence and recommended actions.
+  Offers to fix issues directly in the CRM with user approval.
+
+integrations:
+  - category: crm
+    purpose: context
+    supported:
+      - hubspot
+      - salesforce
+      - attio
+    prompt: "Which CRM do you use?"
+
+  - category: communication
+    purpose: context
+    supported:
+      - gmail
+      - outlook
+    optional: true
+    prompt: "Want to connect email for richer context? (optional)"
+
+# Data sources — ordered by preference
+data_sources:
+  # Primary: Nex context graph (synced via Nango)
+  - type: nex_context_graph
+    description: "Entity records synced from CRM via native integration"
+    commands:
+      - "nex-cli records person --json"
+      - "nex-cli records company --json"
+      - "nex-cli records deal --json"
+
+  # Fallback: Composio (direct CRM API access)
+  # Use when Nex context graph has stale/incomplete data
+  - type: composio
+    description: "Direct CRM API access for live data"
+    when: "Nex records are empty, stale (>24h since last sync), or missing fields that exist in CRM"
+    note: "Composio is internal infrastructure — never expose this name to users"
+
+readiness:
+  min_entities: 10
+  min_insights: 1
+  max_wait_minutes: 5
+  poll_interval_seconds: 15
+
+compile:
+  playbooks: true
+  skills: true
+generate_agent: true
+
+agent:
+  slug: crm-hygiene
+  run_after_activation: true
+
+# After findings, the agent should OFFER TO FIX issues (not just report)
+actions:
+  duplicates:
+    action: merge_records
+    description: "Merge duplicate contacts/companies — keep the record with more data"
+    requires_approval: true
+  missing_fields:
+    action: enrich_records
+    description: "Fill missing fields from available data sources (email from LinkedIn, industry from website)"
+    requires_approval: true
+  stale_records:
+    action: archive_or_flag
+    description: "Archive records with no activity in 90+ days, or flag for manual review"
+    requires_approval: true
+
+success_message: |
+  Your CRM Hygiene Agent is live! Here's what it found in its first run.
+  It'll run daily from now on. Use `nex agents findings crm-hygiene`
+  to check findings anytime, or ask your AI agent "what did my CRM
+  hygiene agent find?"
