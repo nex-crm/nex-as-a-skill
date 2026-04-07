@@ -29,9 +29,11 @@ Run: `nex-cli template run crm-hygiene --crm hubspot`
 
 If all steps show [skip], re-run with `--force`. Tell me what each step means in plain language as it runs.
 
-After setup, pull my CRM data (`nex-cli records person --json`, `nex-cli records company --json`, `nex-cli records deal --json`) and produce a CRM HYGIENE REPORT: duplicates (use fuzzy name matching — "Jon Smith" and "Jonathan Smith" are likely the same person), missing fields, and stale records (no updates in 90+ days). Include counts and specific examples.
+**Important: Do NOT pull raw CRM data or write analysis scripts.** Nex runs the audit server-side. The CLI will show you the findings when the run completes. Just wait for the output.
 
-Then ask me: "I found [N] issues. Want me to fix any?" List each fixable action (merge duplicates, fill missing fields, archive stale records) and wait for my approval before changing anything. Use `nex-cli update-record <id> <field>=<value>` or Nex MCP tools to make approved changes.
+Present the findings exactly as Nex returns them — grouped by type (duplicates, missing fields, stale records) with severity and recommended actions.
+
+Then ask me: "Nex found [N] issues. Want me to fix any?" List each fixable action and wait for my approval. Use `nex-cli update-record <id> <field>=<value>` or Nex MCP tools to make approved changes. Never modify records without asking first.
 
 ---
 
@@ -72,46 +74,38 @@ Tell me what each step does as it runs. Not the technical output — what it mea
 
 ## Phase 3: Results
 
-After the template completes, get the findings. Try these in order:
+The template run triggers a server-side audit. Nex analyzes your CRM data using its intelligence engine — you do NOT need to pull raw data or write scripts.
 
-1. `nex-cli insights` — the primary findings endpoint
-2. If that fails (403 or empty): pull data directly and analyze it yourself:
-   (This can happen if the agent's first run hasn't completed yet — wait 30 seconds and retry once.)
-   ```
-   nex-cli records person --json > /tmp/persons.json
-   nex-cli records company --json > /tmp/companies.json
-   nex-cli records deal --json > /tmp/deals.json
-   ```
-   Analyze these JSON files for duplicates (fuzzy name matching), missing fields, and stale records (no updates in 90+ days).
+The CLI polls the run status and displays findings when complete. Each finding has a type, severity, title, evidence, and recommended action — all computed by Nex.
 
-Present findings as a structured report:
+**Do NOT pull raw CRM records or analyze data yourself.** The findings come from Nex's server-side agent run. Just present what the CLI outputs.
+
+Format the findings as:
 
 ```
-CRM HYGIENE REPORT
+CRM HYGIENE REPORT (by Nex)
 ═══════════════════════════════════════════════
 Agent:        CRM Hygiene Agent
 CRM:          [provider]
-Data source:  [Nex context graph / live CRM API]
-Data scanned: [X] contacts, [Y] companies, [Z] deals
+Analysis:     Server-side (Nex intelligence engine)
 
-DUPLICATES FOUND:       [count]
-  - [name] appears [N] times (IDs: ...)
-  - ...
+DUPLICATES ([count]):
+  [severity] [title]
+  → [recommended action]
 
-MISSING FIELDS:         [count]
-  - [X] contacts missing email
-  - [Y] companies missing industry
-  - ...
+MISSING FIELDS ([count]):
+  [severity] [title]
+  → [recommended action]
 
-STALE RECORDS:          [count]
-  - [X] records with no activity in 90+ days
-  - ...
+STALE RECORDS ([count]):
+  [severity] [title]
+  → [recommended action]
 
 NEXT RUN: Tomorrow at 9:00 AM
 ═══════════════════════════════════════════════
 ```
 
-If no findings yet: "The agent is still running. This typically takes 2-5 minutes. Run `nex-cli insights` again shortly."
+If the run is still in progress: "Nex is analyzing your CRM. This takes 1-2 minutes. Run `nex-cli template run crm-hygiene` to check again — it will resume from where it stopped."
 
 ## Phase 4: Offer to Fix
 
