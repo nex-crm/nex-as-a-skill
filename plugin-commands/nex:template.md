@@ -1,45 +1,52 @@
 ---
-description: Set up a Nex agent from a template. Installs, connects integrations, syncs data, and activates the agent automatically.
+description: List available Nex agent templates or run one. Handles install, integrations, data sync, agent activation, and findings.
 ---
 
 # /nex:template
 
 Set up a Nex agent from a pre-built template.
 
-## Usage
+## Routing
 
-Run the template setup command:
+Handle requests based on $ARGUMENTS:
 
+**No arguments or "list" → list available templates:**
 ```bash
-nex-cli template run <template-slug>
+nex-cli template list
+```
+If `nex-cli` is not installed, install it first:
+```bash
+curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
 ```
 
-Available templates:
-- `crm-hygiene` — Daily CRM auditor. Finds duplicates, missing fields, stale records.
+**Template slug or "run <slug>" → run the template:**
+```bash
+nex-cli template run <slug> --machine
+```
+Use `--machine` when running from an AI agent (returns structured JSON for input prompts).
+Use `--crm <provider>` to skip the CRM selection prompt.
+Use `--force` to start fresh (clear previous state).
+
+## Available templates
+
+| Slug | Name | Description |
+|------|------|-------------|
+| `crm-hygiene` | CRM Hygiene Agent | Audit CRM for duplicates, missing fields, stale records |
+| `closed-lost-reengagement` | Closed-Lost Re-engagement | Find closed-lost deals worth re-engaging, draft reconnection emails |
+| `meetings` | Meetings Agent | Pre-meeting briefs, post-meeting action items, follow-up emails |
 
 ## What it does
 
-1. Creates your Nex account (or logs you in)
-2. Connects required integrations (e.g., your CRM)
-3. Waits for initial data sync (~3-5 minutes)
+1. Checks authentication (creates account or logs in)
+2. Connects required integrations (CRM, email, calendar)
+3. Waits for initial data sync
 4. Activates a pre-built agent personalized to your data
-5. Runs the first audit and shows findings
+5. Runs the agent and shows findings
+6. For templates with actions (email, calendar): presents drafts for approval before sending
 
-## Options
-
-- `--dry-run` — Preview what the template will do without executing
-- `--crm <provider>` — Pre-select CRM provider (hubspot, salesforce, attio)
-- `--no-interactive` — Non-interactive mode (requires all options as flags)
-
-## Preview mode
+## Check findings after setup
 
 ```bash
-nex-cli template run crm-hygiene --dry-run
-```
-
-## Check status after setup
-
-```bash
-nex-cli agents findings crm-hygiene
-nex-cli agents runs crm-hygiene
+nex-cli agents findings <slug>
+nex-cli agents runs <slug>
 ```

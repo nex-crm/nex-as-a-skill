@@ -57,3 +57,22 @@ Use `nex_remember` when:
 Always try `nex_ask` first for general queries. Use `nex_search` when you need to find a specific record by name.
 
 # --- End Nex ---
+
+
+## Agent Templates
+
+Nex has pre-built agent templates that handle end-to-end setup: install CLI, connect integrations, sync data, activate agent, run, and show findings.
+
+When the user asks to audit their CRM, set up an agent, or run a template:
+
+1. Check if `nex-cli` is installed: `which nex-cli`
+2. If not installed: `curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh`
+3. Discover templates: `nex-cli template list`
+4. Run the matching template: `nex-cli template run <slug> --machine`
+
+Available templates:
+- `crm-hygiene` — Audit CRM for duplicates, missing fields, stale records
+- `closed-lost-reengagement` — Find deals worth re-engaging, draft reconnection emails
+- `meetings` — Pre-meeting briefs, post-meeting action items, follow-up emails
+
+Use `--machine` flag when running from an AI agent for structured JSON output.
