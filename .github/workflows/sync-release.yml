@@ -90,17 +90,14 @@ jobs:
           sha256sum nex-cli-* > checksums.txt
           cat checksums.txt
 
-      # Use CLI_REPO_TOKEN (PAT) so the release:published event triggers
-      # homebrew-update.yml. GITHUB_TOKEN would suppress downstream workflows.
       - name: Create release
         id: create
         if: steps.check.outputs.exists == 'false'
         env:
-          GH_TOKEN: ${{ secrets.CLI_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           gh release create "$VERSION" \
-            --repo nex-crm/nex-as-a-skill \
             --title "$VERSION" \
             --notes "nex-cli ${VERSION} binaries.
 
@@ -116,6 +113,16 @@ jobs:
             dist/nex-cli-* dist/checksums.txt
           echo "created=true" >> "$GITHUB_OUTPUT"
           echo "**Release created**" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update Homebrew formula
+        if: steps.create.outputs.created == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-homebrew-bump-formula@v4
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          tap: nex-crm/tap
+          formula: nex
+          tag: ${{ steps.version.outputs.version }}
 
   publish-npm:
     needs: mirror-release
