@@ -1,0 +1,181 @@
+name: Sync nex-cli Release
+
+on:
+  repository_dispatch:
+    types: [nex-cli-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. v0.1.3). Defaults to latest nex-cli release."
+        required: false
+
+concurrency:
+  group: sync-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  mirror-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      created: ${{ steps.create.outputs.created }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.CLI_REPO_TOKEN }}
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          elif [ -n "${{ github.event.client_payload.version }}" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+          else
+            VERSION=$(gh release view --repo nex-crm/nex-cli --json tagName -q .tagName)
+          fi
+          # Normalize: ensure v prefix
+          VERSION="${VERSION#v}"
+          VERSION="v${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "### Sync Release" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Target version:** \`$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check if release already exists
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release already exists, skipping." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download binaries from nex-cli
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.CLI_REPO_TOKEN }}
+        run: |
+          mkdir -p dist
+          VERSION="${{ steps.version.outputs.version }}"
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            echo "Downloading nex-cli-${target}..."
+            gh release download "$VERSION" \
+              --repo nex-crm/nex-cli \
+              --pattern "nex-cli-${target}" \
+              --dir dist
+          done
+          ls -lh dist/
+
+      - name: Verify binary
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          BINARY="dist/nex-cli-linux-x64"
+          chmod +x "$BINARY"
+          VERSION_OUT=$("$BINARY" --version)
+          echo "Binary reports version: $VERSION_OUT"
+          echo "$VERSION_OUT" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "FAIL: version output is not semver"; exit 1; }
+
+      - name: Generate checksums
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          cd dist
+          sha256sum nex-cli-* > checksums.txt
+          cat checksums.txt
+
+      # Use CLI_REPO_TOKEN (PAT) so the release:published event triggers
+      # homebrew-update.yml. GITHUB_TOKEN would suppress downstream workflows.
+      - name: Create release
+        id: create
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.CLI_REPO_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh release create "$VERSION" \
+            --repo nex-crm/nex-as-a-skill \
+            --title "$VERSION" \
+            --notes "nex-cli ${VERSION} binaries.
+
+          Install:
+          \`\`\`
+          curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
+          \`\`\`
+
+          Or via Homebrew:
+          \`\`\`
+          brew install nex-crm/tap/nex
+          \`\`\`" \
+            dist/nex-cli-* dist/checksums.txt
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          echo "**Release created**" >> "$GITHUB_STEP_SUMMARY"
+
+  publish-npm:
+    needs: mirror-release
+    if: needs.mirror-release.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.CLI_REPO_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Validate shims
+        run: node --check bin/nex.js && node --check bin/nex-mcp.js
+
+      - name: Bump version and publish
+        id: npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PUBLISHED=$(npm view @nex-ai/nex version 2>/dev/null || echo "0.0.0")
+          LOCAL=$(node -e "console.log(require('./package.json').version)")
+
+          NEEDS_BUMP=$(node -e "
+            const [lM,lm,lp] = '$LOCAL'.split('.').map(Number);
+            const [pM,pm,pp] = '$PUBLISHED'.split('.').map(Number);
+            const localNum = lM*1000000 + lm*1000 + lp;
+            const pubNum = pM*1000000 + pm*1000 + pp;
+            console.log(localNum <= pubNum ? 'true' : 'false');
+          ")
+
+          if [ "$NEEDS_BUMP" = "true" ]; then
+            npm version "$PUBLISHED" --no-git-tag-version --allow-same-version
+            npm version patch --no-git-tag-version
+          fi
+
+          NEW_VERSION=$(node -e "console.log(require('./package.json').version)")
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+          if npm view "@nex-ai/nex@$NEW_VERSION" version 2>/dev/null; then
+            echo "Version $NEW_VERSION already on npm, skipping."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            npm publish --access public
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit version bump
+        if: steps.npm.outputs.published == 'true'
+        env:
+          NPM_VERSION: ${{ steps.npm.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git diff --staged --quiet && exit 0
+          git commit -m "chore: bump to v${NPM_VERSION} [skip ci]"
+          git push
