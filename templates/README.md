@@ -21,16 +21,18 @@ Copy this into any AI agent (Claude Code, ChatGPT, Cursor, etc.):
 
 ---
 
-Audit my CRM for data quality issues using Nex. If `nex-cli` is not installed: `curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh`
+Audit my CRM for data quality issues with nex-cli. Install if needed: `curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh` — then run `nex-cli template list` to see available templates and run the one that fits.
 
 ---
 
 That's it. The AI agent will:
 
-1. Check if `nex-cli` is installed — install it if not
+1. Install `nex-cli` if not present
 2. Run `nex-cli template list` to discover available templates
 3. Pick the right template based on your intent
-4. Run it, handle prompts, and present findings
+4. Run it via `nex-cli template run <slug>`, handle prompts, and present findings
+
+> **Note:** This prompt explicitly says `nex-cli` (not just "Nex") so the AI agent uses the template system instead of raw MCP data access. Long-term, `template list` and `template run` should be exposed as MCP tools and Claude Code skills so the agent routes there automatically.
 
 ## Adding a New Template
 
