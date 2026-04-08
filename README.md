@@ -17,7 +17,7 @@ Talk to the team, share feedback, and connect with other developers building AI 
 
 ```bash
 # Option A: install the nex-cli binary (no Node.js required)
-curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
 
 # Option B: install via npm (or bun/pnpm) — thin shim that delegates to nex-cli
 npm install -g @nex-ai/nex
@@ -249,7 +249,7 @@ cd openclaw-plugin && bun install && bun run build && bun test
 
 The `nex-cli` binary is built and released from [nex-crm/nex-cli](https://github.com/nex-crm/nex-cli). Install it with:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
 ```
 
 ### CI/CD

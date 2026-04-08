@@ -106,7 +106,7 @@ jobs:
 
           Install:
           \`\`\`
-          curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
+          curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
           \`\`\`
 
           Or via Homebrew:
