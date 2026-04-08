@@ -17,27 +17,20 @@ Pre-built agent templates that users copy-paste into their AI agent for guided s
 
 ## Copy-Paste Prompt
 
-Copy this into any AI agent. Replace `[YOUR CRM]` with your CRM provider.
+Copy this into any AI agent (Claude Code, ChatGPT, Cursor, etc.):
 
 ---
 
-I want to set up a Nex agent. I use **[YOUR CRM: HubSpot / Salesforce / Attio]**.
-
-**Install nex-cli** if not already installed:
-```
-curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
-```
-
-**Run this template:**
-```
-nex-cli template run crm-hygiene
-```
-
-The CLI handles everything — just follow its prompts. If a step fails, read the error and re-run. The CLI resumes from where it stopped. If all steps show `[skip]`, add `--force` for a fresh run.
-
-Tell me what's happening in plain language as it runs. When it finishes, show me the findings and ask what I want to fix.
+Audit my CRM for data quality issues using Nex. If `nex-cli` is not installed: `curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh`
 
 ---
+
+That's it. The AI agent will:
+
+1. Check if `nex-cli` is installed — install it if not
+2. Run `nex-cli template list` to discover available templates
+3. Pick the right template based on your intent
+4. Run it, handle prompts, and present findings
 
 ## Adding a New Template
 
