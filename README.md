@@ -16,13 +16,10 @@ Talk to the team, share feedback, and connect with other developers building AI 
 ### Install
 
 ```bash
-# Option A: standalone binary (no Node.js required, auto-installs nex-cli)
+# Option A: install the nex-cli binary (no Node.js required)
 curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
 
-# Option B: install the nex-cli binary directly
-curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
-
-# Option C: install via npm (or bun/pnpm)
+# Option B: install via npm (or bun/pnpm) — thin shim that delegates to nex-cli
 npm install -g @nex-ai/nex
 ```
 
@@ -165,6 +162,25 @@ Or without a global install:
 }
 ```
 
+### Remote MCP Server (no install required)
+
+Connect directly to the hosted Nex MCP server. No local installation needed — works with any MCP client that supports Streamable HTTP transport.
+
+```json
+{
+  "mcpServers": {
+    "nex": {
+      "url": "https://mcp.nex.ai/mcp",
+      "headers": {
+        "Authorization": "Bearer sk-your_key_here"
+      }
+    }
+  }
+}
+```
+
+Get an API key at [app.nex.ai/settings/developers](https://app.nex.ai/settings/developers).
+
 ### Shell-only Agents (no Node.js)
 
 Bash scripts for agents that can only run shell commands. Requires `curl` and `jq`.
@@ -204,9 +220,7 @@ Do not stop after partial setup. Only pause if you need my email for registratio
 ### Repo structure
 
 ```text
-src/                    # Bootstrapper binary source (compiled via Bun)
-bin/                    # Thin Node.js shims that delegate to nex-cli (npm fallback)
-install.sh              # curl-pipe installer for the standalone binary
+bin/                    # Thin Node.js shims that delegate to nex-cli
 claude-code-plugin/     # Claude Code hooks (auto-recall, auto-capture)
 openclaw-plugin/        # OpenClaw plugin (15+ tools, auto-recall, auto-capture)
 plugin-commands/        # Slash command definitions (.md files)
@@ -219,10 +233,6 @@ server.json             # MCP Registry manifest
 ### Build and test
 
 ```bash
-# Standalone binary (compiles via Bun)
-bun run build:binary            # native platform
-bun run build:all               # all 4 targets (darwin/linux × arm64/x64)
-
 # Shims (syntax check only)
 npm test
 
@@ -235,14 +245,16 @@ cd openclaw-plugin && bun install && bun run build && bun test
 
 ### How it works
 
-**Standalone binary** (`src/nex.ts`): Compiled via `bun build --compile`. Finds `nex-cli` on PATH or common locations and delegates all commands. If `nex-cli` isn't installed, auto-downloads it on first run. Detects `nex-mcp` symlink invocation to transparently prepend `mcp` to args.
+**npm package** (`bin/nex.js`, `bin/nex-mcp.js`): Thin Node.js shims that find `nex-cli` on PATH or common install locations and delegate all commands. For `npx @nex-ai/nex` and MCP Registry compatibility.
 
-**npm package** (`bin/nex.js`): Thin Node.js shim with the same delegation logic, for `npx @nex-ai/nex` and MCP Registry compatibility.
+The `nex-cli` binary is built and released from [nex-crm/nex-cli](https://github.com/nex-crm/nex-cli). Install it with:
+```bash
+curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
+```
 
 ### CI/CD
 
-- **CI** (`ci.yml`): Validates shims, builds + tests both plugins, builds + smoke tests the binary on every PR
-- **Release** (`release.yml`): Cross-compiles 4 binary targets on `v*` tags, creates GitHub Release with checksums
+- **CI** (`ci.yml`): Validates shims, builds + tests both plugins
 - **Publish** (`publish-cli.yml`): Auto-publishes to npm on push to main
 - **MCP Registry** (`publish-mcp.yml`): Publishes `server.json` to the MCP Registry on version tags
 
