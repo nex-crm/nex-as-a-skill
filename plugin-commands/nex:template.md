@@ -1,52 +1,130 @@
 ---
-description: List available Nex agent templates or run one. Handles install, integrations, data sync, agent activation, and findings.
+description: Set up a Nex agent from a template or custom prompt. Handles discovery, install, integrations, data sync, agent activation, narrative progress, and findings report.
 ---
 
 # /nex:template
 
-Set up a Nex agent from a pre-built template.
+Set up a Nex agent with guided onboarding.
 
-## Routing
+## Behavior
 
-Handle requests based on $ARGUMENTS:
+This command has two modes depending on context:
 
-**No arguments or "list" → list available templates:**
+### Mode 1: User has a specific template in mind
+
+If $ARGUMENTS contains a template slug or "run <slug>", skip discovery and run it:
+
 ```bash
-nex-cli template list
+nex-cli template run <slug> --machine --crm <provider>
 ```
-If `nex-cli` is not installed, install it first:
+
+### Mode 2: User needs discovery (default)
+
+If no specific template requested, run the full onboarding flow:
+
+**Step 1 — Discovery**
+
+Ask these questions one at a time. Wait for each answer.
+
+1. "What does your team sell and who do you sell to?"
+2. "What CRM do you use?" (HubSpot, Salesforce, Attio)
+3. "What's the most annoying part of your GTM workflow?"
+4. "If you could have an AI teammate audit one thing overnight, what would it be?"
+
+**Step 2 — Template matching**
+
+Install nex-cli if not present:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-cli/main/install.sh | sh
 ```
 
-**Template slug or "run <slug>" → run the template:**
+List available templates:
 ```bash
-nex-cli template run <slug> --machine
+nex-cli template list --json
 ```
-Use `--machine` when running from an AI agent (returns structured JSON for input prompts).
-Use `--crm <provider>` to skip the CRM selection prompt.
-Use `--force` to start fresh (clear previous state).
+
+Match the user's answers against template descriptions. Present the best match:
+
+> "Based on what you told me, **[Template Name]** looks like a great fit. It [one-line description].
+> Want to go with this, or should I build something custom for [their specific need]?"
+
+If user picks custom → use `/nex:agents` to build a custom agent from their description.
+If user picks template → continue to Step 3.
+
+**Step 3 — Setup with narrative**
+
+Run the template:
+```bash
+nex-cli template run <slug> --machine --crm <provider>
+```
+
+The `--machine` flag returns structured JSON. Parse it and narrate in plain English:
+
+| CLI step | What to tell the user |
+|----------|----------------------|
+| `auth_check` | "Checking your Nex account..." |
+| `fetch_template` | "Loading the [name] template..." |
+| `check_existing` | "Checking if you already have this agent..." |
+| `crm_selection` | (already answered in discovery) |
+| `connect_integrations` | "Connecting to your [CRM]..." |
+| `poll_readiness` | "Syncing your data... [N] records so far, [M] insights generated..." |
+| `activate_agent` | "Activating your [name] agent..." |
+| `trigger_run` | "Running the first audit now..." |
+| `get_findings` | (present as report — see Step 4) |
+| `write_readme` | (skip narrating this) |
+
+If `--machine` returns `need_input` (exit code 2), parse the JSON, ask the user the question in your own words, then re-run with the answer as a flag.
+
+**Step 4 — Findings report**
+
+Present findings as a formatted report, not raw JSON:
+
+```markdown
+## [Agent Name] — First Run Report
+
+**Summary:** Found X issues across Y records
+
+### [Finding Type] (N found)
+| Record | Details | Recommended Action |
+|--------|---------|-------------------|
+| ...    | ...     | ...               |
+
+---
+**Want me to fix any of these?** I can [action list] with your approval.
+```
+
+Group findings by type. Show specific record names. Always end with an offer to act.
+
+**Step 5 — Schedule and next steps**
+
+After presenting findings:
+
+> "This agent runs [schedule]. Next run: [next time].
+> Check findings anytime: `nex-cli agents findings <slug>`
+> Want to set up another agent? Just tell me what you need."
 
 ## Available templates
 
-| Slug | Name | Description |
-|------|------|-------------|
-| `crm-hygiene` | CRM Hygiene Agent | Audit CRM for duplicates, missing fields, stale records |
-| `closed-lost-reengagement` | Closed-Lost Re-engagement | Find closed-lost deals worth re-engaging, draft reconnection emails |
-| `meetings` | Meetings Agent | Pre-meeting briefs, post-meeting action items, follow-up emails |
+| Slug | Name | Description | Default Schedule |
+|------|------|-------------|-----------------|
+| `crm-hygiene` | CRM Hygiene Agent | Audit CRM for duplicates, missing fields, stale records | Daily |
+| `closed-lost-reengagement` | Closed-Lost Re-engagement | Find closed-lost deals worth re-engaging | Weekly |
+| `meetings` | Meetings Agent | Pre-meeting briefs, post-meeting action items | Before each meeting |
 
-## What it does
+## Flags
 
-1. Checks authentication (creates account or logs in)
-2. Connects required integrations (CRM, email, calendar)
-3. Waits for initial data sync
-4. Activates a pre-built agent personalized to your data
-5. Runs the agent and shows findings
-6. For templates with actions (email, calendar): presents drafts for approval before sending
+| Flag | Effect |
+|------|--------|
+| `--machine` | Structured JSON output (always use from AI agents) |
+| `--crm <provider>` | Skip CRM selection prompt |
+| `--force` | Start fresh (clear previous state) |
+| `--dry-run` | Show what would happen without executing |
+| `--no-interactive` | Skip all prompts, use defaults |
 
 ## Check findings after setup
 
 ```bash
 nex-cli agents findings <slug>
 nex-cli agents runs <slug>
+nex-cli agents list
 ```

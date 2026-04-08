@@ -1,10 +1,27 @@
 name: CRM Hygiene Agent
 slug: crm-hygiene
-version: 2
+version: 3
 description: |
   Daily CRM auditor. Finds duplicates, missing fields, stale records.
   Produces findings with evidence and recommended actions.
   Offers to fix issues directly in the CRM with user approval.
+
+# Discovery hints — help AI agents match user intent to this template
+discovery_hints:
+  keywords:
+    - duplicates
+    - data quality
+    - missing fields
+    - stale records
+    - CRM cleanup
+    - dirty data
+    - audit
+    - hygiene
+  questions:
+    - "My CRM is a mess"
+    - "We have duplicate contacts everywhere"
+    - "Nobody updates the CRM"
+    - "I don't trust our CRM data"
 
 integrations:
   - category: crm
@@ -55,6 +72,11 @@ agent:
   slug: crm-hygiene
   run_after_activation: true
 
+schedule:
+  cron: "0 9 * * *"
+  human: "Daily at 9am"
+  next_run_hint: "tomorrow at 9am"
+
 # After findings, the agent should OFFER TO FIX issues (not just report)
 actions:
   duplicates:
@@ -70,8 +92,17 @@ actions:
     description: "Archive records with no activity in 90+ days, or flag for manual review"
     requires_approval: true
 
+# Narrative hints — how the AI agent should describe each step
+narrative:
+  connecting: "Connecting to your {crm}..."
+  syncing: "Syncing your contacts and companies... {count} records so far..."
+  insights: "Generating insights from your data... {count} patterns found..."
+  activating: "Activating your CRM Hygiene agent..."
+  running: "Running the first audit now. This usually takes about a minute..."
+  done: "Done! Here's what your agent found."
+
 success_message: |
   Your CRM Hygiene Agent is live! Here's what it found in its first run.
-  It'll run daily from now on. Use `nex-cli agents findings crm-hygiene`
+  It runs daily at 9am from now on. Use `nex-cli agents findings crm-hygiene`
   to check findings anytime, or ask your AI agent "what did my CRM
   hygiene agent find?"
