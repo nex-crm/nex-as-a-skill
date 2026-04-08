@@ -28,9 +28,16 @@ echo "Downloading ${BINARY}..."
 TMP=$(mktemp)
 trap 'rm -f "$TMP" "$TMP.checksums"' EXIT
 
-curl -fsSL "${BASE_URL}/${BINARY}" -o "$TMP"
+curl -fsSL "${BASE_URL}/${BINARY}" -o "$TMP" || {
+    echo ""
+    echo "Download failed. No release found at:"
+    echo "  ${BASE_URL}/${BINARY}"
+    echo ""
+    echo "Check https://github.com/${REPO}/releases for available versions."
+    exit 1
+}
 
-# Verify checksum if available
+# Verify checksum
 curl -fsSL "${BASE_URL}/checksums.txt" -o "$TMP.checksums" 2>/dev/null || true
 if [ -f "$TMP.checksums" ] && [ -s "$TMP.checksums" ]; then
     EXPECTED=$(grep "$BINARY" "$TMP.checksums" | awk '{print $1}')
@@ -52,11 +59,19 @@ fi
 
 chmod +x "$TMP"
 
+# Verify binary runs
+VERSION_OUT=$("$TMP" --version 2>/dev/null) || {
+    echo "Downloaded binary failed to execute. This may be a platform mismatch."
+    echo "Expected: ${OS}-${ARCH}"
+    exit 1
+}
+echo "Version: ${VERSION_OUT}"
+
 # Install binary — prefer ~/.local/bin (no sudo, no macOS sandbox issues)
 do_install() {
-    local dir="$1"
-    local use_sudo="$2"
-    local cmd=""
+    dir="$1"
+    use_sudo="$2"
+    cmd=""
     [ "$use_sudo" = "true" ] && cmd="sudo"
     $cmd mkdir -p "$dir"
     $cmd mv "$TMP" "${dir}/nex-cli"
