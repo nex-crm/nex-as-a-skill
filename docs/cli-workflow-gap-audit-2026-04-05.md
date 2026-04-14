@@ -1,6 +1,7 @@
 # CLI Workflow Gap Audit
 
 Updated: 2026-04-06
+Filename date: 2026-04-05 (audit cutover); the header date tracks the latest revision on this branch.
 Branch: `feat/nex-as-a-skill-parity-00-planning-docs`
 
 ## Purpose

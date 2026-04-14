@@ -13,6 +13,7 @@ It enforces four rules:
 - every PR stays below 500 changed lines unless it is re-split first
 - every PR is themed around one owned surface in this repo
 - every PR body links any required upstream runtime PRs instead of absorbing that work here
+- published size targets reserve review-churn headroom; once a slice looks likely to grow past roughly 450 changed lines, split it before review
 
 This is the repo-local implementation index for `nex-crm/nex-as-a-skill#87`.
 
@@ -128,6 +129,12 @@ The intended dependency chain is:
 - `10` through `15` align the bundled plugin and script runtimes
 - `16` closes the loop on release metadata and registry output
 
+## Dependency Semantics
+
+- `Upstream PRs` means hard merge blockers for the local slice.
+- `Downstream PRs` means planned follow-on slices that consume or build on the outcome here.
+- Numeric order is the default sequencing rule on top of those fields; do not infer an extra hard dependency unless the downstream PR also lists this PR under `Upstream PRs`.
+
 ## Cross-Repo Dependency Rule
 
 If a repo-local PR depends on a runtime change in `nex-cli`, `mcp`, or another repo:
@@ -161,7 +168,7 @@ Upstream PRs:
 - none
 
 Downstream PRs:
-- planned: PR <nn>, PR <nn>
+- planned follow-on PRs: PR <nn>, PR <nn>
 ```
 
 ## Review Standard

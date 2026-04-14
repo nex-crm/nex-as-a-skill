@@ -9,6 +9,12 @@ Re-ground the parity program on `main` in `nex-crm/nex-as-a-skill`.
 
 The previous planning pass inherited assumptions from `nex-cli` work that do not match the file tree in this repo. This document replaces those assumptions with the actual ownership boundary here.
 
+## Glossary
+
+- wrapper: the repo-owned entrypoint logic in `src/`, `bin/`, and `install.sh` that decides how the shipped `nex` surface boots
+- shim: a small launcher in `bin/` that delegates into the installed runtime or wrapper path
+- plugin bundle: a shipped platform-specific asset or plugin surface under `platform-rules/`, `platform-plugins/`, `claude-code-plugin/`, or `openclaw-plugin/`
+
 ## Source of Truth
 
 Behavior target:

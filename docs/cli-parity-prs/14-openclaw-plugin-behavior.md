@@ -29,7 +29,7 @@ Bring OpenClaw recall, capture, and scan behavior to parity after the tool surfa
 - `openclaw-plugin/src/file-scanner.ts`
 - `openclaw-plugin/src/rate-limiter.ts`
 - `openclaw-plugin/src/session-store.ts`
-- `openclaw-plugin/src/index.ts`
+- `openclaw-plugin/src/index.ts` for wiring existing tools into the updated behavior only
 - `openclaw-plugin/tests/`
 
 ## Implementation Plan

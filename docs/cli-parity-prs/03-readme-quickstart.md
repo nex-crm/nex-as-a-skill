@@ -5,7 +5,7 @@
 - Branch: `feat/nex-as-a-skill-parity-03-readme-quickstart`
 - Size target: `<350` changed lines
 - Upstream PRs: `01`, `02`
-- Downstream PRs: `04`, `05`, `16`
+- Downstream PRs: `16`
 
 ## Goal
 
