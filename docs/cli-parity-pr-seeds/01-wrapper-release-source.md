@@ -11,3 +11,4 @@ Intended scope:
 
 Plan doc:
 - `docs/cli-parity-prs/01-wrapper-release-source.md` in PR #88
+  (`docs/cli-parity-pr-seeds/` holds reservation stubs; `docs/cli-parity-prs/` holds the implementation plan docs.)
