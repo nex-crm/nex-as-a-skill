@@ -165,10 +165,10 @@ jobs:
       - name: Verify install.sh works
         run: |
           curl -fsSL "https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh" -o install.sh
-          # Run in a temp dir without sudo to test the fallback path
-          export HOME=$(mktemp -d)
           sh install.sh
-          "$HOME/.local/bin/nex-cli" --version
+          # install.sh picks /usr/local/bin when writable, else $HOME/.local/bin — extend PATH for both
+          export PATH="${HOME}/.local/bin:/usr/local/bin:${PATH}"
+          nex-cli --version
           echo "PASS: install.sh end-to-end"
 
   publish-npm:
@@ -221,15 +221,3 @@ jobs:
             npm publish --access public
             echo "published=true" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Commit version bump
-        if: steps.npm.outputs.published == 'true'
-        env:
-          NPM_VERSION: ${{ steps.npm.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json
-          git diff --staged --quiet && exit 0
-          git commit -m "chore: bump to v${NPM_VERSION} [skip ci]"
-          git push
