@@ -19,10 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -68,13 +69,26 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Commit version bump
+      - name: Open version bump PR
         if: steps.bump.outputs.bumped == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           BUMP_VERSION: ${{ steps.bump.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          BRANCH="chore/bump-v${BUMP_VERSION}"
+          git checkout -b "$BRANCH"
           git add package.json
-          git commit -m "chore: bump to v${BUMP_VERSION} [skip ci]"
-          git push
+          git commit -m "chore: bump to v${BUMP_VERSION}"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/nex-crm/nex-as-a-skill.git"
+          git push origin "$BRANCH" --force
+          existing=$(gh pr list --head "$BRANCH" --json number -q '.[0].number // empty' 2>/dev/null || true)
+          if [ -z "$existing" ]; then
+            gh pr create \
+              --title "chore: bump to v${BUMP_VERSION}" \
+              --body "Sync package.json with npm-published v${BUMP_VERSION}." \
+              --head "$BRANCH"
+          else
+            echo "Bump PR #${existing} already exists"
+          fi
