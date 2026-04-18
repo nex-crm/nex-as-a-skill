@@ -4,11 +4,18 @@ on:
   push:
     branches: [main]
     paths:
+      # Do not add package.json here: the "Open version bump PR" step below
+      # touches only package.json, so including it would make every bump PR
+      # merge re-trigger this job and open another bump PR indefinitely.
+      #
+      # Consequence: a PR that ONLY changes package.json (e.g. a manual
+      # 0.3.0 minor bump) will not auto-publish on merge. Trigger this
+      # workflow via the Actions tab (workflow_dispatch) after merge.
       - "bin/**"
       - "plugin-commands/**"
       - "platform-rules/**"
       - "platform-plugins/**"
-      - "package.json"
+  workflow_dispatch:
 
 concurrency:
   group: publish-cli
