@@ -4,11 +4,15 @@ on:
   push:
     branches: [main]
     paths:
+      # Do not add package.json here: the "Open version bump PR" step below
+      # touches only package.json, so including it would make every bump PR
+      # merge re-trigger this job and open another bump PR indefinitely.
+      # Manual bumps can publish via workflow_dispatch.
       - "bin/**"
       - "plugin-commands/**"
       - "platform-rules/**"
       - "platform-plugins/**"
-      - "package.json"
+  workflow_dispatch:
 
 concurrency:
   group: publish-cli
