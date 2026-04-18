@@ -87,8 +87,9 @@ export default {
     const apiKey = loadApiKey();
     if (!apiKey) return;
 
-    // Capture last assistant message
-    const messages = _input.messages;
+    // Capture last assistant message. Use optional chaining in case the
+    // host passes a nullish payload — we prefer silent no-op over a throw.
+    const messages = _input?.messages;
     if (!Array.isArray(messages)) return;
 
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
