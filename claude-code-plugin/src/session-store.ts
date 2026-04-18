@@ -6,7 +6,7 @@
  * session mappings to a JSON file so multi-turn continuity works.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { workspaceDataDir } from "./workspace-data-dir.js";
 
@@ -61,8 +61,8 @@ export class SessionStore {
     // Evict oldest entries if over max size
     const keys = Object.keys(store);
     while (keys.length > this.maxSize) {
-      const oldest = keys.shift()!;
-      delete store[oldest];
+      const oldest = keys.shift();
+      if (oldest !== undefined) delete store[oldest];
     }
 
     this.writeStore(store);

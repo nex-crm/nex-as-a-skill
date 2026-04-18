@@ -24,8 +24,11 @@ function readBody(req) {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
-      catch { resolve(null); }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString()));
+      } catch {
+        resolve(null);
+      }
     });
   });
 }
@@ -48,7 +51,9 @@ const server = http.createServer(async (req, res) => {
     }
     const id = ++artifactCounter;
     memories.push({ id, content: body.content, context: body.context, ts: Date.now() });
-    console.log(`[ingest] artifact_id=${id} content="${body.content.slice(0, 80)}..." (${memories.length} total)`);
+    console.log(
+      `[ingest] artifact_id=${id} content="${body.content.slice(0, 80)}..." (${memories.length} total)`,
+    );
     return json(res, 200, { artifact_id: id });
   }
 
@@ -63,9 +68,10 @@ const server = http.createServer(async (req, res) => {
     console.log(`[recall] query="${body.query}" session_id=${body.session_id || "new"}`);
 
     // Search memories for matches
-    const matches = memories.filter((m) =>
-      m.content.toLowerCase().includes(query) ||
-      query.split(" ").some((w) => w.length > 3 && m.content.toLowerCase().includes(w))
+    const matches = memories.filter(
+      (m) =>
+        m.content.toLowerCase().includes(query) ||
+        query.split(" ").some((w) => w.length > 3 && m.content.toLowerCase().includes(w)),
     );
 
     const sessionId = body.session_id || `session-${++sessionCounter}`;
@@ -78,8 +84,7 @@ const server = http.createServer(async (req, res) => {
       // Extract simple entity references from matched content
       const namePattern = /(?:^|\s)([A-Z][a-z]+ [A-Z][a-z]+)/g;
       for (const m of matches) {
-        let match;
-        while ((match = namePattern.exec(m.content)) !== null) {
+        for (const match of m.content.matchAll(namePattern)) {
           entityRefs.push({ name: match[1].trim(), type: "person", count: 1 });
         }
       }
@@ -102,7 +107,9 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Mock Nex API running on http://localhost:${PORT}`);
   console.log(`Auth key: ${VALID_KEY}`);
-  console.log(`Endpoints: POST /api/developers/v1/context/text, POST /api/developers/v1/context/ask`);
+  console.log(
+    `Endpoints: POST /api/developers/v1/context/text, POST /api/developers/v1/context/ask`,
+  );
   console.log(`Memories stored: ${memories.length}`);
   console.log("---");
 });

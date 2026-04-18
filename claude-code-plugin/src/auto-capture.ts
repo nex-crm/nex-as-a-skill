@@ -9,13 +9,15 @@
  * On ANY error: outputs {} and exits 0 (graceful degradation).
  */
 
-import { readdirSync, statSync, readFileSync } from "node:fs";
-import { join, extname } from "node:path";
-import { loadConfig, loadScanConfig, isHookEnabled } from "./config.js";
-import { NexClient } from "./nex-client.js";
+import type { Dirent } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { extname, join } from "node:path";
 import { captureFilter } from "./capture-filter.js";
+import type { NexConfig } from "./config.js";
+import { isHookEnabled, loadConfig, loadScanConfig } from "./config.js";
+import { isChanged, markIngested, readManifest, writeManifest } from "./file-manifest.js";
+import { NexClient } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
-import { readManifest, writeManifest, isChanged, markIngested } from "./file-manifest.js";
 
 /** Ingest timeout — 3s leaves buffer within hook timeout */
 const INGEST_TIMEOUT_MS = 3_000;
@@ -37,7 +39,7 @@ async function ingestPlanFiles(client: NexClient): Promise<void> {
 
   const plansDir = join(process.cwd(), ".claude", "plans");
 
-  let entries;
+  let entries: Dirent[];
   try {
     entries = readdirSync(plansDir, { withFileTypes: true });
   } catch {
@@ -64,7 +66,7 @@ async function ingestPlanFiles(client: NexClient): Promise<void> {
 
       let content = readFileSync(fullPath, "utf-8");
       if (content.length > 100_000) {
-        content = content.slice(0, 100_000) + "\n[...truncated]";
+        content = `${content.slice(0, 100_000)}\n[...truncated]`;
       }
 
       const context = `claude-code-plan:${entry.name}`;
@@ -73,7 +75,7 @@ async function ingestPlanFiles(client: NexClient): Promise<void> {
       ingested++;
     } catch (err) {
       process.stderr.write(
-        `[nex-capture] Plan file ingest failed (${entry.name}): ${err instanceof Error ? err.message : String(err)}\n`
+        `[nex-capture] Plan file ingest failed (${entry.name}): ${err instanceof Error ? err.message : String(err)}\n`,
       );
     }
   }
@@ -106,7 +108,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    let cfg;
+    let cfg: NexConfig;
     try {
       cfg = loadConfig();
     } catch {
@@ -127,7 +129,7 @@ async function main(): Promise<void> {
             await client.ingest(filterResult.text, "claude-code-conversation", INGEST_TIMEOUT_MS);
           } catch (err) {
             process.stderr.write(
-              `[nex-capture] Ingest failed: ${err instanceof Error ? err.message : String(err)}\n`
+              `[nex-capture] Ingest failed: ${err instanceof Error ? err.message : String(err)}\n`,
             );
           }
         } else {
@@ -141,17 +143,19 @@ async function main(): Promise<void> {
       await ingestPlanFiles(client);
     } catch (err) {
       process.stderr.write(
-        `[nex-capture] Plan file scan error: ${err instanceof Error ? err.message : String(err)}\n`
+        `[nex-capture] Plan file scan error: ${err instanceof Error ? err.message : String(err)}\n`,
       );
     }
 
     process.stdout.write("{}");
   } catch (err) {
     process.stderr.write(
-      `[nex-capture] Unexpected error: ${err instanceof Error ? err.message : String(err)}\n`
+      `[nex-capture] Unexpected error: ${err instanceof Error ? err.message : String(err)}\n`,
     );
     process.stdout.write("{}");
   }
 }
 
-main().then(() => process.exit(0)).catch(() => process.exit(0));
+main()
+  .then(() => process.exit(0))
+  .catch(() => process.exit(0));

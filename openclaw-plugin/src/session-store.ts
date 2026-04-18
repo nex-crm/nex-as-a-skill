@@ -33,7 +33,8 @@ export class SessionStore {
 
     // LRU eviction
     while (this.map.size > this.maxSize) {
-      const oldest = this.map.keys().next().value!;
+      const oldest = this.map.keys().next().value;
+      if (oldest === undefined) break;
       this.map.delete(oldest);
     }
   }

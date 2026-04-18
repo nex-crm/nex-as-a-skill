@@ -39,7 +39,8 @@ export class RateLimiter {
 
       // LIFO eviction: if queue exceeds max depth, drop oldest (front)
       while (this.queue.length > this.config.maxQueueDepth) {
-        const dropped = this.queue.shift()!;
+        const dropped = this.queue.shift();
+        if (!dropped) break;
         dropped.reject(new Error("Rate limiter queue full — request dropped (LIFO eviction)"));
       }
 
@@ -67,7 +68,8 @@ export class RateLimiter {
     try {
       while (this.queue.length > 0) {
         if (this.canProceed()) {
-          const item = this.queue.shift()!;
+          const item = this.queue.shift();
+          if (!item) break;
           this.timestamps.push(Date.now());
           try {
             await item.fn();

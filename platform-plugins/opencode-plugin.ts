@@ -10,8 +10,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 // Read API key from shared Nex config
 function loadApiKey(): string | null {
@@ -36,7 +36,7 @@ async function nexAsk(query: string, apiKey: string): Promise<string> {
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) return "";
-  const data = await res.json() as { answer?: string };
+  const data = (await res.json()) as { answer?: string };
   return data.answer ?? "";
 }
 
@@ -88,7 +88,7 @@ export default {
     if (!apiKey) return;
 
     // Capture last assistant message
-    const messages = (_input as any)?.messages;
+    const messages = _input.messages;
     if (!Array.isArray(messages)) return;
 
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");

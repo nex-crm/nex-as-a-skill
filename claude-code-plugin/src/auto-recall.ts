@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Claude Code UserPromptSubmit hook — auto-recall from Nex.
  *
@@ -9,33 +10,28 @@
  * On ANY error: outputs {} and exits 0 (graceful degradation).
  */
 
-import { loadConfig, isHookEnabled } from "./config.js";
-import { NexClient } from "./nex-client.js";
-import { formatNexContext } from "./context-format.js";
-import { RecallCache, hashPrompt } from "./recall-cache.js";
-import { SessionStore } from "./session-store.js";
-import { shouldRecall } from "./recall-filter.js";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { NexConfig } from "./config.js";
+import { isHookEnabled, loadConfig } from "./config.js";
+import { formatNexContext } from "./context-format.js";
+import { NexClient } from "./nex-client.js";
+import { hashPrompt, RecallCache } from "./recall-cache.js";
+import { shouldRecall } from "./recall-filter.js";
+import { SessionStore } from "./session-store.js";
 
 const sessions = new SessionStore();
 const recallCache = new RecallCache();
 
 const FAST_RECALL_BUDGET_MS = readTimeoutEnv("NEX_RECALL_SYNC_BUDGET_MS", 8_000);
-const BACKGROUND_RECALL_TIMEOUT_MS = readTimeoutEnv(
-  "NEX_RECALL_BACKGROUND_TIMEOUT_MS",
-  60_000,
-);
+const BACKGROUND_RECALL_TIMEOUT_MS = readTimeoutEnv("NEX_RECALL_BACKGROUND_TIMEOUT_MS", 60_000);
 const READY_CACHE_TTL_MS = readTimeoutEnv("NEX_RECALL_READY_TTL_MS", 5 * 60_000);
 const PENDING_CACHE_TTL_MS = readTimeoutEnv(
   "NEX_RECALL_PENDING_TTL_MS",
   BACKGROUND_RECALL_TIMEOUT_MS + 30_000,
 );
-const WORKER_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "auto-recall-worker.js",
-);
+const WORKER_PATH = join(dirname(fileURLToPath(import.meta.url)), "auto-recall-worker.js");
 
 interface HookInput {
   prompt?: string;
@@ -49,23 +45,21 @@ function readTimeoutEnv(name: string, fallbackMs: number): number {
 }
 
 function writeHookContext(context: string): void {
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "UserPromptSubmit",
-      additionalContext: context,
-    },
-  }));
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit",
+        additionalContext: context,
+      },
+    }),
+  );
 }
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function launchBackgroundRecall(
-  prompt: string,
-  sessionKey: string,
-  promptHash: string,
-): void {
+function launchBackgroundRecall(prompt: string, sessionKey: string, promptHash: string): void {
   try {
     const child = spawn(process.execPath, [WORKER_PATH], {
       detached: true,
@@ -76,11 +70,13 @@ function launchBackgroundRecall(
       },
       stdio: ["pipe", "ignore", "ignore"],
     });
-    child.stdin.end(JSON.stringify({
-      prompt,
-      prompt_hash: promptHash,
-      session_id: sessionKey,
-    }));
+    child.stdin.end(
+      JSON.stringify({
+        prompt,
+        prompt_hash: promptHash,
+        session_id: sessionKey,
+      }),
+    );
     child.unref();
   } catch {
     recallCache.clearPending(sessionKey, promptHash);
@@ -141,12 +137,12 @@ async function main(): Promise<void> {
       return;
     }
 
-    let cfg;
+    let cfg: NexConfig;
     try {
       cfg = loadConfig();
     } catch (err) {
       process.stderr.write(
-        `[nex-recall] Config error: ${err instanceof Error ? err.message : String(err)}\n`
+        `[nex-recall] Config error: ${err instanceof Error ? err.message : String(err)}\n`,
       );
       process.stdout.write("{}");
       return;
@@ -201,7 +197,7 @@ async function main(): Promise<void> {
           shouldStartBackground = true;
         } else {
           process.stderr.write(
-            `[nex-recall] Fast-path error: ${err instanceof Error ? err.message : String(err)}\n`
+            `[nex-recall] Fast-path error: ${err instanceof Error ? err.message : String(err)}\n`,
           );
         }
       }
@@ -221,10 +217,12 @@ async function main(): Promise<void> {
     process.stdout.write("{}");
   } catch (err) {
     process.stderr.write(
-      `[nex-recall] Unexpected error: ${err instanceof Error ? err.message : String(err)}\n`
+      `[nex-recall] Unexpected error: ${err instanceof Error ? err.message : String(err)}\n`,
     );
     process.stdout.write("{}");
   }
 }
 
-main().then(() => process.exit(0)).catch(() => process.exit(0));
+main()
+  .then(() => process.exit(0))
+  .catch(() => process.exit(0));

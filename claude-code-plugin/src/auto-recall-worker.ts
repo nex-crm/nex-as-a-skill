@@ -21,10 +21,7 @@ function readTimeoutEnv(name: string, fallbackMs: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackMs;
 }
 
-const BACKGROUND_RECALL_TIMEOUT_MS = readTimeoutEnv(
-  "NEX_RECALL_BACKGROUND_TIMEOUT_MS",
-  60_000,
-);
+const BACKGROUND_RECALL_TIMEOUT_MS = readTimeoutEnv("NEX_RECALL_BACKGROUND_TIMEOUT_MS", 60_000);
 const PENDING_CACHE_TTL_MS = readTimeoutEnv(
   "NEX_RECALL_PENDING_TTL_MS",
   BACKGROUND_RECALL_TIMEOUT_MS + 30_000,
@@ -95,4 +92,6 @@ async function main(): Promise<void> {
   }
 }
 
-main().then(() => process.exit(0)).catch(() => process.exit(0));
+main()
+  .then(() => process.exit(0))
+  .catch(() => process.exit(0));

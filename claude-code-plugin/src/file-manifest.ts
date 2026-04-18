@@ -5,15 +5,15 @@
  * Stored at ~/.nex/file-scan-manifest.json. Follows session-store.ts pattern.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, type Stats } from "node:fs";
+import { mkdirSync, readFileSync, type Stats, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { workspaceDataDir } from "./workspace-data-dir.js";
 
 export interface FileManifestEntry {
-  mtime: number;      // fs.statSync().mtimeMs
-  size: number;       // fs.statSync().size
+  mtime: number; // fs.statSync().mtimeMs
+  size: number; // fs.statSync().size
   ingestedAt: number; // Date.now()
-  context: string;    // context tag used for ingest
+  context: string; // context tag used for ingest
 }
 
 export interface FileManifest {
@@ -62,7 +62,7 @@ export function markIngested(
   path: string,
   stat: Stats,
   context: string,
-  manifest: FileManifest
+  manifest: FileManifest,
 ): void {
   manifest.files[path] = {
     mtime: stat.mtimeMs,

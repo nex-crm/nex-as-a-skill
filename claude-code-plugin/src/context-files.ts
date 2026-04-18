@@ -10,12 +10,12 @@
  * Uses the file manifest for change detection — unchanged files are skipped.
  */
 
-import { existsSync, readdirSync, statSync, readFileSync } from "node:fs";
-import { join, extname, basename } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
+import { basename, extname, join } from "node:path";
+import { isChanged, markIngested, readManifest, writeManifest } from "./file-manifest.js";
 import type { NexClient } from "./nex-client.js";
 import type { RateLimiter } from "./rate-limiter.js";
-import { readManifest, writeManifest, isChanged, markIngested } from "./file-manifest.js";
 
 const CLAUDE_DIR = join(homedir(), ".claude");
 const INGEST_TIMEOUT_MS = 10_000;
@@ -81,7 +81,7 @@ function collectContextFiles(cwd: string): Array<{ path: string; contextTag: str
 export async function ingestContextFiles(
   client: NexClient,
   rateLimiter: RateLimiter,
-  cwd: string
+  cwd: string,
 ): Promise<ContextFilesResult> {
   const result: ContextFilesResult = { ingested: 0, skipped: 0, errors: 0, files: [] };
   const manifest = readManifest();
@@ -104,7 +104,7 @@ export async function ingestContextFiles(
 
       let content = readFileSync(path, "utf-8");
       if (content.length > MAX_FILE_SIZE) {
-        content = content.slice(0, MAX_FILE_SIZE) + "\n[...truncated]";
+        content = `${content.slice(0, MAX_FILE_SIZE)}\n[...truncated]`;
       }
 
       await client.ingest(content, contextTag, INGEST_TIMEOUT_MS);
@@ -114,7 +114,7 @@ export async function ingestContextFiles(
       dirty = true;
     } catch (err) {
       process.stderr.write(
-        `[nex-context-files] Failed to ingest ${contextTag}: ${err instanceof Error ? err.message : String(err)}\n`
+        `[nex-context-files] Failed to ingest ${contextTag}: ${err instanceof Error ? err.message : String(err)}\n`,
       );
       result.errors++;
     }

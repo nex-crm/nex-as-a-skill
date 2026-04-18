@@ -5,13 +5,13 @@
  * No new dependencies — uses only Node.js built-ins.
  */
 
-import { readdirSync, statSync, readFileSync } from "node:fs";
-import { join, relative, extname } from "node:path";
-import type { Stats } from "node:fs";
+import type { Dirent, Stats } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { extname, join, relative } from "node:path";
+import type { ScanConfig } from "./config.js";
+import { isChanged, markIngested, readManifest, writeManifest } from "./file-manifest.js";
 import type { NexClient } from "./nex-client.js";
 import type { RateLimiter } from "./rate-limiter.js";
-import type { ScanConfig } from "./config.js";
-import { readManifest, writeManifest, isChanged, markIngested } from "./file-manifest.js";
 
 export interface ScanResult {
   scanned: number;
@@ -34,11 +34,11 @@ function walkDir(
   cwd: string,
   config: ScanConfig,
   depth: number,
-  results: CandidateFile[]
+  results: CandidateFile[],
 ): void {
   if (depth > config.scanDepth) return;
 
-  let entries;
+  let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
@@ -76,7 +76,7 @@ export async function scanAndIngest(
   client: NexClient,
   rateLimiter: RateLimiter,
   cwd: string,
-  config: ScanConfig
+  config: ScanConfig,
 ): Promise<ScanResult> {
   const result: ScanResult = { scanned: 0, ingested: 0, skipped: 0, errors: 0 };
 
@@ -108,7 +108,7 @@ export async function scanAndIngest(
 
       // Truncate large files
       if (content.length > config.maxFileSize) {
-        content = content.slice(0, config.maxFileSize) + "\n[...truncated]";
+        content = `${content.slice(0, config.maxFileSize)}\n[...truncated]`;
       }
 
       const context = `file-scan:${file.relativePath}`;
@@ -117,7 +117,7 @@ export async function scanAndIngest(
       result.ingested++;
     } catch (err) {
       process.stderr.write(
-        `[nex-scan] Failed to ingest ${file.relativePath}: ${err instanceof Error ? err.message : String(err)}\n`
+        `[nex-scan] Failed to ingest ${file.relativePath}: ${err instanceof Error ? err.message : String(err)}\n`,
       );
       result.errors++;
     }
