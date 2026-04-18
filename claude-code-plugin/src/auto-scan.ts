@@ -25,6 +25,10 @@ async function main(): Promise<void> {
       cfg = loadConfig();
     } catch (err) {
       console.error(`Config error: ${err instanceof Error ? err.message : String(err)}`);
+      // The bare `return` is here because the plugin sub-packages don't
+      // install @types/node, so TS can't see that `process.exit(1)` is
+      // `never`. Without the return, `cfg` below would be flagged as
+      // possibly-unassigned.
       process.exit(1);
       return;
     }
