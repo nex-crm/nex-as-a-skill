@@ -247,6 +247,10 @@ jobs:
             echo "published=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # If a `push` trigger is ever added to this workflow, exclude
+      # package.json from its paths filter — this step opens a bump PR
+      # that only touches package.json, which would self-trigger the
+      # workflow otherwise. See publish-cli.yml for the same guardrail.
       - name: Open version bump PR
         if: steps.npm.outputs.published == 'true'
         env:
