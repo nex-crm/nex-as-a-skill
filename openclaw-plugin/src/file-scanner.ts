@@ -99,10 +99,10 @@ const SENSITIVE_BASENAMES = new Set([
 const SENSITIVE_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx", ".asc", ".gpg"]);
 
 function isSensitivePath(filePath: string): boolean {
-  const name = basename(filePath);
+  const name = basename(filePath).toLowerCase();
   if (name === ".env" || name.startsWith(".env.")) return true;
   if (SENSITIVE_BASENAMES.has(name)) return true;
-  if (SENSITIVE_EXTENSIONS.has(extname(name).toLowerCase())) return true;
+  if (SENSITIVE_EXTENSIONS.has(extname(name))) return true;
   return false;
 }
 
