@@ -101,7 +101,7 @@ interface OpenClawPluginApi {
     handler: (
       event: BeforeAgentStartEvent,
       ctx: PluginHookAgentContext,
-    ) => Promise<{ prependContext?: string } | undefined> | { prependContext?: string } | undefined,
+    ) => Promise<{ prependContext?: string } | void> | { prependContext?: string } | void,
     opts?: { priority?: number },
   ): void;
 
