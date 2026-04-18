@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import type { Stats } from "node:fs";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import type { NexClient } from "./nex-client.js";
 
 // --- Types ---
@@ -34,6 +34,10 @@ export interface ScanResult {
 // --- Constants ---
 
 const MANIFEST_PATH = join(homedir(), ".nex", "file-scan-manifest.json");
+// Sensitive extensions (.env, .log, .ini, .cfg, .conf, .properties) are
+// intentionally excluded from the defaults — they routinely hold credentials,
+// tokens, or PII. Callers that want them must pass `extensions` explicitly,
+// and SENSITIVE_BASENAMES below still guards against well-known secret files.
 const DEFAULT_EXTENSIONS = [
   ".md",
   ".txt",
@@ -64,12 +68,6 @@ const DEFAULT_EXTENSIONS = [
   ".rst",
   ".adoc",
   ".tex",
-  ".log",
-  ".env",
-  ".ini",
-  ".cfg",
-  ".conf",
-  ".properties",
 ];
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -84,6 +82,29 @@ const SKIP_DIRS = new Set([
   "coverage",
   ".nyc_output",
 ]);
+
+// Secret-bearing filenames to skip regardless of extension config — prevents
+// an explicit extensions override from re-introducing credential ingestion.
+const SENSITIVE_BASENAMES = new Set([
+  "credentials",
+  "credentials.json",
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+  "secrets.json",
+  "secrets.yaml",
+  "secrets.yml",
+]);
+const SENSITIVE_EXTENSIONS = new Set([".pem", ".key", ".p12", ".pfx", ".asc", ".gpg"]);
+
+function isSensitivePath(filePath: string): boolean {
+  const name = basename(filePath);
+  if (name === ".env" || name.startsWith(".env.")) return true;
+  if (SENSITIVE_BASENAMES.has(name)) return true;
+  if (SENSITIVE_EXTENSIONS.has(extname(name).toLowerCase())) return true;
+  return false;
+}
 
 // --- Manifest ---
 
@@ -177,16 +198,23 @@ export async function scanFiles(
   const result: ScanResult = { scanned: 0, skipped: 0, errors: 0, files: [] };
 
   for (const file of candidates) {
-    const hash = hashFile(file.path);
-    const existing = manifest.files[file.path];
-
-    if (existing && existing.hash === hash && !force) {
+    if (isSensitivePath(file.path)) {
       result.skipped++;
-      result.files.push({ path: file.path, status: "skipped", reason: "unchanged" });
+      result.files.push({ path: file.path, status: "skipped", reason: "sensitive" });
       continue;
     }
 
     try {
+      // Hash inside the try so a single unreadable file doesn't abort the scan.
+      const hash = hashFile(file.path);
+      const existing = manifest.files[file.path];
+
+      if (existing && existing.hash === hash && !force) {
+        result.skipped++;
+        result.files.push({ path: file.path, status: "skipped", reason: "unchanged" });
+        continue;
+      }
+
       const content = readFileSync(file.path, "utf-8");
       if (!content.trim()) {
         result.skipped++;
