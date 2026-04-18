@@ -1,6 +1,6 @@
 {
   "name": "@nex-ai/nex",
-  "version": "0.2.9",
+  "version": "0.2.7",
   "description": "Nex CLI provides organizational context & memory to AI agents. Connect email, CRM, Slack, meetings, and 100+ tools into one knowledge graph. Delegates to the nex-cli binary.",
   "mcpName": "io.github.nex-crm/nex",
   "type": "module",

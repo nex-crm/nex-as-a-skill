@@ -66,7 +66,9 @@ function isDuplicate(hash: string): boolean {
 function extractText(msg: AgentMessage): string {
   if (typeof msg.content === "string") return msg.content;
   if (Array.isArray(msg.content)) {
-    return msg.content.flatMap((p) => (p.type === "text" && p.text ? [p.text] : [])).join("\n");
+    return msg.content
+      .flatMap((p) => (p.type === "text" && typeof p.text === "string" ? [p.text] : []))
+      .join("\n");
   }
   return "";
 }
