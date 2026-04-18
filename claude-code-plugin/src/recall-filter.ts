@@ -12,7 +12,8 @@ const NATURAL_LANGUAGE_HINTS =
   /\b(please|can|could|would|should|what|when|where|why|how|who|tell|explain|describe|summarize|check|review|look|find|show|help|about|for|to|with|without|into|from|before|after|need|want|current|my|our|this|that)\b/i;
 const BARE_SHELL_COMMAND =
   /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:ls|pwd|cd|cat|grep|rg|find|mkdir|rm|cp|mv|touch|echo|git|npm|npx|yarn|pnpm|bun|node|python|python3|pytest|make|docker|kubectl|terraform)\b/i;
-const COMMAND_TOKEN = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+|--?[\w./:=@%+,~-]+|[\w./:=@%+,~-]+|["'][^"']*["'])$/;
+const COMMAND_TOKEN =
+  /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+|--?[\w./:=@%+,~-]+|[\w./:=@%+,~-]+|["'][^"']*["'])$/;
 
 export interface RecallDecision {
   shouldRecall: boolean;

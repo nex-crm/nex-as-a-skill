@@ -5,10 +5,11 @@
  */
 
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync, mkdirSync, statSync, readdirSync } from "node:fs";
-import { join, extname, resolve, dirname } from "node:path";
+import type { Stats } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { NexClient, type IngestResponse } from "./nex-client.js";
+import { dirname, extname, join, resolve } from "node:path";
+import type { NexClient } from "./nex-client.js";
 
 // --- Types ---
 
@@ -34,16 +35,54 @@ export interface ScanResult {
 
 const MANIFEST_PATH = join(homedir(), ".nex", "file-scan-manifest.json");
 const DEFAULT_EXTENSIONS = [
-  ".md", ".txt", ".rtf", ".html", ".htm",
-  ".csv", ".tsv", ".json", ".yaml", ".yml", ".toml", ".xml",
-  ".js", ".ts", ".jsx", ".tsx", ".py", ".rb", ".go", ".rs", ".java",
-  ".sh", ".bash", ".zsh", ".fish",
-  ".org", ".rst", ".adoc", ".tex", ".log",
-  ".env", ".ini", ".cfg", ".conf", ".properties",
+  ".md",
+  ".txt",
+  ".rtf",
+  ".html",
+  ".htm",
+  ".csv",
+  ".tsv",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".xml",
+  ".js",
+  ".ts",
+  ".jsx",
+  ".tsx",
+  ".py",
+  ".rb",
+  ".go",
+  ".rs",
+  ".java",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".fish",
+  ".org",
+  ".rst",
+  ".adoc",
+  ".tex",
+  ".log",
+  ".env",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".properties",
 ];
 const SKIP_DIRS = new Set([
-  "node_modules", ".git", "dist", "build", ".next", "__pycache__", ".venv",
-  ".cache", ".turbo", "coverage", ".nyc_output",
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  "__pycache__",
+  ".venv",
+  ".cache",
+  ".turbo",
+  "coverage",
+  ".nyc_output",
 ]);
 
 // --- Manifest ---
@@ -53,13 +92,15 @@ function loadManifest(): Manifest {
     const raw = readFileSync(MANIFEST_PATH, "utf-8");
     const data = JSON.parse(raw) as Manifest;
     if (data.version === 1 && typeof data.files === "object") return data;
-  } catch { /* missing or corrupt */ }
+  } catch {
+    /* missing or corrupt */
+  }
   return { version: 1, files: {} };
 }
 
 function saveManifest(manifest: Manifest): void {
   mkdirSync(dirname(MANIFEST_PATH), { recursive: true });
-  writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+  writeFileSync(MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");
 }
 
 // --- Discovery ---
@@ -70,17 +111,30 @@ interface DiscoveredFile {
   mtime: number;
 }
 
-function discoverFiles(dir: string, extensions: Set<string>, maxDepth: number, depth = 0): DiscoveredFile[] {
+function discoverFiles(
+  dir: string,
+  extensions: Set<string>,
+  maxDepth: number,
+  depth = 0,
+): DiscoveredFile[] {
   if (depth > maxDepth) return [];
   const results: DiscoveredFile[] = [];
   let entries: string[];
-  try { entries = readdirSync(dir); } catch { return results; }
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return results;
+  }
 
   for (const entry of entries) {
     if (SKIP_DIRS.has(entry)) continue;
     const fullPath = join(dir, entry);
-    let stat;
-    try { stat = statSync(fullPath); } catch { continue; }
+    let stat: Stats;
+    try {
+      stat = statSync(fullPath);
+    } catch {
+      continue;
+    }
 
     if (stat.isDirectory()) {
       results.push(...discoverFiles(fullPath, extensions, maxDepth, depth + 1));
@@ -93,7 +147,7 @@ function discoverFiles(dir: string, extensions: Set<string>, maxDepth: number, d
 
 function hashFile(filePath: string): string {
   const content = readFileSync(filePath);
-  return "sha256-" + createHash("sha256").update(content).digest("hex");
+  return `sha256-${createHash("sha256").update(content).digest("hex")}`;
 }
 
 // --- Scanner ---
@@ -119,7 +173,7 @@ export async function scanFiles(
   discovered.sort((a, b) => b.mtime - a.mtime);
   const candidates = discovered.slice(0, maxFiles);
 
-  const manifest = force ? { version: 1, files: {} } as Manifest : loadManifest();
+  const manifest = force ? ({ version: 1, files: {} } as Manifest) : loadManifest();
   const result: ScanResult = { scanned: 0, skipped: 0, errors: 0, files: [] };
 
   for (const file of candidates) {
@@ -149,10 +203,18 @@ export async function scanFiles(
       };
 
       result.scanned++;
-      result.files.push({ path: file.path, status: "ingested", reason: existing ? "changed" : "new" });
+      result.files.push({
+        path: file.path,
+        status: "ingested",
+        reason: existing ? "changed" : "new",
+      });
     } catch (err) {
       result.errors++;
-      result.files.push({ path: file.path, status: "error", reason: err instanceof Error ? err.message : String(err) });
+      result.files.push({
+        path: file.path,
+        status: "error",
+        reason: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

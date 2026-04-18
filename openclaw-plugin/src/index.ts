@@ -6,14 +6,14 @@
  * agent turn and auto-captures conversation facts after each turn.
  */
 
-import { Type, type Static } from "@sinclair/typebox";
-import { parseConfig, type NexPluginConfig } from "./config.js";
-import { NexClient, NexAuthError } from "./nex-client.js";
+import { type Static, Type } from "@sinclair/typebox";
+import { type AgentMessage, captureFilter } from "./capture-filter.js";
+import { type NexPluginConfig, parseConfig } from "./config.js";
+import { formatNexContext } from "./context-format.js";
+import { scanFiles as scanFilesUtil } from "./file-scanner.js";
+import { NexAuthError, NexClient } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { SessionStore } from "./session-store.js";
-import { formatNexContext, stripNexContext } from "./context-format.js";
-import { captureFilter, type AgentMessage } from "./capture-filter.js";
-import { scanFiles as scanFilesUtil, type ScanResult } from "./file-scanner.js";
 
 // --- TypeBox schemas for tool parameters ---
 
@@ -23,7 +23,9 @@ const SearchParams = Type.Object({
 
 const RememberParams = Type.Object({
   content: Type.String({ description: "The information to remember" }),
-  label: Type.Optional(Type.String({ description: "Optional context label (e.g. 'meeting notes', 'preference')" })),
+  label: Type.Optional(
+    Type.String({ description: "Optional context label (e.g. 'meeting notes', 'preference')" }),
+  ),
 });
 
 const EntitiesParams = Type.Object({
@@ -32,10 +34,18 @@ const EntitiesParams = Type.Object({
 
 const ScanFilesParams = Type.Object({
   dir: Type.String({ description: "Directory path to scan for text files" }),
-  extensions: Type.Optional(Type.String({ description: "Comma-separated file extensions (default: .md,.txt,.csv,.json,.yaml,.yml)" })),
-  max_files: Type.Optional(Type.Number({ description: "Maximum files to scan per run (default: 5)" })),
+  extensions: Type.Optional(
+    Type.String({
+      description: "Comma-separated file extensions (default: .md,.txt,.csv,.json,.yaml,.yml)",
+    }),
+  ),
+  max_files: Type.Optional(
+    Type.Number({ description: "Maximum files to scan per run (default: 5)" }),
+  ),
   depth: Type.Optional(Type.Number({ description: "Maximum directory depth (default: 2)" })),
-  force: Type.Optional(Type.Boolean({ description: "Re-scan all files ignoring manifest (default: false)" })),
+  force: Type.Optional(
+    Type.Boolean({ description: "Re-scan all files ignoring manifest (default: false)" }),
+  ),
 });
 
 // --- Plugin Logger interface (matches OpenClaw's PluginLogger) ---
@@ -88,15 +98,17 @@ interface OpenClawPluginApi {
 
   on(
     hookName: "before_agent_start",
-    handler: (event: BeforeAgentStartEvent, ctx: PluginHookAgentContext) =>
-      Promise<{ prependContext?: string } | void> | { prependContext?: string } | void,
-    opts?: { priority?: number }
+    handler: (
+      event: BeforeAgentStartEvent,
+      ctx: PluginHookAgentContext,
+    ) => Promise<{ prependContext?: string } | void> | { prependContext?: string } | void,
+    opts?: { priority?: number },
   ): void;
 
   on(
     hookName: "agent_end",
     handler: (event: AgentEndEvent, ctx: PluginHookAgentContext) => Promise<void> | void,
-    opts?: { priority?: number }
+    opts?: { priority?: number },
   ): void;
 
   registerTool(tool: {
@@ -155,7 +167,11 @@ const plugin = {
       if (cfg.debug && log.debug) log.debug("[nex]", ...args);
     };
 
-    debug("Plugin config loaded", { baseUrl: cfg.baseUrl, autoRecall: cfg.autoRecall, autoCapture: cfg.autoCapture });
+    debug("Plugin config loaded", {
+      baseUrl: cfg.baseUrl,
+      autoRecall: cfg.autoRecall,
+      autoCapture: cfg.autoCapture,
+    });
 
     // --- Service (health check on start, cleanup on stop) ---
 
@@ -172,7 +188,9 @@ const plugin = {
           }
         } catch (err) {
           if (err instanceof NexAuthError) {
-            logger.error("Nex API key is invalid. Check your apiKey config or NEX_API_KEY env var.");
+            logger.error(
+              "Nex API key is invalid. Check your apiKey config or NEX_API_KEY env var.",
+            );
           } else {
             logger.warn("Could not reach Nex API:", err);
           }
@@ -201,13 +219,15 @@ const plugin = {
         async (event, ctx) => {
           if (!event.prompt) return;
 
-          debug("Auto-recall triggered", { sessionKey: ctx.sessionKey, promptLength: event.prompt.length });
+          debug("Auto-recall triggered", {
+            sessionKey: ctx.sessionKey,
+            promptLength: event.prompt.length,
+          });
 
           try {
             // Resolve session ID for multi-turn continuity
-            const nexSessionId = ctx.sessionKey && cfg.sessionTracking
-              ? sessions.get(ctx.sessionKey)
-              : undefined;
+            const nexSessionId =
+              ctx.sessionKey && cfg.sessionTracking ? sessions.get(ctx.sessionKey) : undefined;
 
             const result = await client.ask(event.prompt, nexSessionId, cfg.recallTimeoutMs);
 
@@ -263,16 +283,18 @@ const plugin = {
         debug("Capture enqueued", { textLength: result.text.length });
 
         // Fire-and-forget via rate limiter
-        rateLimiter.enqueue(async () => {
-          try {
-            const res = await client.ingest(result.text, "openclaw-conversation");
-            debug("Capture complete", { artifactId: res.artifact_id });
-          } catch (err) {
-            log.warn("Nex capture failed:", err);
-          }
-        }).catch(() => {
-          // Queue full / dropped — already logged by rate limiter
-        });
+        rateLimiter
+          .enqueue(async () => {
+            try {
+              const res = await client.ingest(result.text, "openclaw-conversation");
+              debug("Capture complete", { artifactId: res.artifact_id });
+            } catch (err) {
+              log.warn("Nex capture failed:", err);
+            }
+          })
+          .catch(() => {
+            // Queue full / dropped — already logged by rate limiter
+          });
       });
     }
 
@@ -347,11 +369,16 @@ const plugin = {
         }
 
         const lines = result.entity_references.map(
-          (ref) => `- ${ref.name} (${ref.type})${ref.count ? ` — ${ref.count} mentions` : ""}`
+          (ref) => `- ${ref.name} (${ref.type})${ref.count ? ` — ${ref.count} mentions` : ""}`,
         );
 
         return {
-          content: [{ type: "text", text: `Found ${result.entity_references.length} entities:\n${lines.join("\n")}` }],
+          content: [
+            {
+              type: "text",
+              text: `Found ${result.entity_references.length} entities:\n${lines.join("\n")}`,
+            },
+          ],
           details: { entities: result.entity_references },
         };
       },
@@ -364,11 +391,11 @@ const plugin = {
         "Scan a directory for text files (.md, .txt, .csv, .json, .yaml, .yml) and ingest new or changed files into the Nex knowledge base. Uses SHA-256 content hashing to skip already-ingested files.",
       parameters: ScanFilesParams,
       async execute(_toolCallId, params) {
-        const { dir, extensions, max_files, depth, force } = params as Static<typeof ScanFilesParams>;
+        const { dir, extensions, max_files, depth, force } = params as Static<
+          typeof ScanFilesParams
+        >;
 
-        const extList = extensions
-          ? extensions.split(",").map((e: string) => e.trim())
-          : undefined;
+        const extList = extensions ? extensions.split(",").map((e: string) => e.trim()) : undefined;
 
         const result = await scanFilesUtil(dir, client, {
           extensions: extList,
@@ -396,7 +423,8 @@ const plugin = {
     api.registerTool({
       name: "nex_list_integrations",
       label: "List Integrations",
-      description: "List available third-party integrations and their connection status. Calendar integrations (Google Calendar, Outlook Calendar) enable the Nex Meeting Bot which joins calls on any platform (Google Meet, Zoom, Webex, Teams, etc.) and feeds transcripts into the context graph.",
+      description:
+        "List available third-party integrations and their connection status. Calendar integrations (Google Calendar, Outlook Calendar) enable the Nex Meeting Bot which joins calls on any platform (Google Meet, Zoom, Webex, Teams, etc.) and feeds transcripts into the context graph.",
       parameters: ListIntegrationsParams,
       async execute(_toolCallId, _params) {
         const result = await client.get("/v1/integrations/");
@@ -409,18 +437,21 @@ const plugin = {
 
     const ConnectIntegrationParams = Type.Object({
       type: Type.String({ description: "Integration type: email, calendar, crm, messaging" }),
-      provider: Type.String({ description: "Provider: google, microsoft, attio, slack, salesforce, hubspot" }),
+      provider: Type.String({
+        description: "Provider: google, microsoft, attio, slack, salesforce, hubspot",
+      }),
     });
 
     api.registerTool({
       name: "nex_connect_integration",
       label: "Connect Integration",
-      description: "Start connecting a third-party integration via OAuth. Returns an auth_url for the user to open in their browser. Calendar integrations (type: 'calendar') enable the Nex Meeting Bot which auto-joins calls and processes transcripts. Types: email, calendar, crm, messaging. Providers: google, microsoft, attio, slack, salesforce, hubspot.",
+      description:
+        "Start connecting a third-party integration via OAuth. Returns an auth_url for the user to open in their browser. Calendar integrations (type: 'calendar') enable the Nex Meeting Bot which auto-joins calls and processes transcripts. Types: email, calendar, crm, messaging. Providers: google, microsoft, attio, slack, salesforce, hubspot.",
       parameters: ConnectIntegrationParams,
       async execute(_toolCallId, params) {
         const { type, provider } = params as Static<typeof ConnectIntegrationParams>;
         const result = await client.post(
-          `/v1/integrations/${encodeURIComponent(type)}/${encodeURIComponent(provider)}/connect`
+          `/v1/integrations/${encodeURIComponent(type)}/${encodeURIComponent(provider)}/connect`,
         );
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -436,12 +467,13 @@ const plugin = {
     api.registerTool({
       name: "nex_disconnect_integration",
       label: "Disconnect Integration",
-      description: "Disconnect a third-party integration by connection ID. Get connection IDs from nex_list_integrations.",
+      description:
+        "Disconnect a third-party integration by connection ID. Get connection IDs from nex_list_integrations.",
       parameters: DisconnectIntegrationParams,
       async execute(_toolCallId, params) {
         const { connection_id } = params as Static<typeof DisconnectIntegrationParams>;
         const result = await client.delete(
-          `/v1/integrations/connections/${encodeURIComponent(connection_id)}`
+          `/v1/integrations/connections/${encodeURIComponent(connection_id)}`,
         );
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -453,13 +485,16 @@ const plugin = {
     // --- Schema tools ---
 
     const ListObjectsParams = Type.Object({
-      include_attributes: Type.Optional(Type.Boolean({ description: "Include attribute definitions in the response" })),
+      include_attributes: Type.Optional(
+        Type.Boolean({ description: "Include attribute definitions in the response" }),
+      ),
     });
 
     api.registerTool({
       name: "nex_list_objects",
       label: "List Object Types",
-      description: "List all object type definitions in the workspace. Call this first to discover available object types and their schemas.",
+      description:
+        "List all object type definitions in the workspace. Call this first to discover available object types and their schemas.",
       parameters: ListObjectsParams,
       async execute(_toolCallId, params) {
         const { include_attributes } = params as Static<typeof ListObjectsParams>;
@@ -467,7 +502,10 @@ const plugin = {
         if (include_attributes) qs.set("include_attributes", "true");
         const q = qs.toString();
         const result = await client.get(`/v1/objects${q ? `?${q}` : ""}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -483,7 +521,10 @@ const plugin = {
       async execute(_toolCallId, params) {
         const { slug } = params as Static<typeof GetObjectParams>;
         const result = await client.get(`/v1/objects/${encodeURIComponent(slug)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -492,7 +533,11 @@ const plugin = {
       slug: Type.String({ description: "URL-safe identifier (lowercase, hyphens)" }),
       name_plural: Type.Optional(Type.String({ description: "Plural display name" })),
       description: Type.Optional(Type.String({ description: "Description of the object type" })),
-      type: Type.Optional(Type.String({ description: "Object category: person, company, custom, deal (default: custom)" })),
+      type: Type.Optional(
+        Type.String({
+          description: "Object category: person, company, custom, deal (default: custom)",
+        }),
+      ),
     });
 
     api.registerTool({
@@ -501,13 +546,18 @@ const plugin = {
       description: "Create a new custom object type definition (e.g. 'Project', 'Deal').",
       parameters: CreateObjectParams,
       async execute(_toolCallId, params) {
-        const { name, slug, name_plural, description, type } = params as Static<typeof CreateObjectParams>;
+        const { name, slug, name_plural, description, type } = params as Static<
+          typeof CreateObjectParams
+        >;
         const body: Record<string, unknown> = { name, slug };
         if (name_plural !== undefined) body.name_plural = name_plural;
         if (description !== undefined) body.description = description;
         if (type !== undefined) body.type = type;
         const result = await client.post("/v1/objects", body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -524,13 +574,18 @@ const plugin = {
       description: "Update an existing object type definition (name, description, plural name).",
       parameters: UpdateObjectParams,
       async execute(_toolCallId, params) {
-        const { slug, name, name_plural, description } = params as Static<typeof UpdateObjectParams>;
+        const { slug, name, name_plural, description } = params as Static<
+          typeof UpdateObjectParams
+        >;
         const body: Record<string, unknown> = {};
         if (name !== undefined) body.name = name;
         if (name_plural !== undefined) body.name_plural = name_plural;
         if (description !== undefined) body.description = description;
         const result = await client.patch(`/v1/objects/${encodeURIComponent(slug)}`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -541,12 +596,16 @@ const plugin = {
     api.registerTool({
       name: "nex_delete_object",
       label: "Delete Object Type",
-      description: "Delete an object type definition and ALL its records. This is destructive and cannot be undone.",
+      description:
+        "Delete an object type definition and ALL its records. This is destructive and cannot be undone.",
       parameters: DeleteObjectParams,
       async execute(_toolCallId, params) {
         const { slug } = params as Static<typeof DeleteObjectParams>;
         const result = await client.delete(`/v1/objects/${encodeURIComponent(slug)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -554,30 +613,44 @@ const plugin = {
       object_slug: Type.String({ description: "Object type slug to add the attribute to" }),
       name: Type.String({ description: "Display name for the attribute" }),
       slug: Type.String({ description: "URL-safe identifier for the attribute" }),
-      type: Type.String({ description: "Attribute data type: text, number, email, phone, url, date, boolean, currency, location, select, social_profile, domain, full_name" }),
+      type: Type.String({
+        description:
+          "Attribute data type: text, number, email, phone, url, date, boolean, currency, location, select, social_profile, domain, full_name",
+      }),
       description: Type.Optional(Type.String({ description: "Description of the attribute" })),
-      options: Type.Optional(Type.Object({
-        is_required: Type.Optional(Type.Boolean()),
-        is_unique: Type.Optional(Type.Boolean()),
-        is_multi_value: Type.Optional(Type.Boolean()),
-        use_raw_format: Type.Optional(Type.Boolean()),
-        is_whole_number: Type.Optional(Type.Boolean()),
-        select_options: Type.Optional(Type.Array(Type.Object({ name: Type.String() }))),
-      })),
+      options: Type.Optional(
+        Type.Object({
+          is_required: Type.Optional(Type.Boolean()),
+          is_unique: Type.Optional(Type.Boolean()),
+          is_multi_value: Type.Optional(Type.Boolean()),
+          use_raw_format: Type.Optional(Type.Boolean()),
+          is_whole_number: Type.Optional(Type.Boolean()),
+          select_options: Type.Optional(Type.Array(Type.Object({ name: Type.String() }))),
+        }),
+      ),
     });
 
     api.registerTool({
       name: "nex_create_attribute",
       label: "Create Attribute",
-      description: "Add a new attribute (field) to an object type. Supports types: text, number, email, phone, url, date, boolean, currency, location, select, social_profile, domain, full_name.",
+      description:
+        "Add a new attribute (field) to an object type. Supports types: text, number, email, phone, url, date, boolean, currency, location, select, social_profile, domain, full_name.",
       parameters: CreateAttributeParams,
       async execute(_toolCallId, params) {
-        const { object_slug, name, slug, type, description, options } = params as Static<typeof CreateAttributeParams>;
+        const { object_slug, name, slug, type, description, options } = params as Static<
+          typeof CreateAttributeParams
+        >;
         const body: Record<string, unknown> = { name, slug, type };
         if (description !== undefined) body.description = description;
         if (options) body.options = options;
-        const result = await client.post(`/v1/objects/${encodeURIComponent(object_slug)}/attributes`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.post(
+          `/v1/objects/${encodeURIComponent(object_slug)}/attributes`,
+          body,
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -586,12 +659,14 @@ const plugin = {
       attribute_id: Type.String({ description: "Attribute ID to update" }),
       name: Type.Optional(Type.String({ description: "New display name" })),
       description: Type.Optional(Type.String({ description: "New description" })),
-      options: Type.Optional(Type.Object({
-        is_required: Type.Optional(Type.Boolean()),
-        select_options: Type.Optional(Type.Array(Type.Object({ name: Type.String() }))),
-        use_raw_format: Type.Optional(Type.Boolean()),
-        is_whole_number: Type.Optional(Type.Boolean()),
-      })),
+      options: Type.Optional(
+        Type.Object({
+          is_required: Type.Optional(Type.Boolean()),
+          select_options: Type.Optional(Type.Array(Type.Object({ name: Type.String() }))),
+          use_raw_format: Type.Optional(Type.Boolean()),
+          is_whole_number: Type.Optional(Type.Boolean()),
+        }),
+      ),
     });
 
     api.registerTool({
@@ -600,13 +675,21 @@ const plugin = {
       description: "Update an existing attribute definition on an object type.",
       parameters: UpdateAttributeParams,
       async execute(_toolCallId, params) {
-        const { object_slug, attribute_id, name, description, options } = params as Static<typeof UpdateAttributeParams>;
+        const { object_slug, attribute_id, name, description, options } = params as Static<
+          typeof UpdateAttributeParams
+        >;
         const body: Record<string, unknown> = {};
         if (name !== undefined) body.name = name;
         if (description !== undefined) body.description = description;
         if (options) body.options = options;
-        const result = await client.patch(`/v1/objects/${encodeURIComponent(object_slug)}/attributes/${encodeURIComponent(attribute_id)}`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.patch(
+          `/v1/objects/${encodeURIComponent(object_slug)}/attributes/${encodeURIComponent(attribute_id)}`,
+          body,
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -618,12 +701,18 @@ const plugin = {
     api.registerTool({
       name: "nex_delete_attribute",
       label: "Delete Attribute",
-      description: "Delete an attribute from an object type. Removes the field and its data from all records. Cannot be undone.",
+      description:
+        "Delete an attribute from an object type. Removes the field and its data from all records. Cannot be undone.",
       parameters: DeleteAttributeParams,
       async execute(_toolCallId, params) {
         const { object_slug, attribute_id } = params as Static<typeof DeleteAttributeParams>;
-        const result = await client.delete(`/v1/objects/${encodeURIComponent(object_slug)}/attributes/${encodeURIComponent(attribute_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.delete(
+          `/v1/objects/${encodeURIComponent(object_slug)}/attributes/${encodeURIComponent(attribute_id)}`,
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -631,67 +720,101 @@ const plugin = {
 
     const CreateRecordParams = Type.Object({
       object_slug: Type.String({ description: "Object type slug (e.g. 'person', 'company')" }),
-      attributes: Type.Record(Type.String(), Type.Unknown(), { description: "Record attributes — must include 'name'" }),
+      attributes: Type.Record(Type.String(), Type.Unknown(), {
+        description: "Record attributes — must include 'name'",
+      }),
     });
 
     api.registerTool({
       name: "nex_create_record",
       label: "Create Record",
-      description: "Create a new record for an object type. Use only when you have clean, structured data with known attribute slugs.",
+      description:
+        "Create a new record for an object type. Use only when you have clean, structured data with known attribute slugs.",
       parameters: CreateRecordParams,
       async execute(_toolCallId, params) {
         const { object_slug, attributes } = params as Static<typeof CreateRecordParams>;
-        const result = await client.post(`/v1/objects/${encodeURIComponent(object_slug)}`, { attributes });
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.post(`/v1/objects/${encodeURIComponent(object_slug)}`, {
+          attributes,
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const UpsertRecordParams = Type.Object({
       object_slug: Type.String({ description: "Object type slug (e.g. 'person', 'company')" }),
-      matching_attribute: Type.String({ description: "Attribute slug or ID to match on for dedup (e.g. 'email')" }),
-      attributes: Type.Record(Type.String(), Type.Unknown(), { description: "Record attributes — must include 'name' when creating" }),
+      matching_attribute: Type.String({
+        description: "Attribute slug or ID to match on for dedup (e.g. 'email')",
+      }),
+      attributes: Type.Record(Type.String(), Type.Unknown(), {
+        description: "Record attributes — must include 'name' when creating",
+      }),
     });
 
     api.registerTool({
       name: "nex_upsert_record",
       label: "Upsert Record",
-      description: "Create a record if it doesn't exist, or update it if a match is found on the specified attribute. Useful for deduplication.",
+      description:
+        "Create a record if it doesn't exist, or update it if a match is found on the specified attribute. Useful for deduplication.",
       parameters: UpsertRecordParams,
       async execute(_toolCallId, params) {
-        const { object_slug, matching_attribute, attributes } = params as Static<typeof UpsertRecordParams>;
-        const result = await client.put(`/v1/objects/${encodeURIComponent(object_slug)}`, { matching_attribute, attributes });
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const { object_slug, matching_attribute, attributes } = params as Static<
+          typeof UpsertRecordParams
+        >;
+        const result = await client.put(`/v1/objects/${encodeURIComponent(object_slug)}`, {
+          matching_attribute,
+          attributes,
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const ListRecordsParams = Type.Object({
       object_slug: Type.String({ description: "Object type slug (e.g. 'person', 'company')" }),
-      attributes: Type.Optional(Type.Union([
-        Type.String({ description: "'all', 'primary', or 'none'" }),
-        Type.Record(Type.String(), Type.Unknown()),
-      ])),
+      attributes: Type.Optional(
+        Type.Union([
+          Type.String({ description: "'all', 'primary', or 'none'" }),
+          Type.Record(Type.String(), Type.Unknown()),
+        ]),
+      ),
       limit: Type.Optional(Type.Number({ description: "Number of records to return" })),
       offset: Type.Optional(Type.Number({ description: "Pagination offset" })),
-      sort: Type.Optional(Type.Object({
-        attribute: Type.String({ description: "Attribute slug to sort by" }),
-        direction: Type.String({ description: "Sort direction: asc or desc" }),
-      })),
+      sort: Type.Optional(
+        Type.Object({
+          attribute: Type.String({ description: "Attribute slug to sort by" }),
+          direction: Type.String({ description: "Sort direction: asc or desc" }),
+        }),
+      ),
     });
 
     api.registerTool({
       name: "nex_list_records",
       label: "List Records",
-      description: "List records for an object type with optional filtering, sorting, and pagination.",
+      description:
+        "List records for an object type with optional filtering, sorting, and pagination.",
       parameters: ListRecordsParams,
       async execute(_toolCallId, params) {
-        const { object_slug, attributes, limit, offset, sort } = params as Static<typeof ListRecordsParams>;
+        const { object_slug, attributes, limit, offset, sort } = params as Static<
+          typeof ListRecordsParams
+        >;
         const body: Record<string, unknown> = {};
         if (attributes !== undefined) body.attributes = attributes;
         if (limit !== undefined) body.limit = limit;
         if (offset !== undefined) body.offset = offset;
         if (sort) body.sort = sort;
-        const result = await client.post(`/v1/objects/${encodeURIComponent(object_slug)}/records`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.post(
+          `/v1/objects/${encodeURIComponent(object_slug)}/records`,
+          body,
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -707,24 +830,35 @@ const plugin = {
       async execute(_toolCallId, params) {
         const { record_id } = params as Static<typeof GetRecordParams>;
         const result = await client.get(`/v1/records/${encodeURIComponent(record_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const UpdateRecordParams = Type.Object({
       record_id: Type.String({ description: "Record ID to update" }),
-      attributes: Type.Record(Type.String(), Type.Unknown(), { description: "Attributes to update (only provided fields are changed)" }),
+      attributes: Type.Record(Type.String(), Type.Unknown(), {
+        description: "Attributes to update (only provided fields are changed)",
+      }),
     });
 
     api.registerTool({
       name: "nex_update_record",
       label: "Update Record",
-      description: "Update specific attributes on an existing record. Only the provided attributes are changed.",
+      description:
+        "Update specific attributes on an existing record. Only the provided attributes are changed.",
       parameters: UpdateRecordParams,
       async execute(_toolCallId, params) {
         const { record_id, attributes } = params as Static<typeof UpdateRecordParams>;
-        const result = await client.patch(`/v1/records/${encodeURIComponent(record_id)}`, { attributes });
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.patch(`/v1/records/${encodeURIComponent(record_id)}`, {
+          attributes,
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -740,20 +874,26 @@ const plugin = {
       async execute(_toolCallId, params) {
         const { record_id } = params as Static<typeof DeleteRecordParams>;
         const result = await client.delete(`/v1/records/${encodeURIComponent(record_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const GetRecordTimelineParams = Type.Object({
       record_id: Type.String({ description: "Record ID" }),
       limit: Type.Optional(Type.Number({ description: "Max events (1-100, default: 50)" })),
-      cursor: Type.Optional(Type.String({ description: "Pagination cursor from previous response" })),
+      cursor: Type.Optional(
+        Type.String({ description: "Pagination cursor from previous response" }),
+      ),
     });
 
     api.registerTool({
       name: "nex_get_record_timeline",
       label: "Get Record Timeline",
-      description: "Get paginated timeline events for a record (tasks, notes, attribute changes, etc.).",
+      description:
+        "Get paginated timeline events for a record (tasks, notes, attribute changes, etc.).",
       parameters: GetRecordTimelineParams,
       async execute(_toolCallId, params) {
         const { record_id, limit, cursor } = params as Static<typeof GetRecordTimelineParams>;
@@ -761,8 +901,13 @@ const plugin = {
         if (limit !== undefined) qs.set("limit", String(limit));
         if (cursor) qs.set("cursor", cursor);
         const q = qs.toString();
-        const result = await client.get(`/v1/records/${encodeURIComponent(record_id)}/timeline${q ? `?${q}` : ""}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.get(
+          `/v1/records/${encodeURIComponent(record_id)}/timeline${q ? `?${q}` : ""}`,
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -775,12 +920,16 @@ const plugin = {
     api.registerTool({
       name: "nex_search_records",
       label: "Search Records",
-      description: "Search records by name across all object types. Returns matches grouped by object type with relevance scores.",
+      description:
+        "Search records by name across all object types. Returns matches grouped by object type with relevance scores.",
       parameters: SearchRecordsParams,
       async execute(_toolCallId, params) {
         const { query } = params as Static<typeof SearchRecordsParams>;
         const result = await client.post("/v1/search", { query });
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -795,30 +944,55 @@ const plugin = {
       parameters: ListRelationshipDefsParams,
       async execute(_toolCallId, _params) {
         const result = await client.get("/v1/relationships");
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const CreateRelationshipDefParams = Type.Object({
-      type: Type.String({ description: "Relationship cardinality: one_to_one, one_to_many, many_to_many" }),
+      type: Type.String({
+        description: "Relationship cardinality: one_to_one, one_to_many, many_to_many",
+      }),
       entity_definition_1_id: Type.String({ description: "First object definition ID" }),
       entity_definition_2_id: Type.String({ description: "Second object definition ID" }),
-      entity_1_to_2_predicate: Type.Optional(Type.String({ description: "Label for 1→2 direction (e.g. 'works at')" })),
-      entity_2_to_1_predicate: Type.Optional(Type.String({ description: "Label for 2→1 direction (e.g. 'employs')" })),
+      entity_1_to_2_predicate: Type.Optional(
+        Type.String({ description: "Label for 1→2 direction (e.g. 'works at')" }),
+      ),
+      entity_2_to_1_predicate: Type.Optional(
+        Type.String({ description: "Label for 2→1 direction (e.g. 'employs')" }),
+      ),
     });
 
     api.registerTool({
       name: "nex_create_relationship_def",
       label: "Create Relationship Definition",
-      description: "Define a new relationship type between two object types (e.g. person 'works at' company).",
+      description:
+        "Define a new relationship type between two object types (e.g. person 'works at' company).",
       parameters: CreateRelationshipDefParams,
       async execute(_toolCallId, params) {
-        const { type, entity_definition_1_id, entity_definition_2_id, entity_1_to_2_predicate, entity_2_to_1_predicate } = params as Static<typeof CreateRelationshipDefParams>;
-        const body: Record<string, unknown> = { type, entity_definition_1_id, entity_definition_2_id };
-        if (entity_1_to_2_predicate !== undefined) body.entity_1_to_2_predicate = entity_1_to_2_predicate;
-        if (entity_2_to_1_predicate !== undefined) body.entity_2_to_1_predicate = entity_2_to_1_predicate;
+        const {
+          type,
+          entity_definition_1_id,
+          entity_definition_2_id,
+          entity_1_to_2_predicate,
+          entity_2_to_1_predicate,
+        } = params as Static<typeof CreateRelationshipDefParams>;
+        const body: Record<string, unknown> = {
+          type,
+          entity_definition_1_id,
+          entity_definition_2_id,
+        };
+        if (entity_1_to_2_predicate !== undefined)
+          body.entity_1_to_2_predicate = entity_1_to_2_predicate;
+        if (entity_2_to_1_predicate !== undefined)
+          body.entity_2_to_1_predicate = entity_2_to_1_predicate;
         const result = await client.post("/v1/relationships", body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -829,12 +1003,16 @@ const plugin = {
     api.registerTool({
       name: "nex_delete_relationship_def",
       label: "Delete Relationship Definition",
-      description: "Delete a relationship type definition. Removes all instances of this relationship. Cannot be undone.",
+      description:
+        "Delete a relationship type definition. Removes all instances of this relationship. Cannot be undone.",
       parameters: DeleteRelationshipDefParams,
       async execute(_toolCallId, params) {
         const { id } = params as Static<typeof DeleteRelationshipDefParams>;
         const result = await client.delete(`/v1/relationships/${encodeURIComponent(id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -851,13 +1029,21 @@ const plugin = {
       description: "Link two records using an existing relationship definition.",
       parameters: CreateRelationshipParams,
       async execute(_toolCallId, params) {
-        const { record_id, definition_id, entity_1_id, entity_2_id } = params as Static<typeof CreateRelationshipParams>;
-        const result = await client.post(`/v1/records/${encodeURIComponent(record_id)}/relationships`, {
-          definition_id,
-          entity_1_id,
-          entity_2_id,
-        });
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const { record_id, definition_id, entity_1_id, entity_2_id } = params as Static<
+          typeof CreateRelationshipParams
+        >;
+        const result = await client.post(
+          `/v1/records/${encodeURIComponent(record_id)}/relationships`,
+          {
+            definition_id,
+            entity_1_id,
+            entity_2_id,
+          },
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -873,8 +1059,13 @@ const plugin = {
       parameters: DeleteRelationshipParams,
       async execute(_toolCallId, params) {
         const { record_id, relationship_id } = params as Static<typeof DeleteRelationshipParams>;
-        const result = await client.delete(`/v1/records/${encodeURIComponent(record_id)}/relationships/${encodeURIComponent(relationship_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.delete(
+          `/v1/records/${encodeURIComponent(record_id)}/relationships/${encodeURIComponent(relationship_id)}`,
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -882,7 +1073,9 @@ const plugin = {
 
     const ListListsParams = Type.Object({
       object_slug: Type.String({ description: "Object type slug (e.g. 'person', 'company')" }),
-      include_attributes: Type.Optional(Type.Boolean({ description: "Include attribute definitions" })),
+      include_attributes: Type.Optional(
+        Type.Boolean({ description: "Include attribute definitions" }),
+      ),
     });
 
     api.registerTool({
@@ -895,8 +1088,13 @@ const plugin = {
         const qs = new URLSearchParams();
         if (include_attributes) qs.set("include_attributes", "true");
         const q = qs.toString();
-        const result = await client.get(`/v1/objects/${encodeURIComponent(object_slug)}/lists${q ? `?${q}` : ""}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.get(
+          `/v1/objects/${encodeURIComponent(object_slug)}/lists${q ? `?${q}` : ""}`,
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -914,12 +1112,20 @@ const plugin = {
       description: "Create a new list under an object type.",
       parameters: CreateListParams,
       async execute(_toolCallId, params) {
-        const { object_slug, name, slug, name_plural, description } = params as Static<typeof CreateListParams>;
+        const { object_slug, name, slug, name_plural, description } = params as Static<
+          typeof CreateListParams
+        >;
         const body: Record<string, unknown> = { name, slug };
         if (name_plural !== undefined) body.name_plural = name_plural;
         if (description !== undefined) body.description = description;
-        const result = await client.post(`/v1/objects/${encodeURIComponent(object_slug)}/lists`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.post(
+          `/v1/objects/${encodeURIComponent(object_slug)}/lists`,
+          body,
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -935,7 +1141,10 @@ const plugin = {
       async execute(_toolCallId, params) {
         const { list_id } = params as Static<typeof GetListParams>;
         const result = await client.get(`/v1/lists/${encodeURIComponent(list_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -951,14 +1160,21 @@ const plugin = {
       async execute(_toolCallId, params) {
         const { list_id } = params as Static<typeof DeleteListParams>;
         const result = await client.delete(`/v1/lists/${encodeURIComponent(list_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const AddListMemberParams = Type.Object({
       list_id: Type.String({ description: "List ID" }),
       parent_id: Type.String({ description: "ID of the existing record to add" }),
-      attributes: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "List-specific attribute values" })),
+      attributes: Type.Optional(
+        Type.Record(Type.String(), Type.Unknown(), {
+          description: "List-specific attribute values",
+        }),
+      ),
     });
 
     api.registerTool({
@@ -971,42 +1187,57 @@ const plugin = {
         const body: Record<string, unknown> = { parent_id };
         if (attributes) body.attributes = attributes;
         const result = await client.post(`/v1/lists/${encodeURIComponent(list_id)}`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const UpsertListMemberParams = Type.Object({
       list_id: Type.String({ description: "List ID" }),
       parent_id: Type.String({ description: "ID of the record" }),
-      attributes: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "List-specific attribute values" })),
+      attributes: Type.Optional(
+        Type.Record(Type.String(), Type.Unknown(), {
+          description: "List-specific attribute values",
+        }),
+      ),
     });
 
     api.registerTool({
       name: "nex_upsert_list_member",
       label: "Upsert List Member",
-      description: "Add a record to a list, or update its list-specific attributes if already a member.",
+      description:
+        "Add a record to a list, or update its list-specific attributes if already a member.",
       parameters: UpsertListMemberParams,
       async execute(_toolCallId, params) {
         const { list_id, parent_id, attributes } = params as Static<typeof UpsertListMemberParams>;
         const body: Record<string, unknown> = { parent_id };
         if (attributes) body.attributes = attributes;
         const result = await client.put(`/v1/lists/${encodeURIComponent(list_id)}`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const ListListRecordsParams = Type.Object({
       list_id: Type.String({ description: "List ID" }),
-      attributes: Type.Optional(Type.Union([
-        Type.String({ description: "'all', 'primary', or 'none'" }),
-        Type.Record(Type.String(), Type.Unknown()),
-      ])),
+      attributes: Type.Optional(
+        Type.Union([
+          Type.String({ description: "'all', 'primary', or 'none'" }),
+          Type.Record(Type.String(), Type.Unknown()),
+        ]),
+      ),
       limit: Type.Optional(Type.Number({ description: "Number of records to return" })),
       offset: Type.Optional(Type.Number({ description: "Pagination offset" })),
-      sort: Type.Optional(Type.Object({
-        attribute: Type.String({ description: "Attribute slug to sort by" }),
-        direction: Type.String({ description: "Sort direction: asc or desc" }),
-      })),
+      sort: Type.Optional(
+        Type.Object({
+          attribute: Type.String({ description: "Attribute slug to sort by" }),
+          direction: Type.String({ description: "Sort direction: asc or desc" }),
+        }),
+      ),
     });
 
     api.registerTool({
@@ -1015,21 +1246,28 @@ const plugin = {
       description: "Get paginated records from a specific list.",
       parameters: ListListRecordsParams,
       async execute(_toolCallId, params) {
-        const { list_id, attributes, limit, offset, sort } = params as Static<typeof ListListRecordsParams>;
+        const { list_id, attributes, limit, offset, sort } = params as Static<
+          typeof ListListRecordsParams
+        >;
         const body: Record<string, unknown> = {};
         if (attributes !== undefined) body.attributes = attributes;
         if (limit !== undefined) body.limit = limit;
         if (offset !== undefined) body.offset = offset;
         if (sort) body.sort = sort;
         const result = await client.post(`/v1/lists/${encodeURIComponent(list_id)}/records`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const UpdateListRecordParams = Type.Object({
       list_id: Type.String({ description: "List ID" }),
       record_id: Type.String({ description: "Record ID within the list" }),
-      attributes: Type.Record(Type.String(), Type.Unknown(), { description: "Attributes to update" }),
+      attributes: Type.Record(Type.String(), Type.Unknown(), {
+        description: "Attributes to update",
+      }),
     });
 
     api.registerTool({
@@ -1039,8 +1277,14 @@ const plugin = {
       parameters: UpdateListRecordParams,
       async execute(_toolCallId, params) {
         const { list_id, record_id, attributes } = params as Static<typeof UpdateListRecordParams>;
-        const result = await client.patch(`/v1/lists/${encodeURIComponent(list_id)}/records/${encodeURIComponent(record_id)}`, { attributes });
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.patch(
+          `/v1/lists/${encodeURIComponent(list_id)}/records/${encodeURIComponent(record_id)}`,
+          { attributes },
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1056,8 +1300,13 @@ const plugin = {
       parameters: RemoveListRecordParams,
       async execute(_toolCallId, params) {
         const { list_id, record_id } = params as Static<typeof RemoveListRecordParams>;
-        const result = await client.delete(`/v1/lists/${encodeURIComponent(list_id)}/records/${encodeURIComponent(record_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const result = await client.delete(
+          `/v1/lists/${encodeURIComponent(list_id)}/records/${encodeURIComponent(record_id)}`,
+        );
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1066,7 +1315,9 @@ const plugin = {
     const CreateTaskParams = Type.Object({
       title: Type.String({ description: "Task title" }),
       description: Type.Optional(Type.String({ description: "Task description" })),
-      priority: Type.Optional(Type.String({ description: "Task priority: low, medium, high, urgent" })),
+      priority: Type.Optional(
+        Type.String({ description: "Task priority: low, medium, high, urgent" }),
+      ),
       due_date: Type.Optional(Type.String({ description: "Due date in RFC3339 format" })),
       entity_ids: Type.Optional(Type.Array(Type.String({ description: "Record ID" }))),
       assignee_ids: Type.Optional(Type.Array(Type.String({ description: "User ID" }))),
@@ -1078,7 +1329,8 @@ const plugin = {
       description: "Create a new task, optionally linked to records and assigned to users.",
       parameters: CreateTaskParams,
       async execute(_toolCallId, params) {
-        const { title, description, priority, due_date, entity_ids, assignee_ids } = params as Static<typeof CreateTaskParams>;
+        const { title, description, priority, due_date, entity_ids, assignee_ids } =
+          params as Static<typeof CreateTaskParams>;
         const body: Record<string, unknown> = { title };
         if (description !== undefined) body.description = description;
         if (priority !== undefined) body.priority = priority;
@@ -1086,7 +1338,10 @@ const plugin = {
         if (entity_ids) body.entity_ids = entity_ids;
         if (assignee_ids) body.assignee_ids = assignee_ids;
         const result = await client.post("/v1/tasks", body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1102,10 +1357,13 @@ const plugin = {
     api.registerTool({
       name: "nex_list_tasks",
       label: "List Tasks",
-      description: "List tasks with optional filtering by record, assignee, completion status, or search query.",
+      description:
+        "List tasks with optional filtering by record, assignee, completion status, or search query.",
       parameters: ListTasksParams,
       async execute(_toolCallId, params) {
-        const { entity_id, assignee_id, search, is_completed, limit, offset } = params as Static<typeof ListTasksParams>;
+        const { entity_id, assignee_id, search, is_completed, limit, offset } = params as Static<
+          typeof ListTasksParams
+        >;
         const qs = new URLSearchParams();
         if (entity_id) qs.set("entity_id", entity_id);
         if (assignee_id) qs.set("assignee_id", assignee_id);
@@ -1115,7 +1373,10 @@ const plugin = {
         if (offset !== undefined) qs.set("offset", String(offset));
         const q = qs.toString();
         const result = await client.get(`/v1/tasks${q ? `?${q}` : ""}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1131,7 +1392,10 @@ const plugin = {
       async execute(_toolCallId, params) {
         const { task_id } = params as Static<typeof GetTaskParams>;
         const result = await client.get(`/v1/tasks/${encodeURIComponent(task_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1149,10 +1413,20 @@ const plugin = {
     api.registerTool({
       name: "nex_update_task",
       label: "Update Task",
-      description: "Update a task's fields. All fields are optional — only provided fields are changed.",
+      description:
+        "Update a task's fields. All fields are optional — only provided fields are changed.",
       parameters: UpdateTaskParams,
       async execute(_toolCallId, params) {
-        const { task_id, title, description, priority, due_date, is_completed, entity_ids, assignee_ids } = params as Static<typeof UpdateTaskParams>;
+        const {
+          task_id,
+          title,
+          description,
+          priority,
+          due_date,
+          is_completed,
+          entity_ids,
+          assignee_ids,
+        } = params as Static<typeof UpdateTaskParams>;
         const body: Record<string, unknown> = {};
         if (title !== undefined) body.title = title;
         if (description !== undefined) body.description = description;
@@ -1162,7 +1436,10 @@ const plugin = {
         if (entity_ids !== undefined) body.entity_ids = entity_ids;
         if (assignee_ids !== undefined) body.assignee_ids = assignee_ids;
         const result = await client.patch(`/v1/tasks/${encodeURIComponent(task_id)}`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1178,7 +1455,10 @@ const plugin = {
       async execute(_toolCallId, params) {
         const { task_id } = params as Static<typeof DeleteTaskParams>;
         const result = await client.delete(`/v1/tasks/${encodeURIComponent(task_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1201,12 +1481,17 @@ const plugin = {
         if (content !== undefined) body.content = content;
         if (entity_id !== undefined) body.entity_id = entity_id;
         const result = await client.post("/v1/notes", body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const ListNotesParams = Type.Object({
-      entity_id: Type.Optional(Type.String({ description: "Filter notes by associated record ID" })),
+      entity_id: Type.Optional(
+        Type.String({ description: "Filter notes by associated record ID" }),
+      ),
     });
 
     api.registerTool({
@@ -1220,7 +1505,10 @@ const plugin = {
         if (entity_id) qs.set("entity_id", entity_id);
         const q = qs.toString();
         const result = await client.get(`/v1/notes${q ? `?${q}` : ""}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1236,7 +1524,10 @@ const plugin = {
       async execute(_toolCallId, params) {
         const { note_id } = params as Static<typeof GetNoteParams>;
         const result = await client.get(`/v1/notes/${encodeURIComponent(note_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1250,7 +1541,8 @@ const plugin = {
     api.registerTool({
       name: "nex_update_note",
       label: "Update Note",
-      description: "Update a note's fields. All fields are optional — only provided fields are changed.",
+      description:
+        "Update a note's fields. All fields are optional — only provided fields are changed.",
       parameters: UpdateNoteParams,
       async execute(_toolCallId, params) {
         const { note_id, title, content, entity_id } = params as Static<typeof UpdateNoteParams>;
@@ -1259,7 +1551,10 @@ const plugin = {
         if (content !== undefined) body.content = content;
         if (entity_id !== undefined) body.entity_id = entity_id;
         const result = await client.patch(`/v1/notes/${encodeURIComponent(note_id)}`, body);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1275,30 +1570,41 @@ const plugin = {
       async execute(_toolCallId, params) {
         const { note_id } = params as Static<typeof DeleteNoteParams>;
         const result = await client.delete(`/v1/notes/${encodeURIComponent(note_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     // --- Context tools ---
 
     const GetArtifactStatusParams = Type.Object({
-      artifact_id: Type.String({ description: "The artifact ID returned by nex_remember or add_context" }),
+      artifact_id: Type.String({
+        description: "The artifact ID returned by nex_remember or add_context",
+      }),
     });
 
     api.registerTool({
       name: "nex_get_artifact_status",
       label: "Get Artifact Status",
-      description: "Check the processing status and results of a previously submitted text artifact. Poll until status is 'completed' or 'failed'.",
+      description:
+        "Check the processing status and results of a previously submitted text artifact. Poll until status is 'completed' or 'failed'.",
       parameters: GetArtifactStatusParams,
       async execute(_toolCallId, params) {
         const { artifact_id } = params as Static<typeof GetArtifactStatusParams>;
         const result = await client.get(`/v1/context/artifacts/${encodeURIComponent(artifact_id)}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
     const GetInsightsParams = Type.Object({
-      last: Type.Optional(Type.String({ description: "Duration window, e.g. '30m', '2h', '1h30m'" })),
+      last: Type.Optional(
+        Type.String({ description: "Duration window, e.g. '30m', '2h', '1h30m'" }),
+      ),
       from: Type.Optional(Type.String({ description: "Start of time range in RFC3339 format" })),
       to: Type.Optional(Type.String({ description: "End of time range in RFC3339 format" })),
       limit: Type.Optional(Type.Number({ description: "Max results (default: 20, max: 100)" })),
@@ -1307,7 +1613,8 @@ const plugin = {
     api.registerTool({
       name: "nex_get_insights",
       label: "Get Insights",
-      description: "Query insights by time window. Returns discovered opportunities, risks, relationship changes, milestones, and other insights.",
+      description:
+        "Query insights by time window. Returns discovered opportunities, risks, relationship changes, milestones, and other insights.",
       parameters: GetInsightsParams,
       async execute(_toolCallId, params) {
         const { last, from, to, limit } = params as Static<typeof GetInsightsParams>;
@@ -1318,7 +1625,10 @@ const plugin = {
         if (limit !== undefined) qs.set("limit", String(limit));
         const q = qs.toString();
         const result = await client.get(`/v1/insights${q ? `?${q}` : ""}`);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+        };
       },
     });
 
@@ -1341,9 +1651,12 @@ const plugin = {
           if (result.entity_references && result.entity_references.length > 0) {
             const typeLabel = (t: string) => {
               switch (t) {
-                case "14": return "Person";
-                case "15": return "Company";
-                default: return "Entity";
+                case "14":
+                  return "Person";
+                case "15":
+                  return "Company";
+                default:
+                  return "Entity";
               }
             };
             // Deduplicate by name+type
@@ -1405,7 +1718,9 @@ const plugin = {
       },
     });
 
-    log.info(`Nex memory plugin registered (recall: ${cfg.autoRecall}, capture: ${cfg.autoCapture})`);
+    log.info(
+      `Nex memory plugin registered (recall: ${cfg.autoRecall}, capture: ${cfg.autoCapture})`,
+    );
   },
 };
 

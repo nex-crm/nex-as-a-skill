@@ -3,9 +3,9 @@
  * with fallback to workspace credentials and legacy ~/.nex-mcp.json.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { workspaceDataDir } from "./workspace-data-dir.js";
 
 export interface NexConfig {
@@ -60,7 +60,7 @@ export function persistRegistration(data: Record<string, unknown>): void {
   }
   if (typeof data.workspace_slug === "string") existing.workspace_slug = data.workspace_slug;
   mkdirSync(dirname(MCP_CONFIG_PATH), { recursive: true });
-  writeFileSync(MCP_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
+  writeFileSync(MCP_CONFIG_PATH, `${JSON.stringify(existing, null, 2)}\n`, "utf-8");
 }
 
 interface WorkspaceCredentials {
@@ -103,7 +103,7 @@ export function loadConfig(): NexConfig {
 
   if (!apiKey) {
     throw new ConfigError(
-      "No API key found. Set NEX_API_KEY or run /nex:register to create an account."
+      "No API key found. Set NEX_API_KEY or run /nex:register to create an account.",
     );
   }
 
@@ -119,7 +119,7 @@ export function loadConfig(): NexConfig {
  * Used for registration (which doesn't need auth).
  */
 export function loadBaseUrl(): string {
-  let baseUrl = process.env.NEX_API_BASE_URL ?? "https://app.nex.ai";
+  const baseUrl = process.env.NEX_API_BASE_URL ?? "https://app.nex.ai";
   return baseUrl.replace(/\/+$/, "");
 }
 
@@ -214,8 +214,18 @@ export function isHookEnabled(hookName: "recall" | "capture" | "session_start"):
 
 const DEFAULT_SCAN_EXTENSIONS = [".md", ".txt", ".csv", ".json", ".yaml", ".yml"];
 const DEFAULT_IGNORE_DIRS = [
-  "node_modules", ".git", "dist", "build", ".next", "__pycache__",
-  "vendor", ".venv", ".claude", "coverage", ".turbo", ".cache",
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  "__pycache__",
+  "vendor",
+  ".venv",
+  ".claude",
+  "coverage",
+  ".turbo",
+  ".cache",
 ];
 
 /**
@@ -237,9 +247,7 @@ export function loadScanConfig(): ScanConfig {
     ? parseInt(process.env.NEX_SCAN_MAX_FILES, 10)
     : 5;
 
-  const scanDepth = process.env.NEX_SCAN_DEPTH
-    ? parseInt(process.env.NEX_SCAN_DEPTH, 10)
-    : 2;
+  const scanDepth = process.env.NEX_SCAN_DEPTH ? parseInt(process.env.NEX_SCAN_DEPTH, 10) : 2;
 
   const ignoreDirs = process.env.NEX_SCAN_IGNORE_DIRS
     ? process.env.NEX_SCAN_IGNORE_DIRS.split(",").map((d) => d.trim())

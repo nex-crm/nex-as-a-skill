@@ -3,8 +3,8 @@
  * Cherry-picked from Supermemory (provider skip), Engram (dedup), MemOS Cloud (capture modes).
  */
 
-import { stripNexContext } from "./context-format.js";
 import type { NexPluginConfig } from "./config.js";
+import { stripNexContext } from "./context-format.js";
 
 /** Message shape from OpenClaw agent_end event. */
 export interface AgentMessage {
@@ -66,10 +66,7 @@ function isDuplicate(hash: string): boolean {
 function extractText(msg: AgentMessage): string {
   if (typeof msg.content === "string") return msg.content;
   if (Array.isArray(msg.content)) {
-    return msg.content
-      .filter((p) => p.type === "text" && p.text)
-      .map((p) => p.text!)
-      .join("\n");
+    return msg.content.flatMap((p) => (p.type === "text" && p.text ? [p.text] : [])).join("\n");
   }
   return "";
 }
@@ -91,7 +88,7 @@ export interface CaptureFilterSkip {
 export function captureFilter(
   messages: AgentMessage[],
   config: NexPluginConfig,
-  opts?: { messageProvider?: string; success?: boolean }
+  opts?: { messageProvider?: string; success?: boolean },
 ): CaptureFilterResult | CaptureFilterSkip {
   // Skip failed agent runs
   if (opts?.success === false) {

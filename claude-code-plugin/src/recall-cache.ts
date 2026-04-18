@@ -108,14 +108,12 @@ export class RecallCache {
   private trimStore(store: Record<string, RecallSessionEntry>): void {
     const keys = Object.keys(store);
     while (keys.length > this.maxSize) {
-      delete store[keys.shift()!];
+      const oldest = keys.shift();
+      if (oldest !== undefined) delete store[oldest];
     }
   }
 
-  private pruneEmptyEntry(
-    store: Record<string, RecallSessionEntry>,
-    sessionKey: string,
-  ): void {
+  private pruneEmptyEntry(store: Record<string, RecallSessionEntry>, sessionKey: string): void {
     const entry = store[sessionKey];
     if (!entry) return;
     if (!entry.pending && !entry.ready) {
@@ -140,12 +138,7 @@ export class RecallCache {
     this.writeStore(store);
   }
 
-  hasPending(
-    sessionKey: string,
-    promptHash: string,
-    maxAgeMs: number,
-    now = Date.now(),
-  ): boolean {
+  hasPending(sessionKey: string, promptHash: string, maxAgeMs: number, now = Date.now()): boolean {
     const store = this.readStore();
     const current = store[sessionKey];
     const pending = current?.pending;

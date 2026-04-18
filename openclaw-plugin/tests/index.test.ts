@@ -1,10 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach, jest } from "bun:test";
-import { parseConfig, ConfigError } from "../src/config.ts";
-import { formatNexContext, stripNexContext, hasNexContext } from "../src/context-format.ts";
-import { captureFilter, resetDedupCache, type AgentMessage } from "../src/capture-filter.ts";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { type AgentMessage, captureFilter, resetDedupCache } from "../src/capture-filter.ts";
+import { ConfigError, parseConfig } from "../src/config.ts";
+import { formatNexContext, hasNexContext, stripNexContext } from "../src/context-format.ts";
+import plugin from "../src/index.ts";
 import { RateLimiter } from "../src/rate-limiter.ts";
 import { SessionStore } from "../src/session-store.ts";
-import plugin from "../src/index.ts";
 
 // --- Config ---
 
@@ -33,15 +33,15 @@ describe("config", () => {
     expect(cfg.apiKey).toBe("sk-from-env");
   });
 
-  test("resolves ${VAR} syntax in apiKey", () => {
+  test("resolves env var placeholder syntax in apiKey", () => {
     process.env.MY_KEY = "sk-interpolated";
-    const cfg = parseConfig({ apiKey: "${MY_KEY}" });
+    const cfg = parseConfig({ apiKey: `\${MY_KEY}` });
     expect(cfg.apiKey).toBe("sk-interpolated");
   });
 
-  test("resolves ${VAR} syntax in baseUrl", () => {
+  test("resolves env var placeholder syntax in baseUrl", () => {
     process.env.MY_URL = "https://staging.nex.io";
-    const cfg = parseConfig({ apiKey: "sk-test", baseUrl: "${MY_URL}" });
+    const cfg = parseConfig({ apiKey: "sk-test", baseUrl: `\${MY_URL}` });
     expect(cfg.baseUrl).toBe("https://staging.nex.io");
   });
 
@@ -183,47 +183,35 @@ describe("capture-filter", () => {
   });
 
   test("skips failed agent runs", () => {
-    const result = captureFilter(
-      [{ role: "user", content: "hello world test" }],
-      defaultConfig,
-      { success: false },
-    );
+    const result = captureFilter([{ role: "user", content: "hello world test" }], defaultConfig, {
+      success: false,
+    });
     expect(result.skipped).toBe(true);
     if (result.skipped) expect(result.reason).toContain("failed");
   });
 
   test("skips exec-event provider", () => {
-    const result = captureFilter(
-      [{ role: "user", content: "hello world test" }],
-      defaultConfig,
-      { messageProvider: "exec-event" },
-    );
+    const result = captureFilter([{ role: "user", content: "hello world test" }], defaultConfig, {
+      messageProvider: "exec-event",
+    });
     expect(result.skipped).toBe(true);
   });
 
   test("skips cron-event provider", () => {
-    const result = captureFilter(
-      [{ role: "user", content: "hello world test" }],
-      defaultConfig,
-      { messageProvider: "cron-event" },
-    );
+    const result = captureFilter([{ role: "user", content: "hello world test" }], defaultConfig, {
+      messageProvider: "cron-event",
+    });
     expect(result.skipped).toBe(true);
   });
 
   test("skips slash commands", () => {
-    const result = captureFilter(
-      [{ role: "user", content: "/help me out please" }],
-      defaultConfig,
-    );
+    const result = captureFilter([{ role: "user", content: "/help me out please" }], defaultConfig);
     expect(result.skipped).toBe(true);
     if (result.skipped) expect(result.reason).toContain("slash command");
   });
 
   test("skips short messages", () => {
-    const result = captureFilter(
-      [{ role: "user", content: "hi" }],
-      defaultConfig,
-    );
+    const result = captureFilter([{ role: "user", content: "hi" }], defaultConfig);
     expect(result.skipped).toBe(true);
     if (result.skipped) expect(result.reason).toContain("short");
   });
@@ -280,9 +268,15 @@ describe("rate-limiter", () => {
     const limiter = new RateLimiter({ maxRequests: 3, windowMs: 1000, maxQueueDepth: 5 });
     const results: number[] = [];
 
-    const p1 = limiter.enqueue(async () => { results.push(1); });
-    const p2 = limiter.enqueue(async () => { results.push(2); });
-    const p3 = limiter.enqueue(async () => { results.push(3); });
+    const p1 = limiter.enqueue(async () => {
+      results.push(1);
+    });
+    const p2 = limiter.enqueue(async () => {
+      results.push(2);
+    });
+    const p3 = limiter.enqueue(async () => {
+      results.push(3);
+    });
 
     await Promise.all([p1, p2, p3]);
     expect(results).toEqual([1, 2, 3]);
@@ -293,9 +287,15 @@ describe("rate-limiter", () => {
     const limiter = new RateLimiter({ maxRequests: 2, windowMs: 1000, maxQueueDepth: 5 });
     const results: number[] = [];
 
-    const p1 = limiter.enqueue(async () => { results.push(1); });
-    const p2 = limiter.enqueue(async () => { results.push(2); });
-    const p3 = limiter.enqueue(async () => { results.push(3); });
+    const p1 = limiter.enqueue(async () => {
+      results.push(1);
+    });
+    const p2 = limiter.enqueue(async () => {
+      results.push(2);
+    });
+    const p3 = limiter.enqueue(async () => {
+      results.push(3);
+    });
 
     // First two execute immediately
     await p1;
@@ -314,13 +314,27 @@ describe("rate-limiter", () => {
     const results: number[] = [];
     const errors: string[] = [];
 
-    const p1 = limiter.enqueue(async () => { results.push(1); }); // executes immediately
+    const p1 = limiter.enqueue(async () => {
+      results.push(1);
+    }); // executes immediately
     await p1;
 
     // These 3 queue up, but max depth is 2 — oldest gets evicted
-    const p2 = limiter.enqueue(async () => { results.push(2); }).catch((e) => errors.push(e.message));
-    const p3 = limiter.enqueue(async () => { results.push(3); }).catch((e) => errors.push(e.message));
-    const p4 = limiter.enqueue(async () => { results.push(4); }).catch((e) => errors.push(e.message));
+    const _p2 = limiter
+      .enqueue(async () => {
+        results.push(2);
+      })
+      .catch((e) => errors.push(e.message));
+    const _p3 = limiter
+      .enqueue(async () => {
+        results.push(3);
+      })
+      .catch((e) => errors.push(e.message));
+    const _p4 = limiter
+      .enqueue(async () => {
+        results.push(4);
+      })
+      .catch((e) => errors.push(e.message));
 
     // Let eviction happen — need a microtask tick for async queue processing
     await new Promise((r) => process.nextTick(r));

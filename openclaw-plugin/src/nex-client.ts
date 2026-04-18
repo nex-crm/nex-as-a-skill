@@ -66,7 +66,7 @@ export class NexClient {
     method: string,
     path: string,
     body?: unknown,
-    timeoutMs = 10_000
+    timeoutMs = 10_000,
   ): Promise<T> {
     const url = `${this.baseUrl}/api/developers${path}`;
     const controller = new AbortController();
