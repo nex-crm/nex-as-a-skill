@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Registration entry point — creates a Nex account and persists the API key.
  *
@@ -8,11 +9,17 @@
  * If already registered (API key exists): prints status and exits.
  */
 
-import { loadMcpConfig, loadWorkspaceCredentials, persistRegistration, loadBaseUrl, MCP_CONFIG_PATH } from "./config.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  loadBaseUrl,
+  loadMcpConfig,
+  loadWorkspaceCredentials,
+  MCP_CONFIG_PATH,
+  persistRegistration,
+} from "./config.js";
 import { NexClient } from "./nex-client.js";
 import { workspaceDataDir } from "./workspace-data-dir.js";
-import { writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
 
 /** Persist credentials to the active workspace directory. */
 function persistWorkspaceCredentials(data: Record<string, unknown>): void {
@@ -25,10 +32,11 @@ function persistWorkspaceCredentials(data: Record<string, unknown>): void {
   const creds = {
     api_key: data.api_key,
     email: data.email,
-    workspace_id: typeof data.workspace_id === "number" ? String(data.workspace_id) : data.workspace_id,
+    workspace_id:
+      typeof data.workspace_id === "number" ? String(data.workspace_id) : data.workspace_id,
     workspace_slug: slug,
   };
-  writeFileSync(join(wsDir, "credentials.json"), JSON.stringify(creds, null, 2) + "\n", "utf-8");
+  writeFileSync(join(wsDir, "credentials.json"), `${JSON.stringify(creds, null, 2)}\n`, "utf-8");
 }
 
 async function main(): Promise<void> {

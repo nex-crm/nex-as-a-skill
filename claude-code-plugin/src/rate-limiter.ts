@@ -7,7 +7,7 @@
  * timestamps to a JSON file so rate limits are respected across invocations.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { workspaceDataDir } from "./workspace-data-dir.js";
 
@@ -58,9 +58,7 @@ export class RateLimiter {
    */
   canProceed(): boolean {
     const now = Date.now();
-    const timestamps = this.readTimestamps().filter(
-      (t) => now - t < this.config.windowMs
-    );
+    const timestamps = this.readTimestamps().filter((t) => now - t < this.config.windowMs);
 
     if (timestamps.length >= this.config.maxRequests) {
       // Write back pruned timestamps

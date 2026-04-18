@@ -73,7 +73,7 @@ export class NexClient {
     method: string,
     path: string,
     body?: unknown,
-    timeoutMs = 10_000
+    timeoutMs = 10_000,
   ): Promise<T> {
     const url = `${this.baseUrl}/api/developers${path}`;
     const controller = new AbortController();
@@ -115,7 +115,7 @@ export class NexClient {
       }
 
       const text = await res.text();
-      if (!text || !text.trim()) return {} as T;
+      if (!text?.trim()) return {} as T;
       return JSON.parse(text) as T;
     } finally {
       clearTimeout(timer);
@@ -150,11 +150,15 @@ export class NexClient {
 
       if (!res.ok) {
         let errorBody: string | undefined;
-        try { errorBody = await res.text(); } catch { /* ignore */ }
+        try {
+          errorBody = await res.text();
+        } catch {
+          /* ignore */
+        }
         throw new NexServerError(res.status, errorBody);
       }
 
-      return await res.json() as RegisterResponse;
+      return (await res.json()) as RegisterResponse;
     } finally {
       clearTimeout(timer);
     }

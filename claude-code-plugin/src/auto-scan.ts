@@ -8,23 +8,29 @@
  * Usage: node dist/auto-scan.js [directory]
  */
 
+import type { NexConfig } from "./config.js";
 import { loadConfig, loadScanConfig } from "./config.js";
+import { markScanned, readManifest, writeManifest } from "./file-manifest.js";
+import { scanAndIngest } from "./file-scanner.js";
 import { NexClient } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
-import { scanAndIngest } from "./file-scanner.js";
-import { readManifest, markScanned, writeManifest } from "./file-manifest.js";
 
 async function main(): Promise<void> {
   try {
     // Determine target directory: argv[2] > cwd
     const targetDir = process.argv[2] || process.cwd();
 
-    let cfg;
+    let cfg: NexConfig;
     try {
       cfg = loadConfig();
     } catch (err) {
       console.error(`Config error: ${err instanceof Error ? err.message : String(err)}`);
+      // The bare `return` is here because the plugin sub-packages don't
+      // install @types/node, so TS can't see that `process.exit(1)` is
+      // `never`. Without the return, `cfg` below would be flagged as
+      // possibly-unassigned.
       process.exit(1);
+      return;
     }
 
     const scanConfig = loadScanConfig();

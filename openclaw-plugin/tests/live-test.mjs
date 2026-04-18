@@ -6,12 +6,12 @@
  * Requires: mock-nex-server.mjs running on port 31999
  */
 
+import { captureFilter, resetDedupCache } from "../dist/capture-filter.js";
+import { parseConfig } from "../dist/config.js";
+import { formatNexContext, stripNexContext } from "../dist/context-format.js";
 import { NexClient } from "../dist/nex-client.js";
 import { RateLimiter } from "../dist/rate-limiter.js";
 import { SessionStore } from "../dist/session-store.js";
-import { formatNexContext, stripNexContext } from "../dist/context-format.js";
-import { captureFilter, resetDedupCache } from "../dist/capture-filter.js";
-import { parseConfig } from "../dist/config.js";
 
 const BASE_URL = "http://localhost:31999";
 const API_KEY = "sk-test-mock-key";
@@ -43,7 +43,10 @@ async function main() {
   const ingest1 = await client.ingest("My favorite color is blue and I love TypeScript");
   assert(ingest1.artifact_id, `ingest returned artifact_id: ${ingest1.artifact_id}`);
 
-  const ingest2 = await client.ingest("Sarah Johnson is VP of Engineering at Acme Corp", "meeting-notes");
+  const ingest2 = await client.ingest(
+    "Sarah Johnson is VP of Engineering at Acme Corp",
+    "meeting-notes",
+  );
   assert(ingest2.artifact_id, `ingest with context returned artifact_id: ${ingest2.artifact_id}`);
 
   console.log("\n=== Test 3: Recall via /ask ===");
@@ -58,8 +61,14 @@ async function main() {
 
   const ask2 = await client.ask("Tell me about Sarah", storedSession);
   assert(ask2.answer.includes("Sarah Johnson"), `recall with session found 'Sarah Johnson'`);
-  assert(ask2.entity_references.length > 0, `recall returned ${ask2.entity_references.length} entity references`);
-  assert(ask2.entity_references[0].name === "Sarah Johnson", `entity ref name: ${ask2.entity_references[0].name}`);
+  assert(
+    ask2.entity_references.length > 0,
+    `recall returned ${ask2.entity_references.length} entity references`,
+  );
+  assert(
+    ask2.entity_references[0].name === "Sarah Johnson",
+    `entity ref name: ${ask2.entity_references[0].name}`,
+  );
 
   console.log("\n=== Test 5: Context Formatting ===");
   const context = formatNexContext({
@@ -116,7 +125,7 @@ async function main() {
       limiter.enqueue(async () => {
         await client.ingest(`Rate limit test message ${i}`);
         ingestCount++;
-      })
+      }),
     );
   }
   await Promise.all(promises);
@@ -133,7 +142,10 @@ async function main() {
 
   console.log("\n=== Test 9: No Match Recall ===");
   const noMatch = await client.ask("quantum physics theories");
-  assert(noMatch.answer.includes("don't have specific information"), "no-match returns graceful message");
+  assert(
+    noMatch.answer.includes("don't have specific information"),
+    "no-match returns graceful message",
+  );
   assert(noMatch.entity_references.length === 0, "no-match returns empty entity refs");
 
   // Cleanup

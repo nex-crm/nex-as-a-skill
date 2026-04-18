@@ -6,8 +6,8 @@
  * Lightweight reader — no migration logic.
  */
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 const BASE_DIR = process.env.NEX_BASE_DIR || join(homedir(), ".nex");
 
@@ -22,7 +22,9 @@ export function workspaceDataDir(): string {
       _cached = join(BASE_DIR, "workspaces", config.active_workspace);
       return _cached;
     }
-  } catch { /* No config or parse error — fall back */ }
+  } catch {
+    /* No config or parse error — fall back */
+  }
   return BASE_DIR;
 }
 

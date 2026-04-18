@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * Claude Code SessionStart hook — bulk context load from Nex + file scan.
  *
@@ -12,16 +13,22 @@
  * On ANY error: outputs {} and exits 0 (graceful degradation).
  */
 
-import { loadConfig, loadScanConfig, ConfigError, isHookEnabled } from "./config.js";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { NexConfig } from "./config.js";
+import { ConfigError, isHookEnabled, loadConfig, loadScanConfig } from "./config.js";
+import { ingestContextFiles } from "./context-files.js";
+import { formatNexContext } from "./context-format.js";
+import {
+  isScanFresh,
+  markScanned,
+  readManifest as readScanManifest,
+  writeManifest as writeScanManifest,
+} from "./file-manifest.js";
+import { scanAndIngest } from "./file-scanner.js";
 import { NexClient } from "./nex-client.js";
 import { RateLimiter } from "./rate-limiter.js";
-import { formatNexContext } from "./context-format.js";
 import { SessionStore } from "./session-store.js";
-import { scanAndIngest } from "./file-scanner.js";
-import { ingestContextFiles } from "./context-files.js";
-import { readManifest as readScanManifest, isScanFresh, markScanned, writeManifest as writeScanManifest } from "./file-manifest.js";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 
 const sessions = new SessionStore();
 
@@ -30,7 +37,8 @@ interface HookInput {
   source?: string; // "startup" | "resume" | "clear" | "compact"
 }
 
-const SESSION_START_QUERY = "Summarize the key active context, recent interactions, and important updates for this user.";
+const SESSION_START_QUERY =
+  "Summarize the key active context, recent interactions, and important updates for this user.";
 
 async function main(): Promise<void> {
   try {
@@ -51,10 +59,12 @@ async function main(): Promise<void> {
     try {
       input = JSON.parse(raw) as HookInput;
     } catch {
-      process.stderr.write("[nex-session-start] Failed to parse stdin JSON, continuing with defaults\n");
+      process.stderr.write(
+        "[nex-session-start] Failed to parse stdin JSON, continuing with defaults\n",
+      );
     }
 
-    let cfg;
+    let cfg: NexConfig;
     try {
       cfg = loadConfig();
     } catch (err) {
@@ -67,7 +77,7 @@ async function main(): Promise<void> {
           "",
           "IMPORTANT: Before proceeding with the user's request, you must set up Nex memory:",
           "1. Ask the user for their email address to register for a Nex account",
-          "2. Run the registration command: node " + registerScript + " <email> [name] [company]",
+          `2. Run the registration command: node ${registerScript} <email> [name] [company]`,
           "3. Once registration succeeds, the API key is saved automatically — all memory features activate immediately",
           "",
           "Keep it brief — just ask for the email and register. No restart needed after registration.",
@@ -83,7 +93,7 @@ async function main(): Promise<void> {
         return;
       }
       process.stderr.write(
-        `[nex-session-start] Config error: ${err instanceof Error ? err.message : String(err)}\n`
+        `[nex-session-start] Config error: ${err instanceof Error ? err.message : String(err)}\n`,
       );
       process.stdout.write("{}");
       return;
@@ -113,12 +123,12 @@ async function main(): Promise<void> {
           const ctxResult = await ingestContextFiles(client, rateLimiter, cwd);
           if (ctxResult.ingested > 0) {
             contextParts.push(
-              `[Context files: ${ctxResult.ingested} ingested (${ctxResult.files.join(", ")})]`
+              `[Context files: ${ctxResult.ingested} ingested (${ctxResult.files.join(", ")})]`,
             );
           }
         } catch (err) {
           process.stderr.write(
-            `[nex-session-start] Context files error: ${err instanceof Error ? err.message : String(err)}\n`
+            `[nex-session-start] Context files error: ${err instanceof Error ? err.message : String(err)}\n`,
           );
         }
 
@@ -130,13 +140,13 @@ async function main(): Promise<void> {
 
             if (scanResult.ingested > 0) {
               contextParts.push(
-                `[File scan: ${scanResult.ingested} file${scanResult.ingested === 1 ? "" : "s"} ingested, ${scanResult.scanned} scanned]`
+                `[File scan: ${scanResult.ingested} file${scanResult.ingested === 1 ? "" : "s"} ingested, ${scanResult.scanned} scanned]`,
               );
             }
           }
         } catch (err) {
           process.stderr.write(
-            `[nex-session-start] File scan error: ${err instanceof Error ? err.message : String(err)}\n`
+            `[nex-session-start] File scan error: ${err instanceof Error ? err.message : String(err)}\n`,
           );
         }
 
@@ -167,9 +177,8 @@ async function main(): Promise<void> {
     });
 
     // Append scan summary if any
-    const fullContext = contextParts.length > 0
-      ? `${context}\n${contextParts.join("\n")}`
-      : context;
+    const fullContext =
+      contextParts.length > 0 ? `${context}\n${contextParts.join("\n")}` : context;
 
     const output = JSON.stringify({
       hookSpecificOutput: {
@@ -180,10 +189,12 @@ async function main(): Promise<void> {
     process.stdout.write(output);
   } catch (err) {
     process.stderr.write(
-      `[nex-session-start] Unexpected error: ${err instanceof Error ? err.message : String(err)}\n`
+      `[nex-session-start] Unexpected error: ${err instanceof Error ? err.message : String(err)}\n`,
     );
     process.stdout.write("{}");
   }
 }
 
-main().then(() => process.exit(0)).catch(() => process.exit(0));
+main()
+  .then(() => process.exit(0))
+  .catch(() => process.exit(0));
