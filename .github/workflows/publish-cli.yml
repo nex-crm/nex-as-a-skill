@@ -4,29 +4,118 @@ on:
   push:
     branches: [main]
     paths:
-      # Do not add package.json here: the "Open version bump PR" step below
-      # touches only package.json, so including it would make every bump PR
-      # merge re-trigger this job and open another bump PR indefinitely.
-      #
-      # Consequence: a PR that ONLY changes package.json (e.g. a manual
-      # 0.3.0 minor bump) will not auto-publish on merge. Trigger this
-      # workflow via the Actions tab (workflow_dispatch) after merge.
       - "bin/**"
       - "plugin-commands/**"
       - "platform-rules/**"
       - "platform-plugins/**"
+      - "package.json"
+      - ".github/workflows/publish-cli.yml"
   workflow_dispatch:
 
 concurrency:
   group: publish-cli
   cancel-in-progress: false
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
-  publish:
+  check-version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      needs_bump: ${{ steps.version.outputs.needs_bump }}
+      published_latest: ${{ steps.version.outputs.published_latest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Compare local version to npm
+        id: version
+        run: |
+          published=$(npm view @nex-ai/nex version 2>/dev/null || echo "0.0.0")
+          local=$(node -e "console.log(require('./package.json').version)")
+          needs_bump=$(node -e "
+            const [lM,lm,lp] = '$local'.split('.').map(Number);
+            const [pM,pm,pp] = '$published'.split('.').map(Number);
+            const l = lM*1000000 + lm*1000 + lp;
+            const p = pM*1000000 + pm*1000 + pp;
+            console.log(l <= p ? 'true' : 'false');
+          ")
+          echo "version=$local" >> "$GITHUB_OUTPUT"
+          echo "published_latest=$published" >> "$GITHUB_OUTPUT"
+          echo "needs_bump=$needs_bump" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Publish to npm"
+            echo "- Local: \`$local\`"
+            echo "- Latest on npm: \`$published\`"
+            echo "- Decision: $( [ "$needs_bump" = "true" ] && echo "open bump PR" || echo "publish \`$local\`" )"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  bump-pr:
+    needs: check-version
+    if: needs.check-version.outputs.needs_bump == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Bump patch past published baseline
+        id: bump
+        env:
+          PUBLISHED: ${{ needs.check-version.outputs.published_latest }}
+        run: |
+          # Fast-forward to the published baseline, then patch in one jump —
+          # avoids a chain of bump PRs when local lags multiple versions behind npm.
+          npm version "$PUBLISHED" --no-git-tag-version --allow-same-version
+          npm version patch --no-git-tag-version
+          new_version=$(node -e "console.log(require('./package.json').version)")
+          echo "version=$new_version" >> "$GITHUB_OUTPUT"
+
+      - name: Create version bump PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="chore/bump-v${NEW_VERSION}"
+          git checkout -b "$BRANCH"
+          git add package.json
+          git commit -m "chore: bump to v${NEW_VERSION}"
+
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/nex-crm/nex-as-a-skill.git"
+          git push origin "$BRANCH" --force
+
+          existing=$(gh pr list --head "$BRANCH" --json number -q '.[0].number // empty' 2>/dev/null || true)
+          if [ -z "$existing" ]; then
+            gh pr create \
+              --title "chore: bump to v${NEW_VERSION}" \
+              --body "Auto-generated version bump. Merge to publish v${NEW_VERSION} to npm." \
+              --head "$BRANCH"
+          else
+            echo "Bump PR #${existing} already exists"
+          fi
+
+  publish:
+    needs: check-version
+    if: needs.check-version.outputs.needs_bump == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,62 +129,14 @@ jobs:
       - name: Validate shims
         run: node --check bin/nex.js && node --check bin/nex-mcp.js
 
-      - name: Bump patch version if needed
-        id: bump
-        run: |
-          PUBLISHED=$(npm view @nex-ai/nex version 2>/dev/null || echo "0.0.0")
-          LOCAL=$(node -e "console.log(require('./package.json').version)")
-
-          NEEDS_BUMP=$(node -e "
-            const [lM,lm,lp] = '$LOCAL'.split('.').map(Number);
-            const [pM,pm,pp] = '$PUBLISHED'.split('.').map(Number);
-            const localNum = lM*1000000 + lm*1000 + lp;
-            const pubNum = pM*1000000 + pm*1000 + pp;
-            console.log(localNum <= pubNum ? 'true' : 'false');
-          ")
-
-          if [ "$NEEDS_BUMP" = "true" ]; then
-            npm version "$PUBLISHED" --no-git-tag-version --allow-same-version
-            npm version patch --no-git-tag-version
-            NEW_VERSION=$(node -e "console.log(require('./package.json').version)")
-            echo "bumped=true" >> "$GITHUB_OUTPUT"
-            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          else
-            echo "bumped=false" >> "$GITHUB_OUTPUT"
-            echo "version=$LOCAL" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Publish to npm
-        run: |
-          VERSION="${{ steps.bump.outputs.version }}"
-          if npm view "@nex-ai/nex@$VERSION" version 2>/dev/null; then
-            echo "Version $VERSION already published, skipping."
-          else
-            npm publish --access public
-          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Open version bump PR
-        if: steps.bump.outputs.bumped == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BUMP_VERSION: ${{ steps.bump.outputs.version }}
+          VERSION: ${{ needs.check-version.outputs.version }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          BRANCH="chore/bump-v${BUMP_VERSION}"
-          git checkout -b "$BRANCH"
-          git add package.json
-          git commit -m "chore: bump to v${BUMP_VERSION}"
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/nex-crm/nex-as-a-skill.git"
-          git push origin "$BRANCH" --force
-          existing=$(gh pr list --head "$BRANCH" --json number -q '.[0].number // empty' 2>/dev/null || true)
-          if [ -z "$existing" ]; then
-            gh pr create \
-              --title "chore: bump to v${BUMP_VERSION}" \
-              --body "Sync package.json with npm-published v${BUMP_VERSION}." \
-              --head "$BRANCH"
+          if npm view "@nex-ai/nex@$VERSION" version >/dev/null 2>&1; then
+            echo "Version $VERSION already on npm, skipping." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Bump PR #${existing} already exists"
+            npm publish --access public
+            echo "Published @nex-ai/nex@$VERSION" >> "$GITHUB_STEP_SUMMARY"
           fi
