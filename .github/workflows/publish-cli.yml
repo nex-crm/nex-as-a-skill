@@ -41,23 +41,28 @@ jobs:
       - name: Compare local version to npm
         id: version
         run: |
-          published=$(npm view @nex-ai/nex version 2>/dev/null || echo "0.0.0")
-          local=$(node -e "console.log(require('./package.json').version)")
-          needs_bump=$(node -e "
-            const [lM,lm,lp] = '$local'.split('.').map(Number);
-            const [pM,pm,pp] = '$published'.split('.').map(Number);
+          set -euo pipefail
+          PUBLISHED=$(npm view @nex-ai/nex version 2>/dev/null || echo "0.0.0")
+          LOCAL=$(node -p "require('./package.json').version")
+          # Read both sides through process.env so a crafted version string
+          # in package.json can't break out of the node literal.
+          NEEDS_BUMP=$(LOCAL="$LOCAL" PUBLISHED="$PUBLISHED" node -e '
+            const [lM,lm,lp] = process.env.LOCAL.split(".").map(Number);
+            const [pM,pm,pp] = process.env.PUBLISHED.split(".").map(Number);
             const l = lM*1000000 + lm*1000 + lp;
             const p = pM*1000000 + pm*1000 + pp;
-            console.log(l <= p ? 'true' : 'false');
-          ")
-          echo "version=$local" >> "$GITHUB_OUTPUT"
-          echo "published_latest=$published" >> "$GITHUB_OUTPUT"
-          echo "needs_bump=$needs_bump" >> "$GITHUB_OUTPUT"
+            console.log(l <= p ? "true" : "false");
+          ')
+          {
+            echo "version=$LOCAL"
+            echo "published_latest=$PUBLISHED"
+            echo "needs_bump=$NEEDS_BUMP"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "### Publish to npm"
-            echo "- Local: \`$local\`"
-            echo "- Latest on npm: \`$published\`"
-            echo "- Decision: $( [ "$needs_bump" = "true" ] && echo "open bump PR" || echo "publish \`$local\`" )"
+            echo "- Local: \`$LOCAL\`"
+            echo "- Latest on npm: \`$PUBLISHED\`"
+            echo "- Decision: $( [ "$NEEDS_BUMP" = "true" ] && echo "open bump PR" || echo "publish \`$LOCAL\`" )"
           } >> "$GITHUB_STEP_SUMMARY"
 
   bump-pr:
@@ -67,6 +72,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
