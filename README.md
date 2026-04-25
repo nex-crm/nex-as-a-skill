@@ -2,6 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@nex-ai/nex)](https://www.npmjs.com/package/@nex-ai/nex)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/gjSySC3PzV)
+[![SafeSkill 84/100](https://img.shields.io/badge/SafeSkill-84%2F100_Passes%20with%20Notes-yellow)](https://safeskill.dev/scan/nex-crm-nex-as-a-skill)
 
 Nex turns AI agent conversations into a unified knowledge graph. Tell something to one agent, recall it from any other. Context follows you across tools — no copy-pasting, no re-explaining.
 
