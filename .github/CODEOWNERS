@@ -1,0 +1,8 @@
+# Advisory only — NOT enforced by branch protection.
+#
+# classic branch protection on `main` has `require_code_owner_reviews: false`,
+# so this file does not gate merges. GitHub uses it solely to auto-request
+# reviewers on new PRs. If you need enforcement, enable the rule on branch
+# protection explicitly.
+
+* @FranDias @nex-crm/backend
