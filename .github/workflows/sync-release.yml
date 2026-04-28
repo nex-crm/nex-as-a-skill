@@ -25,7 +25,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       created: ${{ steps.create.outputs.created }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
 
       - name: Resolve version
         id: version
@@ -118,7 +118,7 @@ jobs:
       - name: Update Homebrew formula
         if: steps.create.outputs.created == 'true'
         continue-on-error: true
-        uses: dawidd6/action-homebrew-bump-formula@v7
+        uses: dawidd6/action-homebrew-bump-formula@1446dca236b0440c6f02723a3f14f13be2c04ab0 # ratchet:dawidd6/action-homebrew-bump-formula@v7
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           tap: nex-crm/tap
@@ -131,7 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
         with:
           persist-credentials: false
 
@@ -202,12 +202,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # ratchet:actions/checkout@v6
         with:
           ref: main
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # ratchet:actions/setup-node@v6
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
