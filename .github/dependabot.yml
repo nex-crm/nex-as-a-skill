@@ -44,8 +44,18 @@ updates:
     # reviewers: ["nex-crm/engineering"]
     # labels: ["dependencies"]
     groups:
+      # typescript and its companion @types/* packages must move together —
+      # bumping `typescript` to a new major (e.g. 5→6) without bumping
+      # `@types/node` produced two PRs that step on each other's lockfile
+      # and tsconfig (TS 6 stops auto-loading @types/*; the tsconfig fix
+      # belongs in the same PR as the typescript bump). Group them so
+      # Dependabot ships one PR with both, including major bumps.
+      typescript-types:
+        patterns: ["typescript", "@types/*"]
+        update-types: ["major", "minor", "patch"]
       all-dependencies:
         patterns: ["*"]
+        exclude-patterns: ["typescript", "@types/*"]
         update-types: ["minor", "patch"]
     commit-message:
       prefix: "chore"
@@ -61,8 +71,14 @@ updates:
     # reviewers: ["nex-crm/engineering"]
     # labels: ["dependencies"]
     groups:
+      # See note in /openclaw-plugin entry — typescript + @types/* must
+      # move together (same lockfile, same tsconfig fix).
+      typescript-types:
+        patterns: ["typescript", "@types/*"]
+        update-types: ["major", "minor", "patch"]
       all-dependencies:
         patterns: ["*"]
+        exclude-patterns: ["typescript", "@types/*"]
         update-types: ["minor", "patch"]
     commit-message:
       prefix: "chore"
