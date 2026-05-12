@@ -53,7 +53,7 @@
     "@biomejs/biome": "^2.4.9",
     "@commitlint/cli": "^21.0.0",
     "@commitlint/config-conventional": "^21.0.0",
-    "@secretlint/secretlint-rule-preset-recommend": "^12.2.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^13.0.0",
     "lefthook": "^2.1.6",
     "secretlint": "^12.2.0"
   }
