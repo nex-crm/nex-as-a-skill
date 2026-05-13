@@ -346,7 +346,7 @@ Discover available object types (person, company, etc.) and their attribute sche
           "options": {
             "is_required": true,
             "is_unique": false,
-            "is_multi_value": false
+            "is_multivalue": false
           }
         }
       ]
@@ -406,7 +406,7 @@ Add a new attribute to an object type.
 | `slug` | string | yes | URL-safe identifier |
 | `type` | string | yes | `"text"`, `"number"`, `"email"`, `"phone"`, `"url"`, `"date"`, `"boolean"`, `"currency"`, `"location"`, `"select"`, `"social_profile"`, `"domain"`, `"full_name"` |
 | `description` | string | no | Description |
-| `options` | object | no | `is_required`, `is_unique`, `is_multi_value`, `use_raw_format`, `is_whole_number`, `select_options` |
+| `options` | object | no | `is_required`, `is_unique`, `is_multivalue`, `use_raw_format`, `is_whole_number`, `select_options` |
 
 ```json
 {

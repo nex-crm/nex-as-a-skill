@@ -622,7 +622,7 @@ const plugin = {
         Type.Object({
           is_required: Type.Optional(Type.Boolean()),
           is_unique: Type.Optional(Type.Boolean()),
-          is_multi_value: Type.Optional(Type.Boolean()),
+          is_multivalue: Type.Optional(Type.Boolean()),
           use_raw_format: Type.Optional(Type.Boolean()),
           is_whole_number: Type.Optional(Type.Boolean()),
           select_options: Type.Optional(Type.Array(Type.Object({ name: Type.String() }))),
