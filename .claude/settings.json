@@ -11,6 +11,11 @@
           {
             "type": "command",
             "command": "cmd=$(jq -r '.tool_input.command // empty'); if [ -z \"$cmd\" ]; then echo '{\"decision\":\"block\",\"reason\":\"Unable to inspect command.\"}'; elif printf '%s' \"$cmd\" | grep -qE '(^|\\s|&&|\\|\\||;|\\|)\\s*(npm|npx|pnpm|yarn)\\b'; then echo '{\"decision\":\"block\",\"reason\":\"Use bun/bunx instead of npm/npx/pnpm/yarn. This project uses bun as its package manager.\"}'; fi"
+          },
+          {
+            "type": "command",
+            "command": "cat >/dev/null; cwd=$(pwd -P 2>/dev/null || true); if [ -z \"$cwd\" ] || ! [ -d \"$cwd\" ]; then jq -n '{hookSpecificOutput:{hookEventName:\"PreToolUse\",permissionDecision:\"deny\",permissionDecisionReason:\"Shell CWD has been deleted (likely a worktree cleanup). STOP and report this to the user — do NOT retry shell commands blind. Any remaining work needs to be moved to a valid directory first.\"}}'; fi; exit 0",
+            "timeout": 5
           }
         ]
       }
