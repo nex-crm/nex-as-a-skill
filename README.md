@@ -19,7 +19,7 @@ Talk to the team, share feedback, and connect with other developers building AI 
 # Option A: install the nex-cli binary (no Node.js required)
 curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
 
-# Option B: install via npm (or bun/pnpm) — thin shim that delegates to nex-cli
+# Option B: install via npm (or bun/pnpm) — downloads the nex-cli binary for you
 npm install -g @nex-ai/nex
 ```
 
@@ -245,9 +245,11 @@ cd openclaw-plugin && bun install && bun run build && bun test
 
 ### How it works
 
-**npm package** (`bin/nex.js`, `bin/nex-mcp.js`): Thin Node.js shims that find `nex-cli` on PATH or common install locations and delegate all commands. For `npx @nex-ai/nex` and MCP Registry compatibility.
+**npm package** (`bin/nex.js`, `bin/nex-mcp.js`): Thin Node.js shims that delegate every command to the `nex-cli` binary. On `npm install`, the `scripts/postinstall.js` hook downloads the binary for the current platform from the latest GitHub release and verifies it against `checksums.txt` before placing it next to the shims as `bin/nex-cli`. The shims also fall back to `nex-cli` on PATH and the directories `install.sh` writes to (see `bin/shim-core.js`). For `npx @nex-ai/nex` and MCP Registry compatibility.
 
-The `nex-cli` binary is built and released from [nex-crm/nex-cli](https://github.com/nex-crm/nex-cli). Install it with:
+Postinstall escape hatches: `NEX_SKIP_POSTINSTALL=1` skips the download (offline mirrors, prebuilt CI images); `NEX_POSTINSTALL_STRICT=1` makes a network failure fatal instead of deferring to the runtime hint. A checksum mismatch is always fatal.
+
+The `nex-cli` binary is built and released from [nex-crm/nex-cli](https://github.com/nex-crm/nex-cli). To install it standalone (no Node.js):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nex-crm/nex-as-a-skill/main/install.sh | sh
 ```
