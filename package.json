@@ -9,7 +9,11 @@
     "nex-mcp": "bin/nex-mcp.js"
   },
   "files": [
-    "bin",
+    "bin/nex.js",
+    "bin/nex-mcp.js",
+    "bin/shim-core.js",
+    "scripts/postinstall.js",
+    "scripts/download-binary.js",
     "plugin-commands",
     "platform-rules",
     "platform-plugins",
@@ -32,7 +36,8 @@
     "integrations"
   ],
   "scripts": {
-    "test": "node --check bin/nex.js && node --check bin/nex-mcp.js"
+    "postinstall": "node scripts/postinstall.js",
+    "test": "node --check bin/nex.js && node --check bin/nex-mcp.js && node --check bin/shim-core.js && node --check scripts/postinstall.js && node --check scripts/download-binary.js && bun test scripts/download-binary.test.js"
   },
   "repository": {
     "type": "git",

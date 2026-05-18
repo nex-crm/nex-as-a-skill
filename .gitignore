@@ -1,2 +1,6 @@
 dist/
 node_modules/
+
+# nex-cli binary fetched by scripts/postinstall.js — never committed/published.
+bin/nex-cli
+bin/nex-cli.exe
