@@ -1,25 +1,21 @@
 name: Security Scan
 
+# Delegates to the org-wide reusable bun-audit workflow. Replaces the
+# previous Trivy filesystem scanner — bun audit reads bun.lock directly
+# and queries the same GitHub Advisory DB.
+#
+# Suppress an advisory by adding its GHSA id to .bunauditignore with a
+# `# rationale + revisit date` comment. Aim to revisit quarterly.
+#
+# Source: https://github.com/nex-crm/.github/blob/main/.github/workflows/scan-deps.yml
+
 on:
   pull_request:
   push:
     branches: [main]
 
-permissions:
-  contents: read
-
 jobs:
-  trivy:
-    name: Trivy Vulnerability Scan
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Run Trivy filesystem scanner
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: "fs"
-          scan-ref: "."
-          severity: "HIGH,CRITICAL"
-          exit-code: "1"
-          ignore-unfixed: true
+  scan-deps:
+    uses: nex-crm/.github/.github/workflows/scan-deps.yml@27c30b663694d84232c10106cb6f0545a526710d # ratchet:nex-crm/.github/.github/workflows/scan-deps.yml@v0.9.0
+    secrets:
+      CORE_REPO_TOKEN: ${{ secrets.CORE_REPO_TOKEN }}
